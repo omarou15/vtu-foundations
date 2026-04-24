@@ -25,6 +25,15 @@ export interface SyncFields {
 
 export type VisitStatus = "draft" | "in_progress" | "done" | "archived";
 
+export type MissionType = "audit_energetique" | "dpe" | "conseil" | "autre";
+
+export type BuildingType =
+  | "maison_individuelle"
+  | "appartement"
+  | "immeuble"
+  | "tertiaire"
+  | "autre";
+
 export interface VisitRow {
   id: string;
   user_id: string;
@@ -33,6 +42,10 @@ export interface VisitRow {
   status: VisitStatus;
   /** Optimistic concurrency : chaque write envoie sa version. */
   version: number;
+  /** Itération 4 — métadonnées renseignées à la création (modal). */
+  address: string | null;
+  mission_type: MissionType | null;
+  building_type: BuildingType | null;
   created_at: string;
   updated_at: string;
 }

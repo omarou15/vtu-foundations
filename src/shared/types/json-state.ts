@@ -31,6 +31,20 @@ export const FieldSourceSchema = z.enum([
 ]);
 export type FieldSource = z.infer<typeof FieldSourceSchema>;
 
+/**
+ * NOTE — Substitution design vs plan initial (KNOWLEDGE §10) :
+ * Le brief initial parlait d'un booléen `confirmed_by_user`. On utilise ici
+ * une énumération de niveaux de confiance plus expressive :
+ *   - "low"    : valeur incertaine (ex: OCR avec faible score, déduction IA fragile)
+ *   - "medium" : valeur plausible (ex: déduction IA standard, voice avec bruit)
+ *   - "high"   : valeur fiable (saisie utilisateur explicite, init connu)
+ * `null` = non applicable (champ vide).
+ *
+ * Ce mapping reste compatible avec l'intention initiale : on peut toujours
+ * dériver "confirmed" comme `confidence === "high" && source === "user"`.
+ * Le supplément de granularité sert l'UX du JSON viewer (badge couleur)
+ * et la stratégie de mutation IA (ne JAMAIS écraser un Field "high").
+ */
 export const FieldConfidenceSchema = z.enum(["low", "medium", "high"]);
 export type FieldConfidence = z.infer<typeof FieldConfidenceSchema>;
 
@@ -103,6 +117,15 @@ interface CreateInitialVisitJsonStateInput {
   title: string;
   thermicienId: string;
   thermicienName?: string | null;
+  /** Itération 4 — pré-remplis depuis la modal de création. */
+  address?: string | null;
+  buildingType?:
+    | "maison_individuelle"
+    | "appartement"
+    | "immeuble"
+    | "tertiaire"
+    | "autre"
+    | null;
 }
 
 function emptyField<T>(): Field<T> {
@@ -139,10 +162,12 @@ export function createInitialVisitJsonState(
       visit_id: initField(input.visitId),
       client_id: initField(input.clientId),
       title: initField(input.title),
-      address: emptyField<string>(),
-      building_type: emptyField<
-        "maison_individuelle" | "appartement" | "immeuble" | "tertiaire" | "autre"
-      >(),
+      address: input.address ? initField(input.address) : emptyField<string>(),
+      building_type: input.buildingType
+        ? initField(input.buildingType)
+        : emptyField<
+            "maison_individuelle" | "appartement" | "immeuble" | "tertiaire" | "autre"
+          >(),
       visit_date: emptyField<string>(),
       thermicien_id: initField(input.thermicienId),
       thermicien_name: input.thermicienName

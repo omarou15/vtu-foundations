@@ -120,6 +120,9 @@ describe("Idempotence client_id (équivalent ON CONFLICT DO NOTHING)", () => {
       title: "Visite remote",
       status: "in_progress",
       version: 1,
+      address: null,
+      mission_type: null,
+      building_type: null,
       created_at: "2026-01-01T00:00:00.000Z",
       updated_at: "2026-01-01T00:00:00.000Z",
     };
@@ -143,6 +146,9 @@ describe("Idempotence client_id (équivalent ON CONFLICT DO NOTHING)", () => {
       title: "v1",
       status: "draft",
       version: 1,
+      address: null,
+      mission_type: null,
+      building_type: null,
       created_at: "2026-01-01T00:00:00.000Z",
       updated_at: "2026-01-01T00:00:00.000Z",
     };
