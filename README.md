@@ -12,13 +12,53 @@ PWA mobile-first pour thermiciens du bureau d'études Energyco. Une visite techn
 
 ## Stack
 
-- React 19 + TypeScript strict
+- **React 19** + TypeScript strict
 - TanStack Start (Router file-based + server functions `createServerFn`)
-- Tailwind CSS v4 + shadcn/ui
-- Zustand (state global), Dexie (IndexedDB)
+- Tailwind CSS v4 + shadcn/ui (subset minimal — voir _Composants UI_)
+- Zustand (state global), Dexie + dexie-react-hooks (IndexedDB), uuid (client_id), react-json-view-lite (debug JSON state)
 - Lovable Cloud (Supabase managé : auth magic link, Postgres, Storage, RLS)
-- Vitest + Testing Library
+- Vitest + Testing Library (happy-dom)
 - Hosting Cloudflare Workers (Lovable)
+
+### Choix React 19 (vs plan initial React 18)
+
+Le template Lovable embarque React 19.2 par défaut. Choix validé :
+
+- ✅ **Compatibilité confirmée** des libs critiques :
+  - `zustand@5` : support React 19 natif
+  - `dexie-react-hooks@4.4` : pas de dépendance React stricte, compatible 18/19
+  - `@tanstack/react-router` + `@tanstack/react-query` : support React 19 officiel
+  - `react-hook-form@7.71`, `@hookform/resolvers@5` : compatibles
+  - Tous les `@radix-ui/*` utilisés : compatibles 19
+- ⚠️ Pas de RSC — on reste en pur SSR/SPA TanStack Start.
+- 🚫 Pas de `useActionState` à ce stade ; si introduit plus tard, vérifier le flow magic link.
+
+### Composants shadcn/ui conservés (subset VTU)
+
+`button, input, label, textarea, dialog, drawer, sheet, dropdown-menu, tooltip, sonner, scroll-area, separator, switch, badge, card, avatar, form, select, alert-dialog, skeleton`.
+
+Tous les autres composants shadcn ont été retirés ainsi que leurs dépendances (`recharts`, `react-day-picker`, `embla-carousel-react`, `cmdk`, `input-otp`, `react-resizable-panels`, et radix-ui non utilisés). `vaul` est conservé car requis par `drawer`.
+
+### Structure de dossiers (matérialisée It.1)
+
+```
+src/
+├── features/{auth,visits,chat,json-state}/   # remplis au fil des itérations
+└── shared/{db,sync,hooks,types,ui}/          # transverses
+```
+
+Chaque dossier contient un `index.ts` placeholder (`export {};`).
+
+### Sécurité — `.env`
+
+Le fichier `.env` est **auto-généré et géré par Lovable Cloud** (clés publiques `anon` Supabase + URL projet). Il est désormais listé dans `.gitignore` pour les contributions GitHub externes (`.gitignore` est read-only côté éditeur Lovable, mais le pattern `.env` y a été ajouté par la plateforme). Sur le repo GitHub, exécuter une seule fois côté local :
+
+```bash
+git rm --cached .env
+git commit -m "chore: untrack .env (auto-managed by Lovable Cloud)"
+```
+
+Les clés actuelles sont publiques (anon JWT) donc pas critiques, mais l'hygiène est nécessaire avant qu'on introduise le `SUPABASE_SERVICE_ROLE_KEY` ou des secrets tiers.
 
 ## Commandes
 
