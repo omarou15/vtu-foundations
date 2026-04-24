@@ -112,6 +112,78 @@ export type Database = {
           },
         ]
       }
+      schema_registry: {
+        Row: {
+          ai_suggested: boolean
+          created_at: string
+          description: string | null
+          enum_values: Json
+          field_key: string
+          first_seen_at: string
+          id: string
+          label_fr: string
+          organization_id: string | null
+          parent_concept: string | null
+          promoted_at: string | null
+          registry_urn: string
+          section_path: string
+          semantic_embedding: Json | null
+          status: string
+          synonyms: Json
+          unit: string | null
+          updated_at: string
+          usage_count: number
+          user_id: string
+          value_type: string
+        }
+        Insert: {
+          ai_suggested?: boolean
+          created_at?: string
+          description?: string | null
+          enum_values?: Json
+          field_key: string
+          first_seen_at?: string
+          id?: string
+          label_fr: string
+          organization_id?: string | null
+          parent_concept?: string | null
+          promoted_at?: string | null
+          registry_urn: string
+          section_path: string
+          semantic_embedding?: Json | null
+          status?: string
+          synonyms?: Json
+          unit?: string | null
+          updated_at?: string
+          usage_count?: number
+          user_id: string
+          value_type: string
+        }
+        Update: {
+          ai_suggested?: boolean
+          created_at?: string
+          description?: string | null
+          enum_values?: Json
+          field_key?: string
+          first_seen_at?: string
+          id?: string
+          label_fr?: string
+          organization_id?: string | null
+          parent_concept?: string | null
+          promoted_at?: string | null
+          registry_urn?: string
+          section_path?: string
+          semantic_embedding?: Json | null
+          status?: string
+          synonyms?: Json
+          unit?: string | null
+          updated_at?: string
+          usage_count?: number
+          user_id?: string
+          value_type?: string
+        }
+        Relationships: []
+      }
       visit_json_state: {
         Row: {
           created_at: string
@@ -204,7 +276,70 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      find_similar_schema_fields: {
+        Args: { p_query: string; p_section_path: string; p_user_id: string }
+        Returns: {
+          ai_suggested: boolean
+          created_at: string
+          description: string | null
+          enum_values: Json
+          field_key: string
+          first_seen_at: string
+          id: string
+          label_fr: string
+          organization_id: string | null
+          parent_concept: string | null
+          promoted_at: string | null
+          registry_urn: string
+          section_path: string
+          semantic_embedding: Json | null
+          status: string
+          synonyms: Json
+          unit: string | null
+          updated_at: string
+          usage_count: number
+          user_id: string
+          value_type: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "schema_registry"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      increment_registry_usage: {
+        Args: { p_registry_id: string }
+        Returns: {
+          ai_suggested: boolean
+          created_at: string
+          description: string | null
+          enum_values: Json
+          field_key: string
+          first_seen_at: string
+          id: string
+          label_fr: string
+          organization_id: string | null
+          parent_concept: string | null
+          promoted_at: string | null
+          registry_urn: string
+          section_path: string
+          semantic_embedding: Json | null
+          status: string
+          synonyms: Json
+          unit: string | null
+          updated_at: string
+          usage_count: number
+          user_id: string
+          value_type: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "schema_registry"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       [_ in never]: never
