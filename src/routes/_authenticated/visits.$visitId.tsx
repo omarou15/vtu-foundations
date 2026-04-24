@@ -27,11 +27,10 @@ function VisitPage() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const visit = useLiveQuery<LocalVisit | undefined>(
+  const visit = useLiveQuery(
     () => getDb().visits.get(visitId),
     [visitId],
-    undefined,
-  );
+  ) as LocalVisit | undefined;
 
   if (visit === undefined) {
     // Loading initial Dexie
@@ -42,7 +41,7 @@ function VisitPage() {
     );
   }
 
-  if (visit === null || !visit.id) {
+  if (!visit) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 text-center">
         <h1 className="font-heading text-xl font-semibold text-foreground">
