@@ -18,6 +18,7 @@ import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getDb } from "@/shared/db/schema";
 import { runSyncOnce } from "./engine";
+import { runPullOnce } from "./pull";
 import { useAuth } from "@/features/auth";
 
 const TICK_MS = 30_000;
