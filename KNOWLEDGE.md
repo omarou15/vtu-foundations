@@ -145,3 +145,43 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
    §3 (stack), §4 (design tokens), §5 (UX doctrine), §6 (arbo).
 3. En cas de conflit avec une demande utilisateur, signaler
    explicitement le conflit avant d'agir.
+
+---
+
+## 8. Scope Phase 1 (checklist à jour)
+
+- Itération 1 — Setup, design tokens, structure, manifest
+- Itération 2 — Auth magic link + routing + guards
+- Itération 3 — Schéma Supabase + RLS + Dexie local
+- Itération 4 — Sidebar VTs + création + JSON state initial
+- Itération 5 — Chat texte + JSON viewer + menu stubs
+- Itération 6 — Sync engine offline-first + Edge Function scaffold
+
+**HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
+Word, artifacts, transcription, croquis, géoloc, laser, settings,
+multi-user, partage, push, édition message, export.
+
+---
+
+## 9. Sécurité
+
+- `.env` JAMAIS commité (toujours dans `.gitignore`)
+- Secrets serveur dans Lovable Cloud Secrets, JAMAIS en clair
+- RLS user-scoped sur TOUTES les tables
+- Server functions : `Authorization: Bearer <JWT>` enforced via
+  `requireSupabaseAuth` middleware
+- Storage buckets : policies basées sur path
+  `{user_id}/{visit_id}/*`
+
+---
+
+## 10. Communication avec le user
+
+- Français systématique
+- Challenger les demandes qui contredisent ce document
+- Ne JAMAIS inventer de feature hors scope
+- Signaler les substitutions de stack au lieu de les faire
+  silencieusement
+- Mesurer avant d'affirmer (tailles bundle, temps de build)
+- JAMAIS de mensonge de rapport : si une correction échoue, le
+  dire clairement au lieu de prétendre qu'elle est faite
