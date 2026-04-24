@@ -162,10 +162,12 @@ export function createInitialVisitJsonState(
       visit_id: initField(input.visitId),
       client_id: initField(input.clientId),
       title: initField(input.title),
-      address: emptyField<string>(),
-      building_type: emptyField<
-        "maison_individuelle" | "appartement" | "immeuble" | "tertiaire" | "autre"
-      >(),
+      address: input.address ? initField(input.address) : emptyField<string>(),
+      building_type: input.buildingType
+        ? initField(input.buildingType)
+        : emptyField<
+            "maison_individuelle" | "appartement" | "immeuble" | "tertiaire" | "autre"
+          >(),
       visit_date: emptyField<string>(),
       thermicien_id: initField(input.thermicienId),
       thermicien_name: input.thermicienName
