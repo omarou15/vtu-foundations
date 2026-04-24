@@ -119,7 +119,11 @@ function VisitChatPage() {
 
       {/* Sidebar mobile en drawer */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="left" className="w-[88vw] max-w-[360px] p-0 md:hidden">
+        <SheetContent
+          side="left"
+          hideCloseButton
+          className="w-[88vw] max-w-[360px] p-0 md:hidden"
+        >
           <VisitsSidebar
             activeVisitId={visit.id}
             onClose={() => setSidebarOpen(false)}
