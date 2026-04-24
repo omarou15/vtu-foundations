@@ -188,13 +188,29 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 4 — Sidebar VTs + création + JSON state initial
 - [x] Itération 5 — Chat texte + JSON viewer + menu stubs
 - [x] Itération 6 — Sync engine offline-first + Edge Function scaffold
+- [x] Itération 6.5 — Pull cross-device + Realtime (pré-requis prod)
 
-**✅ Phase 1 COMPLÈTE.** Prochaine étape : Phase 2 (audio, photos, IA mutation
-JSON, rapport Word).
+**✅ Phase 1 COMPLÈTE + cross-device sync.** Prochaine étape : Phase 2
+(audio, photos, IA mutation JSON, rapport Word).
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,
 multi-user, partage, push, édition message, export.
+
+### Architecture sync cross-device (Itération 6.5)
+
+- **PUSH** (`runSyncOnce`) : vide la `sync_queue` locale vers Supabase,
+  sérialisé, backoff exponentiel, idempotence via `(user_id, client_id)`.
+- **PULL périodique** (`runPullOnce`) : pour `visits` + `visit_json_state`,
+  fetch `WHERE user_id = ? AND updated_at > last_pulled_at` (curseur en
+  Dexie `sync_state` v2). Hydration initiale = LIMIT 500 sans `gt`.
+- **PULL lazy par VT** (`useMessagesSync` → `pullMessagesForVisit`) :
+  à l'ouverture d'une VT, fetch les messages > `last_local_created_at`.
+  Évite de charger 10k messages au login.
+- **REALTIME** (`useMessagesSync`) : channel `visit-{id}` avec
+  `postgres_changes` filtré par `visit_id=eq.{id}` sur `messages` +
+  `visit_json_state`. Cleanup au unmount. Pas de realtime sur la sidebar
+  (pull 30s suffit).
 
 ### Dette technique notée (cosmétique, non bloquante)
 - Migration 002 : l'index `idx_visits_user_updated` est dupliqué entre
@@ -205,11 +221,18 @@ multi-user, partage, push, édition message, export.
 - Itération 6 : `runSyncOnce` accepte `SyncSupabaseLike` (type structurel
   minimal) au lieu de `SupabaseClient` complet — le type Database est trop
   profond pour TS sans `excessively deep` warning. Le call site
-  (`useSyncEngine`) cast via `as unknown as`. Acceptable car la surface
-  utilisée (`from().insert()` / `update().eq()`) est triviale et stable.
+  (`useSyncEngine`) cast via `as unknown as`. Idem `runPullOnce`
+  (`PullSupabaseLike`) et `useMessagesSync`. Acceptable car la surface
+  utilisée est triviale et stable.
 - Sync sérialisé : un seul tick à la fois par fenêtre via flag mémoire.
   Sur multi-onglets, l'idempotence DB (unique `(user_id, client_id)`)
   protège — pas de lock cross-tab pour Phase 1.
+- Realtime activé UNIQUEMENT sur `messages` + `visit_json_state`. Si on
+  veut un jour voir instantanément les VTs créées sur un autre device
+  apparaître dans la sidebar, ajouter `visits` à la publication realtime
+  et s'abonner globalement (channel `user-{userId}`).
+- Limite 500 rows sur hydration initiale : si un thermicien dépasse 500
+  VTs un jour, paginer. Improbable Phase 1-2.
 
 ---
 
