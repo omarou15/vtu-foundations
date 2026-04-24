@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { appendLocalMessage, getDb } from "@/shared/db";
 import { useAuth } from "@/features/auth";
 import { useVirtualKeyboard } from "@/shared/hooks";
-import { useConnectionStore } from "@/shared/sync";
+import { useConnectionStore, useMessagesSync } from "@/shared/sync";
 import { VisitsSidebar } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
@@ -48,6 +48,10 @@ function VisitChatPage() {
 
   // Met à jour la variable CSS --kb-height pour garder l'input bar au-dessus du clavier.
   useVirtualKeyboard();
+
+  // Pull lazy + Realtime sur cette VT (Itération 6.5).
+  // Idempotent côté local, cleanup automatique au unmount.
+  useMessagesSync(visitId);
 
   const visit = useLiveQuery(
     () => getDb().visits.get(visitId),

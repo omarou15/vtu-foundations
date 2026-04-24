@@ -18,6 +18,7 @@ import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getDb } from "@/shared/db/schema";
 import { runSyncOnce } from "./engine";
+import { runPullOnce } from "./pull";
 import { useAuth } from "@/features/auth";
 
 const TICK_MS = 30_000;
@@ -75,6 +76,22 @@ export function useSyncEngine(): void {
               .catch(() => {
                 // On ne bloque rien : l'IA viendra en Phase 2.
               });
+          }
+        }
+
+        // 4. Pull cross-device (Itération 6.5) :
+        //    on récupère les visits + visit_json_state créés/MAJ
+        //    sur d'autres devices depuis le dernier curseur.
+        //    Best-effort : on swallow les erreurs réseau (le tick
+        //    suivant retentera).
+        if (userId) {
+          try {
+            await runPullOnce(
+              supabase as unknown as Parameters<typeof runPullOnce>[0],
+              userId,
+            );
+          } catch {
+            // ignore : le prochain tick retentera.
           }
         }
       } finally {
