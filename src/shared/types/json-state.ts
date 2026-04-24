@@ -1,109 +1,99 @@
 /**
- * VTU — JSON State Schema
+ * VTU — JSON State racine (Phase 2 v2)
  *
- * Source de vérité de l'état d'une visite technique.
+ * Orchestrateur : réexpose Field, sections, custom-field, et assemble
+ * le `VisitJsonStateSchema` racine en `schema_version: 2`.
  *
- * Doctrine (cf. KNOWLEDGE.md §2) :
- * - Versionné : chaque mutation = nouvelle ligne version+1 dans
- *   visit_json_state. Pas de mutation sur place.
- * - `Field<T>` enveloppe chaque valeur métier avec sa traçabilité :
- *   d'où elle vient (source), quand, à quel niveau de confiance, et
- *   sur quel message d'origine.
- * - `meta.*` est pré-rempli au squelette dès la création d'une VT
- *   (avec `Field<T>` à `value: null, source: "init"`).
- *
- * Phase 1 : structure prête mais inerte (pas d'IA qui mute encore).
+ * Doctrine (KNOWLEDGE §2 + §13) :
+ *  - Versionné : chaque mutation = nouvelle ligne version+1 dans
+ *    visit_json_state. Pas de mutation sur place.
+ *  - schema_version = 2 (Phase 2). La migration v1→v2 est faite par
+ *    `migrateVisitJsonState` (json-state.migrate.ts).
  */
 
 import { z } from "zod";
+import {
+  emptyField,
+  initField,
+  type Field,
+  type FieldConfidence,
+  FieldConfidenceSchema,
+  type FieldSource,
+  FieldSourceSchema,
+  fieldSchema,
+} from "./json-state.field";
+import {
+  BuildingSchema,
+  CustomObservationsSchema,
+  EcsSchema,
+  EnergyProductionSchema,
+  EnvelopeSchema,
+  HeatingSchema,
+  IndustrielProcessesSchema,
+  makeEmptyBuilding,
+  makeEmptyCustomObservations,
+  makeEmptyEcs,
+  makeEmptyEnergyProduction,
+  makeEmptyEnvelope,
+  makeEmptyHeating,
+  makeEmptyIndustrielProcesses,
+  makeEmptyMeta,
+  makeEmptyNotes,
+  makeEmptyPathologies,
+  makeEmptyPreconisations,
+  makeEmptyTertiaireHorsCvc,
+  makeEmptyVentilation,
+  MetaSchemaV2,
+  NotesSchema,
+  PathologiesSchema,
+  PreconisationsSchema,
+  TertiaireHorsCvcSchema,
+  VentilationSchema,
+} from "./json-state.sections";
 
 // ---------------------------------------------------------------------------
-// Field<T> — enveloppe traçable d'une valeur métier
+// Re-exports (compat call sites Phase 1)
 // ---------------------------------------------------------------------------
 
-export const FieldSourceSchema = z.enum([
-  "init",       // squelette initial (jamais touché)
-  "user",       // saisie utilisateur (texte, formulaire)
-  "voice",      // dictée vocale transcrite
-  "photo_ocr",  // OCR sur photo
-  "ai_infer",   // déduction IA (LLM)
-  "import",     // import depuis source externe
-]);
-export type FieldSource = z.infer<typeof FieldSourceSchema>;
+export {
+  Field,
+  FieldConfidence,
+  FieldConfidenceSchema,
+  FieldSource,
+  FieldSourceSchema,
+  fieldSchema,
+  emptyField,
+  initField,
+};
 
-/**
- * NOTE — Substitution design vs plan initial (KNOWLEDGE §10) :
- * Le brief initial parlait d'un booléen `confirmed_by_user`. On utilise ici
- * une énumération de niveaux de confiance plus expressive :
- *   - "low"    : valeur incertaine (ex: OCR avec faible score, déduction IA fragile)
- *   - "medium" : valeur plausible (ex: déduction IA standard, voice avec bruit)
- *   - "high"   : valeur fiable (saisie utilisateur explicite, init connu)
- * `null` = non applicable (champ vide).
- *
- * Ce mapping reste compatible avec l'intention initiale : on peut toujours
- * dériver "confirmed" comme `confidence === "high" && source === "user"`.
- * Le supplément de granularité sert l'UX du JSON viewer (badge couleur)
- * et la stratégie de mutation IA (ne JAMAIS écraser un Field "high").
- */
-export const FieldConfidenceSchema = z.enum(["low", "medium", "high"]);
-export type FieldConfidence = z.infer<typeof FieldConfidenceSchema>;
-
-/**
- * Field<T> — wrapper générique pour toute valeur du JSON state.
- * value: null = champ pas encore renseigné.
- */
-export interface Field<T> {
-  value: T | null;
-  source: FieldSource;
-  confidence: FieldConfidence | null;
-  updated_at: string; // ISO datetime
-  source_message_id: string | null; // UUID du message à l'origine
-}
-
-const fieldSchema = <T extends z.ZodTypeAny>(value: T) =>
-  z.object({
-    value: value.nullable(),
-    source: FieldSourceSchema,
-    confidence: FieldConfidenceSchema.nullable(),
-    updated_at: z.string(),
-    source_message_id: z.string().uuid().nullable(),
-  });
+export type VisitMeta = z.infer<typeof MetaSchemaV2>;
+export const VisitMetaSchema = MetaSchemaV2;
 
 // ---------------------------------------------------------------------------
-// Sections du JSON state (Phase 1 : meta + structure vide pour le reste)
+// Racine du JSON state v2
 // ---------------------------------------------------------------------------
 
-export const VisitMetaSchema = z.object({
-  visit_id: fieldSchema(z.string().uuid()),
-  client_id: fieldSchema(z.string()),
-  title: fieldSchema(z.string()),
-  address: fieldSchema(z.string()),
-  building_type: fieldSchema(
-    z.enum(["maison_individuelle", "appartement", "immeuble", "tertiaire", "autre"]),
-  ),
-  visit_date: fieldSchema(z.string()), // ISO date
-  thermicien_id: fieldSchema(z.string().uuid()),
-  thermicien_name: fieldSchema(z.string()),
-  client_name: fieldSchema(z.string()),
-  client_phone: fieldSchema(z.string()),
-  client_email: fieldSchema(z.string()),
-});
-export type VisitMeta = z.infer<typeof VisitMetaSchema>;
-
-/**
- * Squelette complet du JSON state d'une visite.
- * Phase 1 : seul `meta` est structuré. Le reste est ouvert pour les
- * itérations suivantes (enveloppe, chauffage, ECS, ventilation, etc.).
- */
 export const VisitJsonStateSchema = z.object({
-  schema_version: z.literal(1),
-  meta: VisitMetaSchema,
-  // Sections futures (laissées ouvertes pour Phase 2+) :
-  envelope: z.record(z.string(), z.unknown()).default({}),
-  heating: z.record(z.string(), z.unknown()).default({}),
-  hot_water: z.record(z.string(), z.unknown()).default({}),
-  ventilation: z.record(z.string(), z.unknown()).default({}),
-  notes: z.array(z.unknown()).default([]),
+  schema_version: z.literal(2),
+  meta: MetaSchemaV2,
+  building: BuildingSchema.default(makeEmptyBuilding()),
+  envelope: EnvelopeSchema.default(makeEmptyEnvelope()),
+  heating: HeatingSchema.default(makeEmptyHeating()),
+  ecs: EcsSchema.default(makeEmptyEcs()),
+  ventilation: VentilationSchema.default(makeEmptyVentilation()),
+  energy_production: EnergyProductionSchema.default(makeEmptyEnergyProduction()),
+  industriel_processes: IndustrielProcessesSchema.default(
+    makeEmptyIndustrielProcesses(),
+  ),
+  tertiaire_hors_cvc: TertiaireHorsCvcSchema.default(
+    makeEmptyTertiaireHorsCvc(),
+  ),
+  pathologies: PathologiesSchema.default(makeEmptyPathologies()),
+  preconisations: PreconisationsSchema.default(makeEmptyPreconisations()),
+  notes: NotesSchema.default(makeEmptyNotes()),
+  custom_observations: CustomObservationsSchema.default(
+    makeEmptyCustomObservations(),
+  ),
 });
 export type VisitJsonState = z.infer<typeof VisitJsonStateSchema>;
 
@@ -111,14 +101,26 @@ export type VisitJsonState = z.infer<typeof VisitJsonStateSchema>;
 // Factory — squelette initial à la création d'une VT
 // ---------------------------------------------------------------------------
 
+const BUILDING_TYPE_TO_TYPOLOGY: Record<string, string | null> = {
+  maison_individuelle: "maison",
+  appartement: "appartement",
+  immeuble: null, // → needs_reclassification
+  tertiaire: "tertiaire",
+  autre: "autre",
+};
+
 interface CreateInitialVisitJsonStateInput {
   visitId: string;
   clientId: string;
   title: string;
   thermicienId: string;
   thermicienName?: string | null;
-  /** Itération 4 — pré-remplis depuis la modal de création. */
+  /** Itération 4 — pré-rempli depuis la modal de création. */
   address?: string | null;
+  /**
+   * Phase 1 building_type (du dialog). Mappé en interne vers building_typology.
+   * Si "immeuble" → typology null + needs_reclassification = true.
+   */
   buildingType?:
     | "maison_individuelle"
     | "appartement"
@@ -128,59 +130,56 @@ interface CreateInitialVisitJsonStateInput {
     | null;
 }
 
-function emptyField<T>(): Field<T> {
-  return {
-    value: null,
-    source: "init",
-    confidence: null,
-    updated_at: new Date().toISOString(),
-    source_message_id: null,
-  };
-}
-
-function initField<T>(value: T): Field<T> {
-  return {
-    value,
-    source: "init",
-    confidence: "high",
-    updated_at: new Date().toISOString(),
-    source_message_id: null,
-  };
-}
-
 /**
- * Crée le JSON state initial d'une nouvelle visite.
- * Les champs `meta.*` connus (visit_id, client_id, title, thermicien)
- * sont pré-remplis. Tous les autres champs sont à `value: null`.
+ * Crée le JSON state initial v2 d'une nouvelle visite.
+ * meta.* connus pré-remplis ; toutes les autres sections via makeEmpty*().
  */
 export function createInitialVisitJsonState(
   input: CreateInitialVisitJsonStateInput,
 ): VisitJsonState {
+  const meta = makeEmptyMeta();
+  meta.visit_id = initField(input.visitId);
+  meta.client_id = initField(input.clientId);
+  meta.title = initField(input.title);
+  meta.thermicien_id = initField(input.thermicienId);
+  if (input.thermicienName) {
+    meta.thermicien_name = initField(input.thermicienName);
+  }
+  if (input.address) {
+    meta.address = initField(input.address);
+  }
+
+  let needsReclassification = false;
+  if (input.buildingType) {
+    const mapped = BUILDING_TYPE_TO_TYPOLOGY[input.buildingType];
+    if (mapped === null) {
+      needsReclassification = true;
+    } else if (mapped !== undefined) {
+      meta.building_typology = initField(mapped);
+    }
+  } else {
+    needsReclassification = true;
+  }
+  // calculation_method laissée vide → reclassification requise
+  needsReclassification = true;
+  meta.needs_reclassification = needsReclassification;
+
+  meta.external_source = initField<"manual" | "import">("manual");
+
   return {
-    schema_version: 1,
-    meta: {
-      visit_id: initField(input.visitId),
-      client_id: initField(input.clientId),
-      title: initField(input.title),
-      address: input.address ? initField(input.address) : emptyField<string>(),
-      building_type: input.buildingType
-        ? initField(input.buildingType)
-        : emptyField<
-            "maison_individuelle" | "appartement" | "immeuble" | "tertiaire" | "autre"
-          >(),
-      visit_date: emptyField<string>(),
-      thermicien_id: initField(input.thermicienId),
-      thermicien_name: input.thermicienName
-        ? initField(input.thermicienName)
-        : emptyField<string>(),
-      client_name: emptyField<string>(),
-      client_phone: emptyField<string>(),
-      client_email: emptyField<string>(),
-    },
-    envelope: {},
-    heating: {},
-    hot_water: {},
-    ventilation: {},
-    notes: [],
+    schema_version: 2,
+    meta,
+    building: makeEmptyBuilding(),
+    envelope: makeEmptyEnvelope(),
+    heating: makeEmptyHeating(),
+    ecs: makeEmptyEcs(),
+    ventilation: makeEmptyVentilation(),
+    energy_production: makeEmptyEnergyProduction(),
+    industriel_processes: makeEmptyIndustrielProcesses(),
+    tertiaire_hors_cvc: makeEmptyTertiaireHorsCvc(),
+    pathologies: makeEmptyPathologies(),
+    preconisations: makeEmptyPreconisations(),
+    notes: makeEmptyNotes(),
+    custom_observations: makeEmptyCustomObservations(),
   };
 }
