@@ -195,6 +195,8 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
         onOpenChange={setDialogOpen}
         onSubmit={handleCreate}
       />
+
+      <DebugPanel open={debugOpen} onOpenChange={setDebugOpen} />
     </aside>
   );
 }
