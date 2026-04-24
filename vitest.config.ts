@@ -12,7 +12,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
-    exclude: ["node_modules", "dist", ".lovable", ".vinxi"],
+    exclude: ["node_modules", "dist", ".lovable", ".vinxi", "src/**/*.e2e.{test,spec}.ts"],
     css: false,
   },
 });
