@@ -54,16 +54,17 @@ afterEach(async () => {
   __resetDbForTests();
 });
 
-describe("Dexie v1 — smoke", () => {
-  it("ouvre la DB en v1 sans erreur et expose les 5 tables", async () => {
+describe("Dexie schema — smoke", () => {
+  it("ouvre la DB en v2 et expose les 6 tables (incl. sync_state)", async () => {
     const db = getDb();
     await db.open();
-    expect(db.verno).toBe(1);
+    expect(db.verno).toBe(2);
     const names = db.tables.map((t) => t.name).sort();
     expect(names).toEqual([
       "attachments",
       "messages",
       "sync_queue",
+      "sync_state",
       "visit_json_state",
       "visits",
     ]);
