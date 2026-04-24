@@ -202,6 +202,14 @@ multi-user, partage, push, édition message, export.
   de migration appliqués (read-only). À nettoyer dans une migration 004
   de housekeeping si on touche encore aux index. `IF NOT EXISTS` protège
   l'idempotence en attendant — pas d'impact runtime.
+- Itération 6 : `runSyncOnce` accepte `SyncSupabaseLike` (type structurel
+  minimal) au lieu de `SupabaseClient` complet — le type Database est trop
+  profond pour TS sans `excessively deep` warning. Le call site
+  (`useSyncEngine`) cast via `as unknown as`. Acceptable car la surface
+  utilisée (`from().insert()` / `update().eq()`) est triviale et stable.
+- Sync sérialisé : un seul tick à la fois par fenêtre via flag mémoire.
+  Sur multi-onglets, l'idempotence DB (unique `(user_id, client_id)`)
+  protège — pas de lock cross-tab pour Phase 1.
 
 ---
 
