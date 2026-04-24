@@ -113,7 +113,8 @@ export type SyncQueueTable =
   | "visits"
   | "messages"
   | "attachments"
-  | "visit_json_state";
+  | "visit_json_state"
+  | "schema_registry"; // Phase 2 It. 7
 
 export interface SyncQueueEntry {
   /** Auto-incrément Dexie. */
@@ -128,4 +129,45 @@ export interface SyncQueueEntry {
   last_error: string | null;
   created_at: string;
   next_attempt_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Schema Registry (Phase 2 It. 7)
+// ---------------------------------------------------------------------------
+
+export type SchemaRegistryStatus =
+  | "candidate"
+  | "active"
+  | "deprecated"
+  | "promoted";
+
+export type SchemaRegistryValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "enum"
+  | "multi_enum";
+
+export interface SchemaRegistryEntry {
+  id: string;
+  user_id: string;
+  organization_id: string | null;
+  registry_urn: string;
+  field_key: string;
+  section_path: string; // TOUJOURS canonisé (collections : ecs[] pas ecs[0])
+  label_fr: string;
+  value_type: SchemaRegistryValueType;
+  unit: string | null;
+  enum_values: string[];
+  synonyms: string[];
+  usage_count: number;
+  first_seen_at: string;
+  promoted_at: string | null;
+  ai_suggested: boolean;
+  description: string | null;
+  parent_concept: string | null;
+  semantic_embedding: unknown | null;
+  status: SchemaRegistryStatus;
+  created_at: string;
+  updated_at: string;
 }
