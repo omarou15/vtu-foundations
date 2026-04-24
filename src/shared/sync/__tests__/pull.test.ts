@@ -121,7 +121,7 @@ describe("runPullOnce — hydration initiale", () => {
       visit_json_state: [],
     });
 
-    const result = await runPullOnce(supabase, USER);
+    const result = await runPullOnce(supabase as unknown as Parameters<typeof runPullOnce>[0], USER);
 
     expect(result.pulled).toBe(1);
     expect(result.tables.visits).toBe(1);
@@ -147,7 +147,7 @@ describe("runPullOnce — hydration initiale", () => {
   it("sans curseur ET sans données, pose tout de même un curseur (now())", async () => {
     const { supabase } = makeMockSupabase({ visits: [], visit_json_state: [] });
     const before = Date.now();
-    const result = await runPullOnce(supabase, USER);
+    const result = await runPullOnce(supabase as unknown as Parameters<typeof runPullOnce>[0], USER);
     expect(result.pulled).toBe(0);
     const cursor = await getLastPulledAt(SyncStateKey.visits());
     expect(cursor).not.toBeNull();
@@ -185,7 +185,7 @@ describe("runPullOnce — incrémental", () => {
       visit_json_state: [],
     });
 
-    const result = await runPullOnce(supabase, USER);
+    const result = await runPullOnce(supabase as unknown as Parameters<typeof runPullOnce>[0], USER);
     expect(result.pulled).toBe(1);
 
     const visitsQuery = queries.find((q) => q.table === "visits")!;
@@ -220,7 +220,7 @@ describe("runPullOnce — incrémental", () => {
       visit_json_state: [],
     });
 
-    const r1 = await runPullOnce(s1, USER);
+    const r1 = await runPullOnce(s1 as unknown as Parameters<typeof runPullOnce>[0], USER);
     expect(r1.pulled).toBe(1);
 
     // Second pull : le mock renvoie [] cette fois.
@@ -228,7 +228,7 @@ describe("runPullOnce — incrémental", () => {
       visits: [],
       visit_json_state: [],
     });
-    const r2 = await runPullOnce(s2, USER);
+    const r2 = await runPullOnce(s2 as unknown as Parameters<typeof runPullOnce>[0], USER);
     expect(r2.pulled).toBe(0);
 
     // Pas de doublon en local.
@@ -255,7 +255,7 @@ describe("pullMessagesForVisit — lazy par VT", () => {
       ],
     });
 
-    const n = await pullMessagesForVisit(supabase, VISIT_1, {
+    const n = await pullMessagesForVisit(supabase as unknown as Parameters<typeof pullMessagesForVisit>[0], VISIT_1, {
       sinceIso: null,
     });
     expect(n).toBe(1);
@@ -275,7 +275,7 @@ describe("pullMessagesForVisit — lazy par VT", () => {
 
   it("sinceIso fourni → ajoute gt(created_at, since), LIMIT 200", async () => {
     const { supabase, queries } = makeMockSupabase({ messages: [] });
-    await pullMessagesForVisit(supabase, VISIT_2, {
+    await pullMessagesForVisit(supabase as unknown as Parameters<typeof pullMessagesForVisit>[0], VISIT_2, {
       sinceIso: "2026-04-23T00:00:00.000Z",
     });
     const q = queries.find((qq) => qq.table === "messages")!;
@@ -300,8 +300,8 @@ describe("pullMessagesForVisit — lazy par VT", () => {
     const { supabase: s1 } = makeMockSupabase({ messages: [row] });
     const { supabase: s2 } = makeMockSupabase({ messages: [row] });
 
-    await pullMessagesForVisit(s1, VISIT_1, { sinceIso: null });
-    await pullMessagesForVisit(s2, VISIT_1, { sinceIso: null });
+    await pullMessagesForVisit(s1 as unknown as Parameters<typeof pullMessagesForVisit>[0], VISIT_1, { sinceIso: null });
+    await pullMessagesForVisit(s2 as unknown as Parameters<typeof pullMessagesForVisit>[0], VISIT_1, { sinceIso: null });
 
     const all = await getDb().messages.toArray();
     expect(all.length).toBe(1);
