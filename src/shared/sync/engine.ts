@@ -28,11 +28,11 @@ import type { SyncQueueEntry } from "@/shared/types";
  */
 export interface SyncSupabaseLike {
   from(table: string): {
-    insert(payload: Record<string, unknown>): Promise<{
+    insert(payload: Record<string, unknown>): PromiseLike<{
       error: { code?: string; message: string } | null;
     }>;
     update(payload: Record<string, unknown>): {
-      eq(column: string, value: string): Promise<{
+      eq(column: string, value: string): PromiseLike<{
         error: { code?: string; message: string } | null;
       }>;
     };
