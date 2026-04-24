@@ -15,7 +15,6 @@
  *     sinon 401.
  */
 
-// @ts-expect-error — Deno runtime resolves remote URL imports at deploy time.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Deno globals available at runtime in Supabase Edge Functions.
