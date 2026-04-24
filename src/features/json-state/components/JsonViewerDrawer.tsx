@@ -60,6 +60,7 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        hideCloseButton
         className="safe-top safe-bottom safe-x flex w-full flex-col gap-0 p-0 sm:max-w-lg"
       >
         <SheetHeader className="border-b border-border p-4 text-left">
