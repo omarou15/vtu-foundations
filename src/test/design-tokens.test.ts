@@ -7,8 +7,12 @@ import { tokens } from "../design-tokens";
  * silencieusement entre prompts.
  */
 describe("design-tokens", () => {
-  it("expose la couleur primaire VTU exacte", () => {
-    expect(tokens.colors.primary).toBe("#FF6B35");
+  it("expose la couleur primaire Anthropic exacte", () => {
+    expect(tokens.colors.primary).toBe("#d97757");
+  });
+
+  it("définit le fond chaleureux Anthropic", () => {
+    expect(tokens.colors.bg).toBe("#faf9f5");
   });
 
   it("définit toutes les tailles typo de l'échelle", () => {
@@ -30,6 +34,12 @@ describe("design-tokens", () => {
       semibold: 600,
       bold: 700,
     });
+  });
+
+  it("définit les 3 familles de fontes (Poppins/Lora/Inter)", () => {
+    expect(tokens.typography.fontFamily.heading).toContain("Poppins");
+    expect(tokens.typography.fontFamily.body).toContain("Lora");
+    expect(tokens.typography.fontFamily.ui).toContain("Inter");
   });
 
   it("impose un touch target ≥ 44px", () => {
