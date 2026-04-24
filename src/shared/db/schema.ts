@@ -9,16 +9,20 @@
  *  - Une `sync_queue` séparée fait office d'outbox pour le replay engine.
  *  - Une `sync_state` (key/value) stocke les curseurs de pull cross-device
  *    (Itération 6.5).
+ *  - Une `schema_registry` mirror les entrées du vocabulaire métier
+ *    (Itération 7) — permet le matching offline + l'optimistic local upsert.
  *
  * Versions :
  *  - v1 : visits, messages, attachments, visit_json_state, sync_queue
  *  - v2 : ajout sync_state (curseurs de pull, par table)
+ *  - v3 : ajout schema_registry (vocabulaire métier, mirror local)
  */
 
 import Dexie, { type Table } from "dexie";
 import type {
   AttachmentRow,
   MessageRow,
+  SchemaRegistryEntry,
   SyncFields,
   SyncQueueEntry,
   VisitJsonStateRow,
@@ -33,6 +37,7 @@ export type LocalVisit = VisitRow & SyncFields;
 export type LocalMessage = MessageRow & SyncFields;
 export type LocalAttachment = AttachmentRow & SyncFields;
 export type LocalVisitJsonState = VisitJsonStateRow & SyncFields;
+export type LocalSchemaRegistryEntry = SchemaRegistryEntry & SyncFields;
 
 /**
  * Curseur de pull cross-device. `key` typique :
@@ -56,6 +61,7 @@ export class VtuDatabase extends Dexie {
   visit_json_state!: Table<LocalVisitJsonState, string>;
   sync_queue!: Table<SyncQueueEntry, number>;
   sync_state!: Table<SyncStateRow, string>;
+  schema_registry!: Table<LocalSchemaRegistryEntry, string>;
 
   constructor() {
     super("vtu");
@@ -75,10 +81,19 @@ export class VtuDatabase extends Dexie {
     });
 
     // -------- v2 -------- (Itération 6.5 : pull cross-device)
-    // Ajout d'une table key/value pour les curseurs de pull.
-    // Migration automatique : Dexie ajoute la table sans toucher aux autres.
     this.version(2).stores({
       sync_state: "&key",
+    });
+
+    // -------- v3 -------- (Itération 7 : Schema Registry mirror)
+    // Index principaux :
+    //   - registry_urn UNIQUE local (cohérent avec UNIQUE(user_id, registry_urn) côté DB)
+    //   - [section_path+field_key] pour le matching exact local (évite un trip réseau)
+    //   - section_path pour énumérer les fields d'une section (UI It. 11)
+    //   - sync_status pour que l'engine puisse retrouver les pending
+    this.version(3).stores({
+      schema_registry:
+        "id, &registry_urn, section_path, [section_path+field_key], status, sync_status",
     });
   }
 }
