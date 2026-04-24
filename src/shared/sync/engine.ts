@@ -165,7 +165,7 @@ async function processEntry(
     );
     return "ok";
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = extractErrorMessage(err);
     const nextAttempts = entry.attempts + 1;
 
     if (nextAttempts >= MAX_ATTEMPTS) {
