@@ -2,11 +2,17 @@
  * VTU — Repository visit_json_state (Dexie local, versionné)
  *
  * Une nouvelle ligne par version. Jamais d'UPDATE en place.
+ *
+ * It. 7 : `upsertJsonStateFromRemote` passe le `state` reçu par
+ * `migrateVisitJsonState` AVANT le put local. Garantit qu'un VT Phase 1
+ * pull cross-device est rétro-compatible v2 (mapping building_type →
+ * building_typology, hydration sections vides, etc.).
  */
 
 import { v4 as uuidv4 } from "uuid";
 import { getDb, type LocalVisitJsonState } from "@/shared/db/schema";
 import type { VisitJsonState, VisitJsonStateRow } from "@/shared/types";
+import { migrateVisitJsonState } from "@/shared/types/json-state.migrate";
 
 interface InsertLocalJsonStateInput {
   userId: string;
@@ -61,8 +67,21 @@ export async function upsertJsonStateFromRemote(
     .first();
   if (existing) return;
 
+  // It. 7 : migration v1 → v2 si nécessaire (rétrocompat pull cross-device).
+  // migrateVisitJsonState est idempotent (no-op si déjà v2).
+  let migratedState: VisitJsonState;
+  try {
+    migratedState = migrateVisitJsonState(row.state);
+  } catch (err) {
+    // Si schema_version inconnue, on log et on conserve le state brut pour
+    // ne pas bloquer le pull. Le viewer affichera tel quel.
+    console.warn("[upsertJsonStateFromRemote] migration échouée", err);
+    migratedState = row.state;
+  }
+
   const local: LocalVisitJsonState = {
     ...row,
+    state: migratedState,
     sync_status: "synced",
     sync_attempts: 0,
     sync_last_error: null,

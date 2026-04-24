@@ -99,6 +99,7 @@ describe("createLocalVisit — sync_queue (Itération 4)", () => {
     expect(initialState.meta.address.value).toBe("12 rue X");
     expect(initialState.meta.address.source).toBe("init");
     expect(initialState.meta.address.confidence).toBe("high");
-    expect(initialState.meta.building_type.value).toBe("tertiaire");
+    // Phase 2 : building_type "tertiaire" mappé vers building_typology "tertiaire"
+    expect(initialState.meta.building_typology.value).toBe("tertiaire");
   });
 });
