@@ -20,7 +20,24 @@
 
 import { getDb } from "@/shared/db/schema";
 import type { SyncQueueEntry } from "@/shared/types";
-import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Type structurel minimal du sous-ensemble de l'API Supabase utilisé
+ * par l'engine. On reste compatible avec le vrai `SupabaseClient` (qui
+ * implémente une API beaucoup plus large) tout en facilitant les mocks.
+ */
+export interface SyncSupabaseLike {
+  from(table: string): {
+    insert(payload: Record<string, unknown>): Promise<{
+      error: { code?: string; message: string } | null;
+    }>;
+    update(payload: Record<string, unknown>): {
+      eq(column: string, value: string): Promise<{
+        error: { code?: string; message: string } | null;
+      }>;
+    };
+  };
+}
 
 export const MAX_ATTEMPTS = 5;
 /** Backoff exponentiel en millisecondes, indexé par `attempts` (avant retry). */
