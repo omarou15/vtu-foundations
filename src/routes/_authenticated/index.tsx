@@ -25,14 +25,14 @@ function HomePage() {
             >
               <span className="text-sm font-bold text-white">V</span>
             </div>
-            <span className="text-lg font-semibold tracking-tight text-foreground">
+            <span className="font-heading text-lg font-semibold tracking-tight text-foreground">
               VTU
             </span>
           </div>
           <button
             type="button"
             onClick={() => signOut()}
-            className="rounded-md border border-input px-3 py-2 text-xs font-medium text-foreground hover:bg-accent"
+            className="font-ui rounded-md border border-input px-3 py-2 text-xs font-medium text-foreground hover:bg-accent"
             style={{ minHeight: 44 }}
           >
             Déconnexion
@@ -42,10 +42,10 @@ function HomePage() {
 
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
         <div className="w-full max-w-md text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">
             Connecté ✅
           </h1>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          <p className="font-body mt-3 text-sm leading-relaxed text-muted-foreground">
             Bienvenue <strong>{user?.email}</strong>. La sidebar des visites
             techniques arrive en Itération 4.
           </p>
@@ -53,7 +53,7 @@ function HomePage() {
       </main>
 
       <footer className="safe-bottom border-t border-border bg-card">
-        <div className="mx-auto w-full max-w-md px-4 py-3 text-center text-xs text-muted-foreground">
+        <div className="mx-auto w-full max-w-md px-4 py-3 text-center text-xs text-muted-foreground font-ui">
           Itération 2 — Auth OK
         </div>
       </footer>

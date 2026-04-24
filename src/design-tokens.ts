@@ -9,44 +9,48 @@
 
 export const tokens = {
   colors: {
-    // Brand
-    primary: "#FF6B35",
-    primaryHover: "#E85A2A",
-    primaryActive: "#D14E20",
+    // Brand — Anthropic Claude (terracotta sophistiqué)
+    primary: "#d97757",
+    primaryHover: "#c66848",
+    primaryActive: "#b4593c",
 
-    // Surfaces
-    bg: "#FFFFFF",
-    bgMuted: "#FAFAF9",
-    bgSubtle: "#F5F5F4",
+    // Surfaces (chaleureuses, pas blanc pur)
+    bg: "#faf9f5",
+    bgMuted: "#f5f3ec",
+    bgSubtle: "#e8e6dc",
 
     // Text
-    text: "#1C1917",
-    textMuted: "#78716C",
-    textSubtle: "#A8A29E",
-    textOnPrimary: "#FFFFFF",
+    text: "#141413",
+    textMuted: "#6b6a63",
+    textSubtle: "#b0aea5",
+    textOnPrimary: "#faf9f5",
 
     // Borders
-    border: "#E7E5E4",
-    borderStrong: "#D6D3D1",
+    border: "#e8e6dc",
+    borderStrong: "#b0aea5",
 
-    // Status (sémantique)
-    success: "#10B981",
-    warning: "#F59E0B",
-    danger: "#EF4444",
-    info: "#3B82F6",
+    // Status (sémantique — accents Anthropic)
+    success: "#788c5d",
+    warning: "#c78640",
+    danger: "#b4593c",
+    info: "#6a9bcc",
 
     // VT statuses
-    statusInProgress: "#10B981",
-    statusDone: "#6B7280",
-    statusDraft: "#F59E0B",
+    statusInProgress: "#788c5d",
+    statusDone: "#b0aea5",
+    statusDraft: "#d97757",
 
     // Connectivity
-    online: "#10B981",
-    offline: "#9CA3AF",
+    online: "#788c5d",
+    offline: "#b0aea5",
   },
 
   typography: {
-    fontFamily: '"Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    fontFamily: {
+      heading: '"Poppins", system-ui, -apple-system, Arial, sans-serif',
+      body: '"Lora", Georgia, "Times New Roman", serif',
+      ui: '"Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    },
     sizes: {
       xs: 12,
       sm: 14,

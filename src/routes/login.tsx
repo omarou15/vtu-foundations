@@ -57,20 +57,20 @@ function LoginPage() {
             >
               <span className="text-lg font-bold text-white">V</span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">
               Connexion VTU
             </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="font-body mt-2 text-sm text-muted-foreground">
               Recevez un lien magique par email pour vous connecter.
             </p>
           </div>
 
           {sent ? (
             <div className="rounded-lg border border-border bg-card p-6 text-center">
-              <p className="text-sm font-medium text-foreground">
+              <p className="font-ui text-sm font-medium text-foreground">
                 Email envoyé ✉️
               </p>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="font-body mt-2 text-sm text-muted-foreground">
                 Cliquez sur le lien reçu à <strong>{email}</strong> pour vous
                 connecter. Vous pouvez fermer cet onglet.
               </p>
@@ -80,7 +80,7 @@ function LoginPage() {
                   setSent(false);
                   setEmail("");
                 }}
-                className="mt-4 text-xs font-medium text-primary underline"
+                className="font-ui mt-4 text-xs font-medium text-primary underline"
               >
                 Utiliser une autre adresse
               </button>
@@ -90,7 +90,7 @@ function LoginPage() {
               <div>
                 <label
                   htmlFor="email"
-                  className="block text-sm font-medium text-foreground"
+                  className="font-ui block text-sm font-medium text-foreground"
                 >
                   Email
                 </label>
@@ -102,14 +102,14 @@ function LoginPage() {
                   inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-3 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="font-ui mt-1 block w-full rounded-md border border-input bg-background px-3 py-3 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
                   placeholder="thermicien@energyco.fr"
                   disabled={submitting}
                 />
               </div>
 
               {error && (
-                <p className="text-sm text-destructive" role="alert">
+                <p className="font-ui text-sm text-destructive" role="alert">
                   {error}
                 </p>
               )}
@@ -117,7 +117,7 @@ function LoginPage() {
               <button
                 type="submit"
                 disabled={submitting || !email.trim()}
-                className="inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="font-ui inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                 style={{ minHeight: 44 }}
               >
                 {submitting ? "Envoi..." : "Recevoir le lien magique"}

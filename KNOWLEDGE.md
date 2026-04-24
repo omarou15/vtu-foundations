@@ -62,15 +62,47 @@ côté upsert.
 
 Dépendances du projet (toujours à jour) :
 - zustand, dexie, dexie-react-hooks, uuid, react-json-view-lite
-- @fontsource/inter (self-hosted, pas Google Fonts CDN)
+- @fontsource/inter, @fontsource/poppins, @fontsource/lora
+  (self-hosted, pas Google Fonts CDN)
 - date-fns (fr locale)
 
 ---
 
 ## 4. Design system (source : `src/design-tokens.ts`)
 
-- **Primaire** : `#FF6B35` (orange VTU)
-- **Typo** : Inter self-hosted, poids 400/500/600/700
+Palette officielle **Anthropic Claude** — style sophistiqué,
+terracotta + beige chaleureux. Cohérent avec le positionnement
+Energyco (bureau d'études premium, pas startup tech).
+
+### Couleurs
+
+**Neutres :**
+- Dark        `#141413`  (texte principal)
+- Light       `#faf9f5`  (fond clair chaleureux, pas blanc pur)
+- Mid Gray    `#b0aea5`  (éléments secondaires)
+- Light Gray  `#e8e6dc`  (fonds subtils, séparateurs)
+
+**Accents :**
+- Primary Orange `#d97757`  (terracotta — actions principales)
+- Blue           `#6a9bcc`  (info / liens)
+- Green          `#788c5d`  (success / online)
+- Danger         `#b4593c`  (erreurs / destructive)
+
+### Typographie (3 familles complémentaires)
+
+- **Poppins** (400/500/600/700) — headings (h1/h2/h3),
+  fallback Arial. Classe utilitaire : `.font-heading`.
+- **Lora** (400/500) — body text long (paragraphes éditoriaux),
+  fallback Georgia. Classe utilitaire : `.font-body`. Appliquée
+  par défaut sur `<body>`.
+- **Inter** (400/500/600/700) — UI (boutons, labels, inputs,
+  badges, nombres), fallback system-ui. Classe utilitaire :
+  `.font-ui` (= Tailwind `font-sans`).
+
+Toutes self-hosted via `@fontsource` (RGPD + perf).
+
+### Contraintes
+
 - **Échelle typo** : 12/14/16/18/20/24/32 px
 - **Radii** : 6/8/12/16/20 px
 - **Touch target minimum** : 44×44 px (Apple HIG)
@@ -78,7 +110,7 @@ Dépendances du projet (toujours à jour) :
 
 **Aucune couleur/taille/radius HARDCODÉE** dans les composants.
 Toujours `tokens.*` ou classes Tailwind mappées sur les
-variables CSS.
+variables CSS (`var(--primary)`, etc.).
 
 ---
 
