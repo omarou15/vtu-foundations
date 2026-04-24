@@ -1,35 +1,46 @@
 /**
  * VTU — Repository visits (Dexie local)
  *
- * Phase 1 : CRUD de base local-first. La synchro vers Supabase
- * sera branchée à l'Itération 6 via la sync_queue (outbox).
+ * Itération 4 : la création d'une VT est atomique côté local :
+ *   1. INSERT visits (sync_status = "pending")
+ *   2. INSERT visit_json_state v1 (sync_status = "pending")
+ *   3. ENQUEUE sync_queue × 2 (visits + visit_json_state)
+ *
+ * Le tout dans une transaction Dexie pour garantir le tout-ou-rien.
+ * La synchro effective vers Supabase sera branchée à l'Itération 6
+ * (sync engine offline-first).
  */
 
 import { v4 as uuidv4 } from "uuid";
-import { getDb, type LocalVisit } from "@/shared/db/schema";
-import type { VisitRow } from "@/shared/types";
+import { getDb, type LocalVisit, type LocalVisitJsonState } from "@/shared/db/schema";
+import type {
+  BuildingType,
+  MissionType,
+  SyncQueueEntry,
+  VisitRow,
+} from "@/shared/types";
 import { createInitialVisitJsonState, type VisitJsonState } from "@/shared/types";
 
 interface CreateLocalVisitInput {
   userId: string;
   title?: string;
   thermicienName?: string | null;
+  address?: string | null;
+  missionType?: MissionType | null;
+  buildingType?: BuildingType | null;
 }
 
 export interface CreateLocalVisitResult {
   visit: LocalVisit;
+  jsonState: LocalVisitJsonState;
   initialState: VisitJsonState;
 }
 
 /**
- * Crée une nouvelle visite localement.
+ * Crée une nouvelle visite localement (atomique).
  * - Génère `id` et `client_id` côté client (UUID).
  * - Pré-construit le squelette JSON state initial (meta.* pré-remplis).
- * - Marque `sync_status = "pending"` pour replay outbox ultérieur.
- *
- * Note : à l'Itération 4, on branchera l'enqueue sync_queue + insertion
- * de la première ligne visit_json_state. Pour l'instant on retourne
- * juste les artefacts pour validation par les tests.
+ * - Enqueue 2 entrées dans sync_queue pour replay à l'Itération 6.
  */
 export async function createLocalVisit(
   input: CreateLocalVisitInput,
@@ -38,7 +49,10 @@ export async function createLocalVisit(
   const now = new Date().toISOString();
   const id = uuidv4();
   const client_id = uuidv4();
-  const title = input.title ?? "Nouvelle visite";
+  const title = input.title?.trim() || "Nouvelle visite";
+  const address = input.address?.trim() || null;
+  const mission_type = input.missionType ?? null;
+  const building_type = input.buildingType ?? null;
 
   const visit: LocalVisit = {
     id,
@@ -47,6 +61,9 @@ export async function createLocalVisit(
     title,
     status: "draft",
     version: 1,
+    address,
+    mission_type,
+    building_type,
     created_at: now,
     updated_at: now,
     sync_status: "pending",
@@ -55,17 +72,66 @@ export async function createLocalVisit(
     local_updated_at: now,
   };
 
-  await db.visits.add(visit);
-
   const initialState = createInitialVisitJsonState({
     visitId: id,
     clientId: client_id,
     title,
     thermicienId: input.userId,
     thermicienName: input.thermicienName ?? null,
+    address,
+    buildingType: building_type,
   });
 
-  return { visit, initialState };
+  const jsonStateRow: LocalVisitJsonState = {
+    id: uuidv4(),
+    visit_id: id,
+    user_id: input.userId,
+    version: 1,
+    state: initialState,
+    created_by_message_id: null,
+    created_at: now,
+    sync_status: "pending",
+    sync_attempts: 0,
+    sync_last_error: null,
+    local_updated_at: now,
+  };
+
+  const visitQueueEntry: SyncQueueEntry = {
+    table: "visits",
+    op: "insert",
+    row_id: visit.id,
+    payload: serializeVisitForSync(visit),
+    attempts: 0,
+    last_error: null,
+    created_at: now,
+    next_attempt_at: now,
+  };
+
+  const jsonQueueEntry: SyncQueueEntry = {
+    table: "visit_json_state",
+    op: "insert",
+    row_id: jsonStateRow.id,
+    payload: serializeJsonStateForSync(jsonStateRow),
+    attempts: 0,
+    last_error: null,
+    created_at: now,
+    next_attempt_at: now,
+  };
+
+  await db.transaction(
+    "rw",
+    db.visits,
+    db.visit_json_state,
+    db.sync_queue,
+    async () => {
+      await db.visits.add(visit);
+      await db.visit_json_state.add(jsonStateRow);
+      await db.sync_queue.add(visitQueueEntry);
+      await db.sync_queue.add(jsonQueueEntry);
+    },
+  );
+
+  return { visit, jsonState: jsonStateRow, initialState };
 }
 
 /** Liste les visites d'un user, plus récentes en premier. */
@@ -108,4 +174,38 @@ export async function upsertVisitFromRemote(row: VisitRow): Promise<void> {
     local_updated_at: new Date().toISOString(),
   };
   await db.visits.put(local);
+}
+
+// ---------------------------------------------------------------------------
+// Serializers (payload pour sync_queue → Supabase)
+// ---------------------------------------------------------------------------
+
+function serializeVisitForSync(v: LocalVisit): Record<string, unknown> {
+  return {
+    id: v.id,
+    user_id: v.user_id,
+    client_id: v.client_id,
+    title: v.title,
+    status: v.status,
+    version: v.version,
+    address: v.address,
+    mission_type: v.mission_type,
+    building_type: v.building_type,
+    created_at: v.created_at,
+    updated_at: v.updated_at,
+  };
+}
+
+function serializeJsonStateForSync(
+  s: LocalVisitJsonState,
+): Record<string, unknown> {
+  return {
+    id: s.id,
+    visit_id: s.visit_id,
+    user_id: s.user_id,
+    version: s.version,
+    state: s.state,
+    created_by_message_id: s.created_by_message_id,
+    created_at: s.created_at,
+  };
 }
