@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Menu } from "lucide-react";
-import { getDb, type LocalVisit } from "@/shared/db";
+import { getDb } from "@/shared/db";
 import { VisitsSidebar } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
@@ -30,7 +30,7 @@ function VisitPage() {
   const visit = useLiveQuery(
     () => getDb().visits.get(visitId),
     [visitId],
-  ) as LocalVisit | undefined;
+  );
 
   if (visit === undefined) {
     // Loading initial Dexie
