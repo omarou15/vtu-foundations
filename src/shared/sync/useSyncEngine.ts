@@ -51,7 +51,11 @@ export function useSyncEngine(): void {
           .primaryKeys();
 
         // 2. On vide la queue (sérialisé).
-        const result = await runSyncOnce(supabase);
+        // Cast structurel : SupabaseClient est trop profond pour TS,
+        // mais respecte SyncSupabaseLike (vérifié à l'usage côté tests).
+        const result = await runSyncOnce(
+          supabase as unknown as Parameters<typeof runSyncOnce>[0],
+        );
 
         // 3. Fire-and-forget update-json-state pour les messages
         //    devenus "synced" pendant ce tick.
