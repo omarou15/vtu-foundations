@@ -1,6 +1,9 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { Toaster, toast } from "sonner";
 
 import appCss from "../styles.css?url";
+import { useAuth, setOnSessionExpired } from "@/features/auth";
 
 function NotFoundComponent() {
   return (
@@ -80,5 +83,25 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <Outlet />;
+  const init = useAuth((s) => s.init);
+
+  useEffect(() => {
+    const cleanup = init();
+    setOnSessionExpired(() => {
+      toast.warning("Session expirée", {
+        description: "Veuillez vous reconnecter pour continuer.",
+      });
+    });
+    return () => {
+      setOnSessionExpired(null);
+      cleanup();
+    };
+  }, [init]);
+
+  return (
+    <>
+      <Outlet />
+      <Toaster position="top-center" richColors closeButton />
+    </>
+  );
 }
