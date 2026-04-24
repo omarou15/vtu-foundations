@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
+import { supabase } from "@/integrations/supabase/client";
 
 interface LoginSearch {
   redirect?: string;
