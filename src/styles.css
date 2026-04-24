@@ -2,11 +2,20 @@
 @source "../src";
 @import "tw-animate-css";
 
-/* Inter self-hosted (RGPD + perf) */
+/* Fontes self-hosted (RGPD + perf) — palette Anthropic Claude */
+/* Inter — UI (boutons, labels, inputs, badges) */
 @import "@fontsource/inter/400.css";
 @import "@fontsource/inter/500.css";
 @import "@fontsource/inter/600.css";
 @import "@fontsource/inter/700.css";
+/* Poppins — headings (h1/h2/h3) */
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+/* Lora — body text long (paragraphes éditoriaux) */
+@import "@fontsource/lora/400.css";
+@import "@fontsource/lora/500.css";
 
 @custom-variant dark (&:is(.dark *));
 
