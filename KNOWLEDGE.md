@@ -204,6 +204,11 @@ multi-user, partage, push, édition message, export.
   `requireSupabaseAuth` middleware
 - Storage buckets : policies basées sur path
   `{user_id}/{visit_id}/*`
+- **Dev auth** : un bouton "Connexion rapide (dev)" est visible
+  uniquement sous `import.meta.env.DEV`. Compte de test
+  `dev@energyco.fr` créé dans Supabase pour le développement.
+  Ce bouton ne peut PAS apparaître en production (tree-shaking
+  de Vite élimine la branche morte au build).
 
 ---
 
