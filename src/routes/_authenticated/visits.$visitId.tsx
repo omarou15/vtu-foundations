@@ -3,7 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Braces, Menu } from "lucide-react";
 import { toast } from "sonner";
-import { getDb, appendLocalMessage } from "@/shared/db";
+import { appendLocalMessage, getDb } from "@/shared/db";
 import { useAuth } from "@/features/auth";
 import { useVirtualKeyboard } from "@/shared/hooks";
 import { VisitsSidebar } from "@/features/visits";
@@ -93,27 +93,14 @@ function VisitChatPage() {
       return;
     }
     try {
+      // appendLocalMessage est atomique : insert + enqueue sync_queue
+      // dans une transaction Dexie (cf. messages.repo.ts).
       await appendLocalMessage({
         userId,
         visitId,
         role: "user",
         kind: "text",
         content,
-      });
-      // Note : Itération 6 enqueue sync_queue. Ici on append en local
-      // simplement — la sync engine consommera les messages "pending"
-      // et fera l'enqueue + push. Pour l'instant les messages restent
-      // en sync_status "pending" comme prévu (KNOWLEDGE §8).
-      const db = getDb();
-      await db.sync_queue.add({
-        table: "messages",
-        op: "insert",
-        row_id: crypto.randomUUID(), // placeholder — sera remplacé en It.6
-        payload: { visit_id: visitId, content },
-        attempts: 0,
-        last_error: null,
-        created_at: new Date().toISOString(),
-        next_attempt_at: new Date().toISOString(),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur inconnue";
