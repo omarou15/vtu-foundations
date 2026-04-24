@@ -78,6 +78,22 @@ export function useSyncEngine(): void {
               });
           }
         }
+
+        // 4. Pull cross-device (Itération 6.5) :
+        //    on récupère les visits + visit_json_state créés/MAJ
+        //    sur d'autres devices depuis le dernier curseur.
+        //    Best-effort : on swallow les erreurs réseau (le tick
+        //    suivant retentera).
+        if (userId) {
+          try {
+            await runPullOnce(
+              supabase as unknown as Parameters<typeof runPullOnce>[0],
+              userId,
+            );
+          } catch {
+            // ignore : le prochain tick retentera.
+          }
+        }
       } finally {
         runningRef.current = false;
         if (pendingRef.current && !cancelled) {
