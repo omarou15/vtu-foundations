@@ -67,8 +67,21 @@ export async function upsertJsonStateFromRemote(
     .first();
   if (existing) return;
 
+  // It. 7 : migration v1 → v2 si nécessaire (rétrocompat pull cross-device).
+  // migrateVisitJsonState est idempotent (no-op si déjà v2).
+  let migratedState: VisitJsonState;
+  try {
+    migratedState = migrateVisitJsonState(row.state);
+  } catch (err) {
+    // Si schema_version inconnue, on log et on conserve le state brut pour
+    // ne pas bloquer le pull. Le viewer affichera tel quel.
+    console.warn("[upsertJsonStateFromRemote] migration échouée", err);
+    migratedState = row.state;
+  }
+
   const local: LocalVisitJsonState = {
     ...row,
+    state: migratedState,
     sync_status: "synced",
     sync_attempts: 0,
     sync_last_error: null,
