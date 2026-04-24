@@ -127,7 +127,7 @@ function LoginPage() {
             </form>
           )}
 
-          {import.meta.env.DEV && (
+          {isDevEnvironment() && (
             <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-4">
               <p className="font-ui mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 🔧 Mode développement
