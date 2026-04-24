@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
+import { supabase } from "@/integrations/supabase/client";
 
 interface LoginSearch {
   redirect?: string;
@@ -123,6 +125,28 @@ function LoginPage() {
                 {submitting ? "Envoi..." : "Recevoir le lien magique"}
               </button>
             </form>
+          )}
+
+          {import.meta.env.DEV && (
+            <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-4">
+              <p className="font-ui mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                🔧 Mode développement
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  const { error } = await supabase.auth.signInWithPassword({
+                    email: "dev@energyco.fr",
+                    password: "VtuDev2026!",
+                  });
+                  if (error) toast.error("Dev login failed: " + error.message);
+                }}
+                className="font-ui w-full rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+                style={{ minHeight: 44 }}
+              >
+                Connexion rapide (dev)
+              </button>
+            </div>
           )}
         </div>
       </main>
