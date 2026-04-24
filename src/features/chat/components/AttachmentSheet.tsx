@@ -63,11 +63,10 @@ export function AttachmentSheet({ open, onOpenChange }: AttachmentSheetProps) {
             <button
               key={key}
               type="button"
-              disabled
               onClick={() =>
                 toast.message(label, { description: "Bientôt disponible" })
               }
-              className="touch-target flex flex-col items-center gap-1 rounded-xl bg-muted/40 p-2 text-muted-foreground opacity-60"
+              className="touch-target flex flex-col items-center gap-1 rounded-xl bg-muted/40 p-2 text-muted-foreground opacity-60 transition-opacity hover:opacity-80 focus-visible:opacity-100"
               aria-label={`${label} — bientôt disponible`}
             >
               <Icon className="h-6 w-6" aria-hidden="true" />

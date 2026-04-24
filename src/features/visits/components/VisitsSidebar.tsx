@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, Search, Settings, X } from "lucide-react";
+import { Plus, Search, Settings, X, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { groupVisitsByDate } from "../lib/grouping";
 import { filterVisitsByQuery } from "../lib/search";
 import { VisitCard } from "./VisitCard";
 import { NewVisitDialog, type NewVisitFormValue } from "./NewVisitDialog";
+import { DebugPanel, useDebugBadge } from "@/features/debug";
 
 interface VisitsSidebarProps {
   /** Permet à un parent (mobile) de fermer la sidebar drawer. No-op sinon. */
@@ -35,7 +36,9 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
   const userId = useAuth((s) => s.user?.id);
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
   const debouncedQuery = useDebouncedValue(query, 150);
+  const debugBadge = useDebugBadge();
 
   // Lecture live depuis Dexie (offline-first).
   const visits = useLiveQuery(
@@ -107,11 +110,20 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
 
           <button
             type="button"
-            onClick={() => toast.message("Paramètres — bientôt disponible")}
-            className="touch-target inline-flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-accent"
-            aria-label="Paramètres"
+            onClick={() => setDebugOpen(true)}
+            className="touch-target relative inline-flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-accent"
+            aria-label="Paramètres — debug"
+            data-testid="open-debug-panel"
           >
             <Settings className="h-5 w-5" />
+            {debugBadge ? (
+              <span
+                className={`absolute -right-0.5 -top-0.5 inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-sidebar ${
+                  debugBadge === "offline" ? "bg-destructive" : "bg-warning"
+                }`}
+                aria-hidden="true"
+              />
+            ) : null}
           </button>
         </div>
 
@@ -183,6 +195,8 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
         onOpenChange={setDialogOpen}
         onSubmit={handleCreate}
       />
+
+      <DebugPanel open={debugOpen} onOpenChange={setDebugOpen} />
     </aside>
   );
 }

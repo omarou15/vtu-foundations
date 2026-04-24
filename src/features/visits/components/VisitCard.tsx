@@ -1,4 +1,4 @@
-import { Image as ImageIcon, FileText } from "lucide-react";
+import { Image as ImageIcon, FileText, AlertTriangle } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "@tanstack/react-router";
 import { getDb, type LocalVisit } from "@/shared/db";
@@ -44,6 +44,22 @@ export function VisitCard({ visit, active }: VisitCardProps) {
     0,
   );
 
+  // Itération 6 : badge ⚠️ si la visite elle-même OU au moins un de ses
+  // messages est en sync_status="failed".
+  const hasFailedSync = useLiveQuery(
+    async () => {
+      if (visit.sync_status === "failed") return true;
+      const failedMsg = await getDb()
+        .messages.where("visit_id")
+        .equals(visit.id)
+        .filter((m) => m.sync_status === "failed")
+        .first();
+      return Boolean(failedMsg);
+    },
+    [visit.id, visit.sync_status],
+    false,
+  );
+
   const Icon = visit.building_type ? BUILDING_ICON[visit.building_type] : BUILDING_ICON.autre;
   const buildingLabel = visit.building_type
     ? BUILDING_LABEL[visit.building_type]
@@ -71,13 +87,25 @@ export function VisitCard({ visit, active }: VisitCardProps) {
           <h3 className="font-ui truncate text-sm font-semibold text-foreground">
             {visit.title}
           </h3>
-          <span
-            className={`font-ui shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              STATUS_BADGE_CLASS[visit.status]
-            }`}
-          >
-            {STATUS_LABEL[visit.status]}
-          </span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {hasFailedSync ? (
+              <span
+                className="font-ui inline-flex items-center gap-0.5 rounded-full bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                title="Synchronisation échouée"
+                aria-label="Synchronisation échouée"
+                data-testid="sync-failed-badge"
+              >
+                <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+              </span>
+            ) : null}
+            <span
+              className={`font-ui rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                STATUS_BADGE_CLASS[visit.status]
+              }`}
+            >
+              {STATUS_LABEL[visit.status]}
+            </span>
+          </div>
         </div>
 
         <p className="font-body mt-0.5 truncate text-xs text-muted-foreground">
