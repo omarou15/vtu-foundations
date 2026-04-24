@@ -21,11 +21,9 @@ interface JsonViewerDrawerProps {
  * - Lecture live de la dernière version locale via Dexie.
  * - Highlight orange (warning) du nombre de Field<T> à confidence "low".
  * - Bouton "Copier JSON" → navigator.clipboard.
- * - Mobile : Sheet bottom (par défaut shadcn) plein écran.
- *
- * Note : on utilise un Sheet bottom partout (mobile-first KNOWLEDGE §5).
- * Sur desktop le Sheet conserve un look bottom-sheet, on ne casse pas
- * le pattern.
+ * - Layout : Sheet `side="right"` — sur mobile le SheetContent prend
+ *   `w-full` (plein écran), sur desktop il s'arrête à `sm:max-w-lg`
+ *   (panneau latéral). Le contenu reste scrollable, header sticky.
  */
 export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDrawerProps) {
   const latest = useLiveQuery(
