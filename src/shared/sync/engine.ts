@@ -75,7 +75,7 @@ export function computeBackoffMs(attempts: number): number {
  * l'idempotence côté serveur (unique `(user_id, client_id)`) protège.
  */
 export async function runSyncOnce(
-  supabase: Pick<SupabaseClient, "from">,
+  supabase: SyncSupabaseLike,
   options: RunOptions = {},
 ): Promise<RunResult> {
   const db = getDb();
@@ -122,7 +122,7 @@ export async function runSyncOnce(
 type ProcessResult = "ok" | "failed" | "retry-later";
 
 async function processEntry(
-  supabase: Pick<SupabaseClient, "from">,
+  supabase: SyncSupabaseLike,
   entry: SyncQueueEntry,
 ): Promise<ProcessResult> {
   const db = getDb();
