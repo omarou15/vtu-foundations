@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAuth } from "@/features/auth";
+import { useSyncEngine, useConnectionPing } from "@/shared/sync";
 
 /**
  * Layout pathless protégé.
@@ -25,6 +26,11 @@ function AuthenticatedLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const status = useAuth((s) => s.status);
+
+  // Itération 6 : sync engine + ping de connectivité Supabase au niveau du
+  // layout protégé. Les hooks gèrent eux-mêmes le no-op si non authentifié.
+  useSyncEngine();
+  useConnectionPing();
 
   useEffect(() => {
     if (status !== "unauthenticated") return;
