@@ -187,7 +187,10 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 3 — Schéma Supabase + RLS + Dexie local
 - [x] Itération 4 — Sidebar VTs + création + JSON state initial
 - [x] Itération 5 — Chat texte + JSON viewer + menu stubs
-- [ ] Itération 6 — Sync engine offline-first + Edge Function scaffold
+- [x] Itération 6 — Sync engine offline-first + Edge Function scaffold
+
+**✅ Phase 1 COMPLÈTE.** Prochaine étape : Phase 2 (audio, photos, IA mutation
+JSON, rapport Word).
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,
