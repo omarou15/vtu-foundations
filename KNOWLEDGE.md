@@ -1,0 +1,147 @@
+# VTU — Knowledge File (règles non négociables pour tous les prompts)
+
+Ce fichier est la source de vérité du projet. Avant CHAQUE
+prompt, Lovable doit relire ce document. Les règles ici
+l'emportent sur toute autre source (mémoire, intuition, plans
+antérieurs).
+
+---
+
+## 1. Contexte produit
+
+**VTU** = PWA mobile-first pour thermiciens d'**Energyco**
+(bureau d'études thermiques France). Un thermicien fait une
+visite technique de bâtiment en 15 min depuis son téléphone :
+photos, dictées vocales, notes texte. L'IA structure en
+rapport Word.
+
+**User archétype** : Omar + équipe de 15 thermiciens.
+Contraintes terrain : gants, soleil direct, réseau 4G faible,
+cave/chaufferie sombre, iPhone et Android mixtes.
+
+---
+
+## 2. Paradigme architectural NON NÉGOCIABLE
+
+**JSON = source de vérité.** Pas un chatbot classique.
+
+Trois couches :
+1. `messages` — **append-only**, audit trail légal. JAMAIS
+   d'UPDATE. Correction = nouveau message.
+2. `visit_json_state` — **versionné**, source de vérité.
+   Chaque mutation = nouvelle ligne version+1. JAMAIS muter
+   sur place.
+3. `rapport Word` — généré DEPUIS le JSON, JAMAIS depuis la
+   conversation.
+
+**Optimistic concurrency** : chaque write envoie sa version.
+Writes obsolètes rejetés (409). En Phase 1 infrastructure
+prête mais inerte (pas d'IA qui mute).
+
+**Offline-first** : toutes les écritures passent par
+IndexedDB (Dexie) d'abord, puis sync queue vers Supabase.
+Lecture toujours depuis IndexedDB via `useLiveQuery`.
+
+**Idempotence** : `client_id` UUID généré côté client.
+Unique par `(user_id, client_id)`. `ON CONFLICT DO NOTHING`
+côté upsert.
+
+---
+
+## 3. Stack (fixée, ne pas dévier)
+
+- React 19 + TypeScript strict (0 `any`, 0 `@ts-ignore`)
+- TanStack Start (Router file-based + server functions)
+- Tailwind CSS v4 + shadcn/ui (Radix)
+- Zustand (state global — pas Redux, pas Context)
+- Dexie.js (IndexedDB offline-first)
+- Lovable Cloud (Supabase managé) : auth magic link +
+  Postgres + Storage + RLS
+- Vitest + Testing Library
+- Hosting Cloudflare Workers (Lovable)
+
+Dépendances du projet (toujours à jour) :
+- zustand, dexie, dexie-react-hooks, uuid, react-json-view-lite
+- @fontsource/inter (self-hosted, pas Google Fonts CDN)
+- date-fns (fr locale)
+
+---
+
+## 4. Design system (source : `src/design-tokens.ts`)
+
+- **Primaire** : `#FF6B35` (orange VTU)
+- **Typo** : Inter self-hosted, poids 400/500/600/700
+- **Échelle typo** : 12/14/16/18/20/24/32 px
+- **Radii** : 6/8/12/16/20 px
+- **Touch target minimum** : 44×44 px (Apple HIG)
+- **Thème** : clair par défaut (dark mode CSS prête, inactive)
+
+**Aucune couleur/taille/radius HARDCODÉE** dans les composants.
+Toujours `tokens.*` ou classes Tailwind mappées sur les
+variables CSS.
+
+---
+
+## 5. UX doctrine
+
+**Un seul écran : un chat.** Comme WhatsApp / Claude mobile.
+
+**Règle des zones 20/60/20** :
+- 20% haut : header stable (contexte VT)
+- 60% milieu : dynamique (messages)
+- 20% bas : actions fréquentes (input bar)
+- **L'input bar NE BOUGE JAMAIS** quand le clavier s'ouvre.
+  Utiliser `visualViewport` API + variable CSS `--kb-height`.
+
+**Safe area iOS** : toujours `env(safe-area-inset-*)` sur
+les bords. Tester iPhone 12+ avec Dynamic Island.
+
+**Viewport** : `width=device-width, initial-scale=1,
+viewport-fit=cover`. JAMAIS `maximum-scale=1` (casse a11y).
+
+**Loi de Fitts** : zone pouce droit en bas pour les actions
+fréquentes. Bouton envoi toujours en bas à droite.
+
+---
+
+## 6. Architecture de code
+
+Arborescence imposée :
+
+```
+src/
+├── features/
+│   ├── auth/         # magic link, callback, guards (It.2)
+│   ├── visits/       # CRUD VT, sidebar, json_state initial (It.4)
+│   ├── chat/         # messages texte + JSON viewer (It.5)
+│   └── json-state/   # mutateurs + versioning + concurrency (It.4-6)
+├── shared/
+│   ├── db/           # Dexie schema + repositories (It.3)
+│   ├── sync/         # outbox + replay engine (It.6)
+│   ├── hooks/        # useAuth, useOnline, useLiveQuery wrappers
+│   ├── types/        # types Supabase + json_state schema (zod)
+│   └── ui/           # composants transverses (Toast, ErrorBoundary…)
+├── components/ui/    # shadcn (subset minimal — voir KNOWLEDGE §3)
+├── integrations/
+│   └── supabase/     # client.ts, client.server.ts, auth-middleware.ts, types.ts (auto-générés)
+├── routes/           # TanStack Router file-based (__root.tsx, index.tsx, etc.)
+├── lib/              # utils transverses (cn, etc.)
+├── design-tokens.ts  # SOURCE DE VÉRITÉ design system
+└── styles.css        # variables CSS (mapping OKLCH des tokens) + safe-area utils
+```
+
+> Note : la section 6 du brief original avait l'arborescence
+> vide. La version ci-dessus reflète la structure matérialisée
+> à l'Itération 1 et validée. À corriger si divergence avec
+> ton intention.
+
+---
+
+## 7. Lecture obligatoire avant chaque itération
+
+Avant CHAQUE prompt utilisateur, l'agent doit :
+1. Relire ce fichier KNOWLEDGE.md en intégralité.
+2. Vérifier que les changements proposés respectent §2 (paradigme),
+   §3 (stack), §4 (design tokens), §5 (UX doctrine), §6 (arbo).
+3. En cas de conflit avec une demande utilisateur, signaler
+   explicitement le conflit avant d'agir.
