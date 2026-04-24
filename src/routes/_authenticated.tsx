@@ -27,14 +27,18 @@ function AuthenticatedLayout() {
   const status = useAuth((s) => s.status);
 
   useEffect(() => {
-    if (status === "unauthenticated") {
-      navigate({
-        to: "/login",
-        search: { redirect: location.href },
-        replace: true,
-      });
-    }
-  }, [status, location.href, navigate]);
+    if (status !== "unauthenticated") return;
+    // Guard contre boucle de redirection : on capture la cible une seule
+    // fois et on n'inclut pas location.href dans les deps (sinon
+    // navigate() peut re-tirer le useEffect avant que la route ait
+    // changé, ce qui produit une boucle "Maximum update depth").
+    const target = location.href;
+    navigate({
+      to: "/login",
+      search: { redirect: target === "/login" ? undefined : target },
+      replace: true,
+    });
+  }, [status, navigate, location.href]);
 
   if (status !== "authenticated") {
     return (
