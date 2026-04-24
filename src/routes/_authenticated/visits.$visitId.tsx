@@ -195,21 +195,33 @@ function VisitChatPage() {
                 IA
               </Label>
             </div>
-            {aiEnabled ? (
-              <span
-                className="font-ui rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-medium text-primary"
-                data-testid="ai-status-badge"
-              >
-                IA active
-              </span>
-            ) : (
-              <span
-                className="font-ui rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                data-testid="ai-status-badge"
-              >
-                IA désactivée
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {!isOnline ? (
+                <span
+                  className="font-ui inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  data-testid="offline-badge"
+                  role="status"
+                >
+                  <WifiOff className="h-3 w-3" aria-hidden="true" />
+                  Hors ligne
+                </span>
+              ) : null}
+              {aiEnabled ? (
+                <span
+                  className="font-ui rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-medium text-primary"
+                  data-testid="ai-status-badge"
+                >
+                  IA active
+                </span>
+              ) : (
+                <span
+                  className="font-ui rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  data-testid="ai-status-badge"
+                >
+                  IA désactivée
+                </span>
+              )}
+            </div>
           </div>
         </header>
 
