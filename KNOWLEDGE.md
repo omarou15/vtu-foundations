@@ -186,12 +186,19 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 2 — Auth magic link + routing + guards
 - [x] Itération 3 — Schéma Supabase + RLS + Dexie local
 - [x] Itération 4 — Sidebar VTs + création + JSON state initial
-- [ ] Itération 5 — Chat texte + JSON viewer + menu stubs
+- [x] Itération 5 — Chat texte + JSON viewer + menu stubs
 - [ ] Itération 6 — Sync engine offline-first + Edge Function scaffold
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,
 multi-user, partage, push, édition message, export.
+
+### Dette technique notée (cosmétique, non bloquante)
+- Migration 002 : l'index `idx_visits_user_updated` est dupliqué entre
+  001 et 002. Lovable ne peut pas modifier rétroactivement les fichiers
+  de migration appliqués (read-only). À nettoyer dans une migration 004
+  de housekeeping si on touche encore aux index. `IF NOT EXISTS` protège
+  l'idempotence en attendant — pas d'impact runtime.
 
 ---
 

@@ -1,39 +1,58 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Menu } from "lucide-react";
-import { getDb, type LocalVisit } from "@/shared/db";
+import { ArrowLeft, Braces, Menu } from "lucide-react";
+import { toast } from "sonner";
+import { appendLocalMessage, getDb } from "@/shared/db";
+import { useAuth } from "@/features/auth";
+import { useVirtualKeyboard } from "@/shared/hooks";
 import { VisitsSidebar } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   BUILDING_ICON,
   BUILDING_LABEL,
   STATUS_BADGE_CLASS,
   STATUS_LABEL,
 } from "@/features/visits/lib/icons";
+import { ChatInputBar, MessageList, useChatStore } from "@/features/chat";
+import { JsonViewerDrawer } from "@/features/json-state";
 
 /**
- * Stub Itération 4 — page d'une visite.
- * L'écran chat (composé header VT + zone messages + input bar) sera
- * construit à l'Itération 5. Ici on affiche juste un en-tête contextuel
- * pour permettre le redirect post-création et la navigation depuis la sidebar.
+ * Itération 5 — écran chat d'une visite (zones 20/60/20).
+ *
+ * - Header (haut) : nav + contexte VT + toggle IA + bouton JSON.
+ * - Liste de messages (milieu) : useLiveQuery, append-only.
+ * - Input bar (bas) : textarea auto-resize + [+] + 🎙️ + ↑.
+ *
+ * Doctrine respectée :
+ *  - Pas de mutation IA (toggle inerte côté backend).
+ *  - Pas d'audio/photo (stubs Phase 2).
+ *  - L'input bar reste fixe au-dessus du clavier (useVirtualKeyboard).
  */
 export const Route = createFileRoute("/_authenticated/visits/$visitId")({
-  component: VisitPage,
+  component: VisitChatPage,
 });
 
-function VisitPage() {
+function VisitChatPage() {
   const { visitId } = Route.useParams();
   const navigate = useNavigate();
+  const userId = useAuth((s) => s.user?.id);
+  const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
+  const setAiEnabled = useChatStore((s) => s.setAiEnabled);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
+
+  // Met à jour la variable CSS --kb-height pour garder l'input bar au-dessus du clavier.
+  useVirtualKeyboard();
 
   const visit = useLiveQuery(
     () => getDb().visits.get(visitId),
     [visitId],
-  ) as LocalVisit | undefined;
+  );
 
   if (visit === undefined) {
-    // Loading initial Dexie
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-primary" />
@@ -61,10 +80,33 @@ function VisitPage() {
     );
   }
 
-  const Icon = visit.building_type ? BUILDING_ICON[visit.building_type] : BUILDING_ICON.autre;
+  const Icon = visit.building_type
+    ? BUILDING_ICON[visit.building_type]
+    : BUILDING_ICON.autre;
   const buildingLabel = visit.building_type
     ? BUILDING_LABEL[visit.building_type]
     : "Type non précisé";
+
+  async function handleSubmit(content: string) {
+    if (!userId) {
+      toast.error("Session expirée — veuillez vous reconnecter.");
+      return;
+    }
+    try {
+      // appendLocalMessage est atomique : insert + enqueue sync_queue
+      // dans une transaction Dexie (cf. messages.repo.ts).
+      await appendLocalMessage({
+        userId,
+        visitId,
+        role: "user",
+        kind: "text",
+        content,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur inconnue";
+      toast.error("Envoi impossible", { description: message });
+    }
+  }
 
   return (
     <div className="flex h-dvh flex-row bg-background safe-x">
@@ -83,9 +125,10 @@ function VisitPage() {
         </SheetContent>
       </Sheet>
 
-      {/* Contenu principal */}
+      {/* Colonne chat — layout 20/60/20 en flex column */}
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="safe-top safe-x border-b border-border bg-card">
+        {/* HAUT : header VT + toggle IA + bouton JSON */}
+        <header className="safe-top safe-x shrink-0 border-b border-border bg-card">
           <div className="flex h-14 items-center gap-2 px-3">
             <button
               type="button"
@@ -115,7 +158,7 @@ function VisitPage() {
                 {visit.title}
               </h1>
               <p className="font-ui truncate text-xs text-muted-foreground">
-                {visit.address ?? "Adresse non renseignée"}
+                {visit.address ?? buildingLabel}
               </p>
             </div>
             <span
@@ -123,35 +166,68 @@ function VisitPage() {
             >
               {STATUS_LABEL[visit.status]}
             </span>
+            <button
+              type="button"
+              onClick={() => setJsonOpen(true)}
+              className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
+              aria-label="Ouvrir l'état JSON"
+              data-testid="open-json-viewer"
+            >
+              <Braces className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Sous-header : toggle IA */}
+          <div className="flex items-center justify-between gap-3 border-t border-border/60 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`ai-toggle-${visit.id}`}
+                checked={aiEnabled}
+                onCheckedChange={(v) => setAiEnabled(visit.id, v)}
+                aria-label="Activer l'IA pour cette visite"
+              />
+              <Label
+                htmlFor={`ai-toggle-${visit.id}`}
+                className="font-ui cursor-pointer text-xs"
+              >
+                IA
+              </Label>
+            </div>
+            {aiEnabled ? (
+              <span
+                className="font-ui rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-medium text-primary"
+                data-testid="ai-status-badge"
+              >
+                IA active
+              </span>
+            ) : (
+              <span
+                className="font-ui rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                data-testid="ai-status-badge"
+              >
+                IA désactivée
+              </span>
+            )}
           </div>
         </header>
 
-        <section className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
-          <div className="max-w-md">
-            <h2 className="font-heading text-lg font-semibold text-foreground">
-              Visite prête
-            </h2>
-            <p className="font-body mt-2 text-sm text-muted-foreground">
-              Cette visite est créée localement et en attente de synchronisation.
-              L'écran de conversation (chat + JSON viewer) arrive en Itération 5.
-            </p>
-            <dl className="font-ui mt-6 grid grid-cols-2 gap-3 text-left text-xs">
-              <div>
-                <dt className="text-muted-foreground">Typologie</dt>
-                <dd className="text-foreground">{buildingLabel}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Mission</dt>
-                <dd className="text-foreground">{visit.mission_type ?? "—"}</dd>
-              </div>
-              <div className="col-span-2">
-                <dt className="text-muted-foreground">ID local</dt>
-                <dd className="truncate font-mono text-foreground">{visit.id}</dd>
-              </div>
-            </dl>
-          </div>
+        {/* MILIEU : messages — flex-1 + scrollable */}
+        <section
+          className="min-h-0 flex-1 overflow-y-auto bg-background"
+          aria-label="Messages de la visite"
+        >
+          <MessageList visitId={visit.id} />
         </section>
+
+        {/* BAS : input bar — fixée au-dessus du clavier via .input-bar-safe-bottom */}
+        <ChatInputBar visitId={visit.id} onSubmit={handleSubmit} />
       </main>
+
+      <JsonViewerDrawer
+        visitId={visit.id}
+        open={jsonOpen}
+        onOpenChange={setJsonOpen}
+      />
     </div>
   );
 }

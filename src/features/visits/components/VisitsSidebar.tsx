@@ -95,11 +95,10 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
 
           <div className="flex items-center gap-2">
             <div
-              className="flex h-7 w-7 items-center justify-center rounded-md"
-              style={{ backgroundColor: "var(--vtu-primary)" }}
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-primary"
               aria-hidden="true"
             >
-              <span className="font-ui text-xs font-bold text-white">V</span>
+              <span className="font-ui text-xs font-bold text-primary-foreground">V</span>
             </div>
             <span className="font-heading text-base font-semibold tracking-tight">
               VTU
@@ -192,11 +191,10 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-4 py-12 text-center">
       <div
-        className="mb-4 flex h-14 w-14 items-center justify-center rounded-full"
-        style={{ backgroundColor: "var(--vtu-primary)" }}
+        className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary"
         aria-hidden="true"
       >
-        <Plus className="h-6 w-6 text-white" />
+        <Plus className="h-6 w-6 text-primary-foreground" />
       </div>
       <h3 className="font-heading text-lg font-semibold text-foreground">
         Aucune visite
