@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock Supabase client AVANT d'importer le store.
-const onAuthStateChange = vi.fn(() => ({
+const onAuthStateChange = vi.fn<(...a: unknown[]) => unknown>(() => ({
   data: { subscription: { unsubscribe: vi.fn() } },
 }));
-const getSession = vi.fn(() =>
+const getSession = vi.fn<() => Promise<{ data: { session: null } }>>(() =>
   Promise.resolve({ data: { session: null } }),
 );
-const signInWithOtp = vi.fn(() => Promise.resolve({ error: null }));
+const signInWithOtp = vi.fn<(arg: { email: string; options: { emailRedirectTo: string; shouldCreateUser: boolean } }) => Promise<{ error: null }>>(() => Promise.resolve({ error: null }));
 const signOut = vi.fn(() => Promise.resolve({ error: null }));
 
 vi.mock("@/integrations/supabase/client", () => ({
@@ -58,10 +58,7 @@ describe("auth store", () => {
       .getState()
       .signInWithMagicLink("test@example.com", "/visits");
     expect(signInWithOtp).toHaveBeenCalledOnce();
-    const arg = signInWithOtp.mock.calls[0][0] as {
-      email: string;
-      options: { emailRedirectTo: string };
-    };
+    const arg = signInWithOtp.mock.calls[0]![0];
     expect(arg.email).toBe("test@example.com");
     expect(arg.options.emailRedirectTo).toContain("/auth/callback");
     expect(arg.options.emailRedirectTo).toContain(
