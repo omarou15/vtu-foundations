@@ -52,6 +52,10 @@ Phase 1 livre un **manifest installable** (Add to Home Screen, icônes, `display
 - `navigateFallbackDenylist` pour `/auth/*` et `/~oauth/*`
 - Tester offline complet (avion mode) sur iOS Safari + Android Chrome
 
+### 🔧 Pin de dépendance — `@vitejs/plugin-react`
+
+`@vitejs/plugin-react` est pinné en **v4.x** (et non v6) car la v6 importe `vite/internal`, qui n'est plus exporté par Vite 7. Le template Lovable (`@lovable.dev/vite-tanstack-config`) injecte déjà ce plugin en v4 et c'est la version supportée. À surveiller : si Vite 7+ rouvre l'export interne ou si `@vitejs/plugin-react@7` sort compatible, on pourra remonter.
+
 ### Phase 2 (prompts ultérieurs)
 
 - Messages photos (capture, rafale, galerie, lightbox)
