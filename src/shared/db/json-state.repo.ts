@@ -2,11 +2,17 @@
  * VTU — Repository visit_json_state (Dexie local, versionné)
  *
  * Une nouvelle ligne par version. Jamais d'UPDATE en place.
+ *
+ * It. 7 : `upsertJsonStateFromRemote` passe le `state` reçu par
+ * `migrateVisitJsonState` AVANT le put local. Garantit qu'un VT Phase 1
+ * pull cross-device est rétro-compatible v2 (mapping building_type →
+ * building_typology, hydration sections vides, etc.).
  */
 
 import { v4 as uuidv4 } from "uuid";
 import { getDb, type LocalVisitJsonState } from "@/shared/db/schema";
 import type { VisitJsonState, VisitJsonStateRow } from "@/shared/types";
+import { migrateVisitJsonState } from "@/shared/types/json-state.migrate";
 
 interface InsertLocalJsonStateInput {
   userId: string;
