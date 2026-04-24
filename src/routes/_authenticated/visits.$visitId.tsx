@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Braces, Menu } from "lucide-react";
+import { ArrowLeft, Braces, Menu, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { appendLocalMessage, getDb } from "@/shared/db";
 import { useAuth } from "@/features/auth";
 import { useVirtualKeyboard } from "@/shared/hooks";
+import { useConnectionStore } from "@/shared/sync";
 import { VisitsSidebar } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
@@ -41,6 +42,7 @@ function VisitChatPage() {
   const userId = useAuth((s) => s.user?.id);
   const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
   const setAiEnabled = useChatStore((s) => s.setAiEnabled);
+  const isOnline = useConnectionStore((s) => s.isOnline);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
 
