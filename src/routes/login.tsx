@@ -16,6 +16,25 @@ export const Route = createFileRoute("/login")({
   ssr: false,
 });
 
+/**
+ * Détecte un environnement non-production (dev local OU preview Lovable).
+ *
+ * `import.meta.env.DEV` seul ne suffit pas : le preview Lovable sert un
+ * build de production, donc DEV=false et le bouton disparaissait.
+ * On élargit à tout hostname qui n'est PAS le domaine de prod publié.
+ */
+function isDevEnvironment(): boolean {
+  if (import.meta.env.DEV) return true;
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return (
+    host.endsWith(".lovableproject.com") ||
+    host.startsWith("id-preview--") ||
+    host === "localhost" ||
+    host === "127.0.0.1"
+  );
+}
+
 function LoginPage() {
   const search = Route.useSearch();
   const navigate = useNavigate();
@@ -127,7 +146,7 @@ function LoginPage() {
             </form>
           )}
 
-          {import.meta.env.DEV && (
+          {isDevEnvironment() && (
             <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-4">
               <p className="font-ui mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 🔧 Mode développement
