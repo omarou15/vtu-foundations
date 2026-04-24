@@ -182,12 +182,12 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 
 ## 8. Scope Phase 1 (checklist à jour)
 
-- Itération 1 — Setup, design tokens, structure, manifest
-- Itération 2 — Auth magic link + routing + guards
-- Itération 3 — Schéma Supabase + RLS + Dexie local
-- Itération 4 — Sidebar VTs + création + JSON state initial
-- Itération 5 — Chat texte + JSON viewer + menu stubs
-- Itération 6 — Sync engine offline-first + Edge Function scaffold
+- [x] Itération 1 — Setup, design tokens, structure, manifest
+- [x] Itération 2 — Auth magic link + routing + guards
+- [x] Itération 3 — Schéma Supabase + RLS + Dexie local
+- [ ] Itération 4 — Sidebar VTs + création + JSON state initial
+- [ ] Itération 5 — Chat texte + JSON viewer + menu stubs
+- [ ] Itération 6 — Sync engine offline-first + Edge Function scaffold
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,

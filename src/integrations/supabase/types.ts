@@ -14,7 +14,182 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      attachments: {
+        Row: {
+          bucket: string
+          created_at: string
+          id: string
+          message_id: string
+          metadata: Json
+          mime_type: string | null
+          size_bytes: number | null
+          storage_path: string
+          user_id: string
+          visit_id: string
+        }
+        Insert: {
+          bucket: string
+          created_at?: string
+          id?: string
+          message_id: string
+          metadata?: Json
+          mime_type?: string | null
+          size_bytes?: number | null
+          storage_path: string
+          user_id: string
+          visit_id: string
+        }
+        Update: {
+          bucket?: string
+          created_at?: string
+          id?: string
+          message_id?: string
+          metadata?: Json
+          mime_type?: string | null
+          size_bytes?: number | null
+          storage_path?: string
+          user_id?: string
+          visit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachments_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachments_visit_id_fkey"
+            columns: ["visit_id"]
+            isOneToOne: false
+            referencedRelation: "visits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          client_id: string
+          content: string | null
+          created_at: string
+          id: string
+          kind: string
+          metadata: Json
+          role: string
+          user_id: string
+          visit_id: string
+        }
+        Insert: {
+          client_id: string
+          content?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          metadata?: Json
+          role: string
+          user_id: string
+          visit_id: string
+        }
+        Update: {
+          client_id?: string
+          content?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          metadata?: Json
+          role?: string
+          user_id?: string
+          visit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_visit_id_fkey"
+            columns: ["visit_id"]
+            isOneToOne: false
+            referencedRelation: "visits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visit_json_state: {
+        Row: {
+          created_at: string
+          created_by_message_id: string | null
+          id: string
+          state: Json
+          user_id: string
+          version: number
+          visit_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by_message_id?: string | null
+          id?: string
+          state: Json
+          user_id: string
+          version: number
+          visit_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by_message_id?: string | null
+          id?: string
+          state?: Json
+          user_id?: string
+          version?: number
+          visit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visit_json_state_created_by_message_id_fkey"
+            columns: ["created_by_message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visit_json_state_visit_id_fkey"
+            columns: ["visit_id"]
+            isOneToOne: false
+            referencedRelation: "visits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visits: {
+        Row: {
+          client_id: string
+          created_at: string
+          id: string
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          id?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          id?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
