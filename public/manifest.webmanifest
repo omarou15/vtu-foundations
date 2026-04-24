@@ -1,0 +1,26 @@
+{
+  "name": "VTU — Visite Technique",
+  "short_name": "VTU",
+  "description": "Application de visite technique pour thermiciens. Mobile-first, offline-first.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FF6B35",
+  "lang": "fr",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
