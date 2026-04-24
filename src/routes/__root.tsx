@@ -31,8 +31,8 @@ export const Route = createRootRoute({
       {
         name: "viewport",
         // viewport-fit=cover : essentiel pour env(safe-area-inset-*) iOS
-        content:
-          "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1",
+        // Pas de maximum-scale : a11y, on doit laisser l'utilisateur zoomer
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
       { name: "theme-color", content: "#FF6B35" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
