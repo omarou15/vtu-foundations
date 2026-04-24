@@ -2,11 +2,20 @@
  * VTU — Repository messages (Dexie local, append-only)
  *
  * Append-only : pas d'update. Toute correction = nouveau message.
+ *
+ * Itération 5 : `appendLocalMessage` est ATOMIQUE — insert message +
+ * enqueue sync_queue dans une seule transaction Dexie (rw). Cohérent
+ * avec `createLocalVisit` (Itération 4).
  */
 
 import { v4 as uuidv4 } from "uuid";
 import { getDb, type LocalMessage } from "@/shared/db/schema";
-import type { MessageKind, MessageRole, MessageRow } from "@/shared/types";
+import type {
+  MessageKind,
+  MessageRole,
+  MessageRow,
+  SyncQueueEntry,
+} from "@/shared/types";
 
 interface AppendLocalMessageInput {
   userId: string;
@@ -37,7 +46,23 @@ export async function appendLocalMessage(
     sync_last_error: null,
     local_updated_at: now,
   };
-  await db.messages.add(message);
+
+  const queueEntry: SyncQueueEntry = {
+    table: "messages",
+    op: "insert",
+    row_id: message.id,
+    payload: serializeMessageForSync(message),
+    attempts: 0,
+    last_error: null,
+    created_at: now,
+    next_attempt_at: now,
+  };
+
+  await db.transaction("rw", db.messages, db.sync_queue, async () => {
+    await db.messages.add(message);
+    await db.sync_queue.add(queueEntry);
+  });
+
   return message;
 }
 
@@ -71,4 +96,23 @@ export async function upsertMessageFromRemote(row: MessageRow): Promise<void> {
     local_updated_at: new Date().toISOString(),
   };
   await db.messages.put(local);
+}
+
+// ---------------------------------------------------------------------------
+// Serializer (payload pour sync_queue → Supabase)
+// Sépare les champs sync_* (locaux) des champs DB (envoyés à Supabase).
+// ---------------------------------------------------------------------------
+
+function serializeMessageForSync(m: LocalMessage): Record<string, unknown> {
+  return {
+    id: m.id,
+    user_id: m.user_id,
+    visit_id: m.visit_id,
+    client_id: m.client_id,
+    role: m.role,
+    kind: m.kind,
+    content: m.content,
+    metadata: m.metadata,
+    created_at: m.created_at,
+  };
 }
