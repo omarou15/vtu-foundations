@@ -185,7 +185,7 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 1 — Setup, design tokens, structure, manifest
 - [x] Itération 2 — Auth magic link + routing + guards
 - [x] Itération 3 — Schéma Supabase + RLS + Dexie local
-- [ ] Itération 4 — Sidebar VTs + création + JSON state initial
+- [x] Itération 4 — Sidebar VTs + création + JSON state initial
 - [ ] Itération 5 — Chat texte + JSON viewer + menu stubs
 - [ ] Itération 6 — Sync engine offline-first + Edge Function scaffold
 
