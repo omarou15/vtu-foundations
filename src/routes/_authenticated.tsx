@@ -28,17 +28,17 @@ function AuthenticatedLayout() {
 
   useEffect(() => {
     if (status !== "unauthenticated") return;
-    // Guard contre boucle de redirection : on capture la cible une seule
-    // fois et on n'inclut pas location.href dans les deps (sinon
-    // navigate() peut re-tirer le useEffect avant que la route ait
-    // changé, ce qui produit une boucle "Maximum update depth").
+    // On lit location.href au moment du déclenchement (pas dans les deps)
+    // pour éviter une boucle de redirection : le router peut notifier des
+    // changements de location avant que le navigate() ait pris effet.
     const target = location.href;
     navigate({
       to: "/login",
       search: { redirect: target === "/login" ? undefined : target },
       replace: true,
     });
-  }, [status, navigate, location.href]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, navigate]);
 
   if (status !== "authenticated") {
     return (
