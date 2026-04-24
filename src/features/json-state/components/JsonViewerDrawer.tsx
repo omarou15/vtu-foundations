@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { JsonView, defaultStyles } from "react-json-view-lite";
 import "react-json-view-lite/dist/index.css";
-import { Copy, Check, AlertTriangle } from "lucide-react";
+import { Copy, Check, AlertTriangle, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -60,6 +60,7 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        hideCloseButton
         className="safe-top safe-bottom safe-x flex w-full flex-col gap-0 p-0 sm:max-w-lg"
       >
         <SheetHeader className="border-b border-border p-4 text-left">
@@ -74,24 +75,34 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
                 Source de vérité — versionné, append-only.
               </SheetDescription>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleCopy()}
-              disabled={!latest}
-              className="font-ui shrink-0"
-            >
-              {copied ? (
-                <>
-                  <Check className="h-4 w-4" /> Copié
-                </>
-              ) : (
-                <>
-                  <Copy className="h-4 w-4" /> Copier JSON
-                </>
-              )}
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleCopy()}
+                disabled={!latest}
+                className="font-ui"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-4 w-4" /> Copié
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4" /> Copier JSON
+                  </>
+                )}
+              </Button>
+              <button
+                type="button"
+                onClick={() => onOpenChange(false)}
+                className="touch-target inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Fermer le panneau JSON"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
           {lowCount > 0 ? (
