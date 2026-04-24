@@ -60,7 +60,7 @@ describe("findLowConfidenceFieldPaths / countLowConfidenceFields", () => {
       buildingType: "appartement",
     });
     s.meta.address.confidence = "low";
-    s.meta.building_type.confidence = "low";
+    s.meta.building_typology.confidence = "low";
     s.meta.title.confidence = "low";
     expect(countLowConfidenceFields(s)).toBe(3);
   });
