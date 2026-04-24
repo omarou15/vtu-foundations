@@ -252,14 +252,15 @@ describe("visit_json_state — versioning local", () => {
 
 describe("Factory createInitialVisitJsonState — pur (hors Dexie)", () => {
   it("est conforme au schéma zod et expose des Field<T> traçables", () => {
+    const visitId = "55555555-5555-5555-5555-555555555555";
     const state = createInitialVisitJsonState({
-      visitId: "v-1",
+      visitId,
       clientId: "c-1",
       title: "T",
-      thermicienId: "u-1",
+      thermicienId: USER_A,
     });
     const parsed = VisitJsonStateSchema.parse(state);
-    expect(parsed.meta.visit_id.value).toBe("v-1");
+    expect(parsed.meta.visit_id.value).toBe(visitId);
     expect(parsed.meta.visit_id.source).toBe("init");
     expect(parsed.meta.address.value).toBeNull();
     expect(parsed.meta.address.source).toBe("init");
