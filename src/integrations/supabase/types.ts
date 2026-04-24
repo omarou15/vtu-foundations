@@ -159,9 +159,12 @@ export type Database = {
       }
       visits: {
         Row: {
+          address: string | null
+          building_type: string | null
           client_id: string
           created_at: string
           id: string
+          mission_type: string | null
           status: string
           title: string
           updated_at: string
@@ -169,9 +172,12 @@ export type Database = {
           version: number
         }
         Insert: {
+          address?: string | null
+          building_type?: string | null
           client_id: string
           created_at?: string
           id?: string
+          mission_type?: string | null
           status?: string
           title?: string
           updated_at?: string
@@ -179,9 +185,12 @@ export type Database = {
           version?: number
         }
         Update: {
+          address?: string | null
+          building_type?: string | null
           client_id?: string
           created_at?: string
           id?: string
+          mission_type?: string | null
           status?: string
           title?: string
           updated_at?: string
