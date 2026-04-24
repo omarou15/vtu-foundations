@@ -80,6 +80,9 @@
   --color-online: var(--online);
   --color-offline: var(--offline);
 
+  /* 3 familles complémentaires (Anthropic Claude) */
+  --font-heading: "Poppins", system-ui, -apple-system, Arial, sans-serif;
+  --font-body: "Lora", Georgia, "Times New Roman", serif;
   --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
