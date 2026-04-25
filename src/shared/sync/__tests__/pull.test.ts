@@ -320,11 +320,12 @@ describe("Dexie v2 — sync_state", () => {
     expect(v).toBe("2026-04-24T15:00:00.000Z");
   });
 
-  it("la DB s'ouvre en v2 avec la table sync_state exposée", async () => {
+  it("la DB s'ouvre en v3 avec les tables sync_state + schema_registry exposées", async () => {
     const db = getDb();
     await db.open();
-    expect(db.verno).toBe(2);
+    expect(db.verno).toBe(3);
     const names = db.tables.map((t) => t.name).sort();
     expect(names).toContain("sync_state");
+    expect(names).toContain("schema_registry");
   });
 });

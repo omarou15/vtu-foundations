@@ -55,14 +55,15 @@ afterEach(async () => {
 });
 
 describe("Dexie schema — smoke", () => {
-  it("ouvre la DB en v2 et expose les 6 tables (incl. sync_state)", async () => {
+  it("ouvre la DB en v3 et expose les 7 tables (incl. schema_registry)", async () => {
     const db = getDb();
     await db.open();
-    expect(db.verno).toBe(2);
+    expect(db.verno).toBe(3);
     const names = db.tables.map((t) => t.name).sort();
     expect(names).toEqual([
       "attachments",
       "messages",
+      "schema_registry",
       "sync_queue",
       "sync_state",
       "visit_json_state",
@@ -88,7 +89,7 @@ describe("createLocalVisit — squelette JSON initial", () => {
     expect(visit.client_id).toMatch(/^[0-9a-f-]{36}$/);
 
     // JSON state initial
-    expect(initialState.schema_version).toBe(1);
+    expect(initialState.schema_version).toBe(2);
     expect(initialState.meta.visit_id.value).toBe(visit.id);
     expect(initialState.meta.client_id.value).toBe(visit.client_id);
     expect(initialState.meta.title.value).toBe("Maison Dupont");
