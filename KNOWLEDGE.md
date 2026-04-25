@@ -224,7 +224,46 @@ multi-user, partage, push, édition message, export.
   profond pour TS sans `excessively deep` warning. Le call site
   (`useSyncEngine`) cast via `as unknown as`. Idem `runPullOnce`
   (`PullSupabaseLike`) et `useMessagesSync`. Acceptable car la surface
-  utilisée est triviale et stable.
+  utilisée est triviale et stable. **It. 7** : même pattern pour
+  `SchemaRegistrySupabaseLike` (`schema-registry.repo.ts`) — call sites
+  cast via `as unknown as`.
+
+### §13 — JSON dynamique : architecture & gouvernance (Phase 2 It. 7)
+
+- **3 niveaux de métadonnées** : (1) `Field<T>` traçable (value + source +
+  confidence + updated_at + source_message_id), (2) sections structurelles
+  Zod (`building`, `envelope`, `heating`, ...), (3) `custom_fields[]`
+  ad-hoc ancrés sur registry.
+- **`registry_urn` = ancre stable à vie** : pattern figé
+  `urn:vtu:schema:{canonical_section_path}.{field_key}:v1`. Bump `:v2`
+  uniquement si rupture sémantique (ex: changement de `value_type`).
+- **Canonicalisation `sectionPath`** : `canonicalizeSectionPath` remplace
+  `[\d+]` par `[]` AVANT toute opération registry (build URN, lookup,
+  fuzzy, increment). Sinon 2 ballons ECS = 2 URN différents pour le même
+  champ métier → explosion du registry.
+- **`schema_registry` = table sociale** scopée user (`UNIQUE (user_id,
+  registry_urn)`). Phase 4 : org-scoped via `organization_id` (déjà
+  nullable en DB).
+- **Anti-prolifération** : `_buildCustomFieldSkeleton` est PRIVÉ. Le SEUL
+  point d'entrée public est `createCustomField` (json-state.factory.ts)
+  qui FORCE le passage par `resolveOrCreateRegistryEntry`.
+- **Offline-first du registry** : URN déterministe calculable sans réseau.
+  En offline (ou erreur réseau), mirror Dexie + enqueue
+  `schema_registry_upsert` dans la `sync_queue`. `registry_id` = null
+  tant que la sync n'a pas confirmé ; `registry_urn` suffit pour la
+  traçabilité immédiate. Conflict 23505 côté serveur = succès logique.
+- **2 RPC Postgres** : `find_similar_schema_fields(user, path, query)`
+  (fuzzy ILIKE label/key/synonyms, ORDER BY usage_count, LIMIT 10) et
+  `increment_registry_usage(id)` (atomique, anti race-condition).
+- **Migration v1 → v2** : `migrateVisitJsonState` idempotent, mappe
+  `building_type → building_typology` (`immeuble → null +
+  needs_reclassification`), bump `schema_version: 1 → 2`. Appliquée
+  automatiquement par `upsertJsonStateFromRemote` (rétrocompat pull
+  cross-device).
+- **Bornes physiques** (`json-state.bounds.ts`) : rejettent UNIQUEMENT
+  les hallucinations IA. JAMAIS un bâtiment français réel (Tour
+  Montparnasse 59 niveaux, campus 150k m², chaufferie 5MW, monument an
+  1100). `makeYearBound(min, offsetMax=2)` runtime-evaluated.
 - Sync sérialisé : un seul tick à la fois par fenêtre via flag mémoire.
   Sur multi-onglets, l'idempotence DB (unique `(user_id, client_id)`)
   protège — pas de lock cross-tab pour Phase 1.
