@@ -89,7 +89,7 @@ describe("createLocalVisit — squelette JSON initial", () => {
     expect(visit.client_id).toMatch(/^[0-9a-f-]{36}$/);
 
     // JSON state initial
-    expect(initialState.schema_version).toBe(1);
+    expect(initialState.schema_version).toBe(2);
     expect(initialState.meta.visit_id.value).toBe(visit.id);
     expect(initialState.meta.client_id.value).toBe(visit.client_id);
     expect(initialState.meta.title.value).toBe("Maison Dupont");
