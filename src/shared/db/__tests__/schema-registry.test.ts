@@ -6,6 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SchemaRegistrySupabaseLike } from "@/shared/db/schema-registry.repo";
 import {
   __resetDbForTests,
   findLocalRegistryByUrn,
@@ -149,7 +150,7 @@ describe("resolveOrCreateRegistryEntry — online flow", () => {
       insert: { data: remote, error: null },
     });
 
-    const res = await resolveOrCreateRegistryEntry(supabase, {
+    const res = await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, {
       sectionPath: "building",
       fieldKey: "heat_loss_kw",
       labelFr: "Déperdition (kW)",
@@ -174,7 +175,7 @@ describe("resolveOrCreateRegistryEntry — online flow", () => {
     const remote = fakeRegistryEntry({ usage_count: 5 });
     const supabase = makeMockSupabase({ remoteExact: remote });
 
-    const res = await resolveOrCreateRegistryEntry(supabase, {
+    const res = await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, {
       sectionPath: "building",
       fieldKey: "heat_loss_kw",
       labelFr: "Déperdition (kW)",
@@ -204,7 +205,7 @@ describe("resolveOrCreateRegistryEntry — online flow", () => {
     });
 
     const supabase = makeMockSupabase({});
-    const res = await resolveOrCreateRegistryEntry(supabase, {
+    const res = await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, {
       sectionPath: "building",
       fieldKey: "heat_loss_kw",
       labelFr: "Déperdition (kW)",
@@ -231,7 +232,7 @@ describe("resolveOrCreateRegistryEntry — online flow", () => {
       refetchOnConflict: conflicting,
     });
 
-    const res = await resolveOrCreateRegistryEntry(supabase, {
+    const res = await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, {
       sectionPath: "building",
       fieldKey: "heat_loss_kw",
       labelFr: "Déperdition (kW)",
@@ -260,7 +261,7 @@ describe("resolveOrCreateRegistryEntry — offline-first", () => {
 
   it("offline → URN déterministe + mirror local pending + enqueue", async () => {
     const supabase = makeMockSupabase({});
-    const res = await resolveOrCreateRegistryEntry(supabase, {
+    const res = await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, {
       sectionPath: "ecs[0]",
       fieldKey: "calorifuge_material",
       labelFr: "Calorifuge",
@@ -298,7 +299,7 @@ describe("resolveOrCreateRegistryEntry — offline-first", () => {
     });
     const supabase = makeMockSupabase({ throwOnExactSelect: true });
 
-    const res = await resolveOrCreateRegistryEntry(supabase, {
+    const res = await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, {
       sectionPath: "building",
       fieldKey: "heat_loss_kw",
       labelFr: "Déperdition",
@@ -322,8 +323,8 @@ describe("resolveOrCreateRegistryEntry — offline-first", () => {
       aiSuggested: false,
       userId: USER,
     };
-    await resolveOrCreateRegistryEntry(supabase, params);
-    await resolveOrCreateRegistryEntry(supabase, params);
+    await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, params);
+    await resolveOrCreateRegistryEntry(supabase as unknown as SchemaRegistrySupabaseLike, params);
 
     const db = getDb();
     const all = await db.schema_registry.toArray();
