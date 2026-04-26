@@ -190,9 +190,10 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 6 — Sync engine offline-first + Edge Function scaffold
 - [x] Itération 6.5 — Pull cross-device + Realtime (pré-requis prod)
 - [x] Itération 7 — Schéma JSON dynamique v2 + Schema Registry offline-first
+- [x] Itération 9 — Pipeline médias photos / plans / PDFs (intention-first)
 
-**✅ Phase 1 + It. 7 (Phase 2 fondations) COMPLÈTES.** Prochaine étape :
-audio, photos, IA mutation JSON, rapport Word.
+**✅ Phase 1 + It. 7 + It. 9 (Phase 2) COMPLÈTES.** Prochaine étape :
+audio (it. 8 reportée), IA mutation JSON (it. 10), rapport Word.
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,
