@@ -44,6 +44,19 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
     [latest],
   );
 
+  // It. 9 — compteur médias (stub : juste les totaux par profil)
+  const media = useLiveQuery(
+    () => listVisitMedia(visitId),
+    [visitId],
+    [],
+  );
+  const mediaStats = useMemo(() => {
+    const photo = media.filter((m) => m.media_profile === "photo").length;
+    const plan = media.filter((m) => m.media_profile === "plan").length;
+    const pdf = media.filter((m) => m.media_profile === "pdf").length;
+    return { total: media.length, photo, plan, pdf };
+  }, [media]);
+
   async function handleCopy() {
     if (!latest) return;
     try {
