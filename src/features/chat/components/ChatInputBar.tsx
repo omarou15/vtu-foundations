@@ -58,28 +58,22 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   }, [value]);
 
-  // Polling léger des drafts pour déterminer kind + activer le submit même
-  // sans texte. On évite useLiveQuery ici pour rester contrôlable
-  // (on relit juste avant submit aussi).
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    async function refresh() {
-      const drafts = await listDraftMedia(visitId).catch(() => []);
-      if (cancelled) return;
-      setDraftCount(drafts.length);
-      setAllPdf(
-        drafts.length > 0 &&
-          drafts.every((d) => d.media_profile === "pdf"),
-      );
-    }
-    void refresh();
-    timer = setInterval(refresh, 1000);
-    return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
-    };
-  }, [visitId]);
+  // Drafts médias — useLiveQuery (subscription Dexie réactive). Évite un
+  // setInterval qui continuerait de tourner en arrière-plan iPhone.
+  // On relit quand même juste avant submit pour éviter une race avec un
+  // toggle profile en cours.
+  const drafts = useLiveQuery(
+    () => listDraftMedia(visitId),
+    [visitId],
+    [] as LocalAttachment[],
+  );
+
+  const draftCount = drafts.length;
+  const allPdf = useMemo(
+    () =>
+      drafts.length > 0 && drafts.every((d) => d.media_profile === "pdf"),
+    [drafts],
+  );
 
   const trimmed = value.trim();
   const canSubmit = (trimmed.length > 0 || draftCount > 0) && !sending;
