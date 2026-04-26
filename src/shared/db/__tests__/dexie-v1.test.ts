@@ -55,12 +55,13 @@ afterEach(async () => {
 });
 
 describe("Dexie schema — smoke", () => {
-  it("ouvre la DB en v3 et expose les 7 tables (incl. schema_registry)", async () => {
+  it("ouvre la DB en v4 et expose les 8 tables (incl. attachment_blobs)", async () => {
     const db = getDb();
     await db.open();
-    expect(db.verno).toBe(3);
+    expect(db.verno).toBe(4);
     const names = db.tables.map((t) => t.name).sort();
     expect(names).toEqual([
+      "attachment_blobs",
       "attachments",
       "messages",
       "schema_registry",
