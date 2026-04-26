@@ -25,6 +25,10 @@ import type { SyncQueueEntry } from "@/shared/types";
  * Type structurel minimal du sous-ensemble de l'API Supabase utilisé
  * par l'engine. On reste compatible avec le vrai `SupabaseClient` (qui
  * implémente une API beaucoup plus large) tout en facilitant les mocks.
+ *
+ * Itération 9 : ajout de l'API Storage (upload + remove) et d'une chaîne
+ * de SELECT minimaliste pour le check "message côté serveur" et pour
+ * l'idempotence "row attachment déjà insérée".
  */
 export interface SyncSupabaseLike {
   from(table: string): {
@@ -34,6 +38,35 @@ export interface SyncSupabaseLike {
     update(payload: Record<string, unknown>): {
       eq(column: string, value: string): PromiseLike<{
         error: { code?: string; message: string } | null;
+      }>;
+    };
+    /**
+     * SELECT id FROM <table> WHERE <col> = <val> LIMIT 1.
+     * Optionnelle (utilisée seulement par le handler attachment_upload
+     * pour vérifier la dépendance message côté serveur).
+     */
+    select?(columns: string): {
+      eq(column: string, value: string): {
+        maybeSingle(): PromiseLike<{
+          data: { id: string } | null;
+          error: { code?: string; message: string } | null;
+        }>;
+      };
+    };
+  };
+  /**
+   * API Storage. Optionnelle pour rester rétro-compatible avec les tests
+   * existants qui ne ciblent pas attachment_upload. Le handler dédié
+   * vérifiera sa présence à l'usage.
+   */
+  storage?: {
+    from(bucket: string): {
+      upload(
+        path: string,
+        file: Blob,
+        options?: { upsert?: boolean; contentType?: string },
+      ): PromiseLike<{
+        error: { message: string } | null;
       }>;
     };
   };

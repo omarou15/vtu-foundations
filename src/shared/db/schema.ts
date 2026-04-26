@@ -16,6 +16,8 @@
  *  - v1 : visits, messages, attachments, visit_json_state, sync_queue
  *  - v2 : ajout sync_state (curseurs de pull, par table)
  *  - v3 : ajout schema_registry (vocabulaire métier, mirror local)
+ *  - v4 : pipeline médias (It. 9) — extension index attachments + table
+ *         attachment_blobs (blobs lourds isolés du store métier)
  */
 
 import Dexie, { type Table } from "dexie";
@@ -50,6 +52,20 @@ export interface SyncStateRow {
   value: string; // ISO timestamp
 }
 
+/**
+ * It. 9 — Blobs lourds (compressed + thumbnail) stockés à part de la
+ * table métier `attachments`. La FK locale est `attachment_id` (= row id).
+ * Cleanup TTL délégué à It. 12 (housekeeping).
+ */
+export interface AttachmentBlobRow {
+  attachment_id: string;
+  /** Version compressée (ou file brut pour PDF). */
+  compressed: Blob;
+  /** Thumbnail. NULL pour les PDF (rendu via icône SVG inline). */
+  thumbnail: Blob | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Database
 // ---------------------------------------------------------------------------
@@ -62,6 +78,7 @@ export class VtuDatabase extends Dexie {
   sync_queue!: Table<SyncQueueEntry, number>;
   sync_state!: Table<SyncStateRow, string>;
   schema_registry!: Table<LocalSchemaRegistryEntry, string>;
+  attachment_blobs!: Table<AttachmentBlobRow, string>;
 
   constructor() {
     super("vtu");
@@ -94,6 +111,18 @@ export class VtuDatabase extends Dexie {
     this.version(3).stores({
       schema_registry:
         "id, &registry_urn, section_path, [section_path+field_key], status, sync_status",
+    });
+
+    // -------- v4 -------- (Itération 9 : pipeline médias)
+    // - attachments : ajout sha256 + index composé pour la dedup informatif
+    //   et [visit_id+sync_status] pour la liste des drafts (PhotoPreviewPanel).
+    //   Le statut "draft" (sync_status) signifie : créé localement mais pas
+    //   encore enqueue dans sync_queue (en attente d'un message porteur).
+    // - attachment_blobs : nouvelle table, blobs lourds isolés du store métier.
+    this.version(4).stores({
+      attachments:
+        "id, message_id, visit_id, user_id, sync_status, sha256, [user_id+sha256], [visit_id+sync_status]",
+      attachment_blobs: "&attachment_id, created_at",
     });
   }
 }
