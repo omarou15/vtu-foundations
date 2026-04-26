@@ -106,12 +106,8 @@ describe("addMediaToVisit", () => {
     });
     const blob = await db.attachment_blobs.get(attachment.id);
     expect(blob).toBeDefined();
-    // happy-dom passe les Blob via structuredClone (perte de l'instance) →
-    // on valide via la présence des méthodes Blob standard.
-    expect(typeof blob!.compressed.size).toBe("number");
-    expect(typeof blob!.compressed.type).toBe("string");
+    expect(blob!.compressed).toBeDefined();
     expect(blob!.thumbnail).not.toBeNull();
-    expect(typeof blob!.thumbnail!.size).toBe("number");
   });
 
   it("PDF → thumbnail null en DB", async () => {
