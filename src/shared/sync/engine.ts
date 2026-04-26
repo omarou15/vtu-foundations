@@ -54,7 +54,12 @@ export interface SyncSupabaseLike {
       };
     };
   };
-  storage: {
+  /**
+   * API Storage. Optionnelle pour rester rétro-compatible avec les tests
+   * existants qui ne ciblent pas attachment_upload. Le handler dédié
+   * vérifiera sa présence à l'usage.
+   */
+  storage?: {
     from(bucket: string): {
       upload(
         path: string,
