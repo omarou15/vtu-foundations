@@ -1,10 +1,18 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { Mic, Plus, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AttachmentSheet } from "./AttachmentSheet";
 import { PhotoPreviewPanel } from "./PhotoPreviewPanel";
 import { listDraftMedia, attachPendingMediaToMessage } from "@/shared/photo";
+import type { LocalAttachment } from "@/shared/db/schema";
 import type { MessageKind } from "@/shared/types";
 
 interface ChatInputBarProps {
