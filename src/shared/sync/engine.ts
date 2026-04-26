@@ -42,10 +42,10 @@ export interface SyncSupabaseLike {
     };
     /**
      * SELECT id FROM <table> WHERE <col> = <val> LIMIT 1.
-     * Retourne `data: null` si aucune ligne ne matche (= comportement
-     * .maybeSingle() de Supabase).
+     * Optionnelle (utilisée seulement par le handler attachment_upload
+     * pour vérifier la dépendance message côté serveur).
      */
-    select(columns: string): {
+    select?(columns: string): {
       eq(column: string, value: string): {
         maybeSingle(): PromiseLike<{
           data: { id: string } | null;
