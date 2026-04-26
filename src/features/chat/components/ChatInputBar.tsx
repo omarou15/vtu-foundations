@@ -45,8 +45,6 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [draftCount, setDraftCount] = useState(0);
-  const [allPdf, setAllPdf] = useState(false);
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
   // Auto-resize : on ajuste la hauteur en fonction du scrollHeight, plafonné.
