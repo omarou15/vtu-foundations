@@ -22,13 +22,13 @@ vi.mock("@/shared/photo/exif", () => ({
 }));
 
 beforeEach(() => {
-  // Stub createImageBitmap (JSDOM n'en a pas)
-  // @ts-expect-error - injection de test
-  globalThis.createImageBitmap = vi.fn(async () => ({
-    width: 1600,
-    height: 1200,
-    close: vi.fn(),
-  }));
+  // Stub createImageBitmap (happy-dom n'en a pas)
+  (globalThis as unknown as { createImageBitmap: unknown }).createImageBitmap =
+    vi.fn(async () => ({
+      width: 1600,
+      height: 1200,
+      close: vi.fn(),
+    }));
 });
 
 function makeFile(name: string, type: string, size = 1024): File {
