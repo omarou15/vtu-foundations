@@ -228,6 +228,57 @@ multi-user, partage, push, édition message, export.
   utilisée est triviale et stable. **It. 7** : même pattern pour
   `SchemaRegistrySupabaseLike` (`schema-registry.repo.ts`) — call sites
   cast via `as unknown as`.
+- **It. 9 — Orphelins Storage attachments** : possibles si l'INSERT row
+  échoue définitivement après upload Storage réussi. Acceptable Phase 2
+  (volume faible). Cleanup via Edge Function Phase 3 si nécessaire.
+- **It. 9 — Thumbnail PDF = icône SVG inline** (lucide FileText). Pas de
+  `pdfjs-dist` Phase 2. Si client demande la vraie page 1, prévoir
+  ~400KB gzipped Phase 3.
+- **It. 9 — Cleanup blobs locaux** : `pruneOldBlobs()` est un stub
+  Phase 2 (retourne 0). Implémentation TTL 7 jours Phase 3 si le quota
+  IndexedDB devient problématique.
+
+### §14 — Pipeline médias (Phase 2 It. 9)
+
+**Intention-first** : l'`AttachmentSheet` propose 3 actions explicites
+(📷 Photo terrain / 📄 Plan ou document / 🎙 Dictée — désactivée).
+Le profil choisi pilote `compressMedia(file, profile)`.
+
+**3 profils** :
+- `photo` : 1600px, WebP 0.80, EXIF strip (GPS extrait à part).
+- `plan` : 3000px, WebP 0.95, EXIF préservé.
+- `pdf` : passthrough (pas de re-encode), thumbnail = icône SVG inline.
+
+**Dual storage** : chaque attachment a `compressed_path` + `thumbnail_path`
+(NULL pour PDF) dans le bucket `attachments`. Le sync engine upload les
+deux avec `upsert: true` → idempotent sur retry après crash.
+
+**Dedup SHA-256** : informatif uniquement. Pas de contrainte UNIQUE
+serveur (même photo dans 2 VTs = légitime). Badge ⚠ "Dup" dans
+PhotoPreviewPanel.
+
+**Offline-first strict** : `addMediaToVisit` crée la row en
+`sync_status="draft"` SANS entry `sync_queue`. Seul
+`attachPendingMediaToMessage(visitId, messageId)` transitionne
+draft → pending et enqueue les `attachment_upload`. Garantit que
+`message_id` (NOT NULL côté DB + RLS qui exige le message existant)
+est toujours renseigné avant l'upload.
+
+**Handler engine `attachment_upload`** (workflow ordonné) :
+  1. Load LocalAttachment (introuvable / déjà synced → mark synced)
+  2. Load AttachmentBlobRow (introuvable → mark failed `blob_missing`)
+  3. SELECT `messages.id` côté serveur — si null, **backoff sans
+     incrémenter `attempts`** (on attend que le message soit synced).
+  4. Upload Storage compressed + thumbnail (`upsert: true`).
+  5. SELECT `attachments.id` — si présent, skip INSERT (idempotence
+     post-crash).
+  6. INSERT row (23505 = succès logique).
+  7. Mark synced + retire l'entry de la queue.
+
+**Message kind au submit** :
+- `drafts.length === 0` → `text`
+- tous les drafts ont `media_profile === "pdf"` → `document`
+- sinon (≥1 image photo OU plan) → `photo`
 
 ### §13 — JSON dynamique : architecture & gouvernance (Phase 2 It. 7)
 
