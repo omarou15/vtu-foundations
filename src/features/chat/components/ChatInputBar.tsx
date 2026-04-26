@@ -3,10 +3,21 @@ import { Mic, Plus, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AttachmentSheet } from "./AttachmentSheet";
+import { PhotoPreviewPanel } from "./PhotoPreviewPanel";
+import { listDraftMedia, attachPendingMediaToMessage } from "@/shared/photo";
+import type { MessageKind } from "@/shared/types";
 
 interface ChatInputBarProps {
   visitId: string;
-  onSubmit: (content: string) => Promise<void> | void;
+  /**
+   * Reçoit le contenu texte (peut être vide si on n'envoie que des médias)
+   * + le `kind` calculé d'après les drafts attachés. Doit retourner le
+   * message créé (id requis pour rattacher les médias).
+   */
+  onSubmit: (input: {
+    content: string;
+    kind: MessageKind;
+  }) => Promise<{ id: string } | void> | { id: string } | void;
 }
 
 const MAX_LINES = 4;
@@ -15,19 +26,19 @@ const LINE_HEIGHT_PX = 20; // ~ correspond à text-sm leading-5
 /**
  * Barre d'input du chat — KNOWLEDGE §5 (zones 20/60/20).
  *
- * - Textarea auto-resize : 1 ligne par défaut, max 4 lignes, puis scroll.
- * - Mobile : Enter = newline. Cmd/Ctrl + Enter = submit.
- * - Bouton ↑ : envoie le message texte.
- * - [+] : ouvre une BottomSheet avec stubs disabled (Phase 2).
- * - 🎙️ : disabled (audio Phase 2, toast informatif au tap).
- *
- * La barre reste fixée par le layout parent grâce à `.input-bar-safe-bottom`
- * qui combine safe-area + --kb-height (cf. styles.css + useVirtualKeyboard).
+ * It. 9 :
+ *  - PhotoPreviewPanel rendu au-dessus de l'input quand des drafts existent.
+ *  - Au submit : compute kind (text/photo/document) + appelle
+ *    `attachPendingMediaToMessage(visitId, message.id)` pour transitionner
+ *    les drafts en pending et enqueue les uploads.
+ *  - Submit autorisé si TEXTE non vide OU au moins 1 draft.
  */
 export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [draftCount, setDraftCount] = useState(0);
+  const [allPdf, setAllPdf] = useState(false);
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
   // Auto-resize : on ajuste la hauteur en fonction du scrollHeight, plafonné.
@@ -39,17 +50,67 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   }, [value]);
 
+  // Polling léger des drafts pour déterminer kind + activer le submit même
+  // sans texte. On évite useLiveQuery ici pour rester contrôlable
+  // (on relit juste avant submit aussi).
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    async function refresh() {
+      const drafts = await listDraftMedia(visitId).catch(() => []);
+      if (cancelled) return;
+      setDraftCount(drafts.length);
+      setAllPdf(
+        drafts.length > 0 &&
+          drafts.every((d) => d.media_profile === "pdf"),
+      );
+    }
+    void refresh();
+    timer = setInterval(refresh, 1000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [visitId]);
+
   const trimmed = value.trim();
-  const canSubmit = trimmed.length > 0 && !sending;
+  const canSubmit = (trimmed.length > 0 || draftCount > 0) && !sending;
+
+  function computeKind(count: number, allArePdf: boolean): MessageKind {
+    if (count === 0) return "text";
+    if (allArePdf) return "document";
+    return "photo";
+  }
 
   async function handleSubmit() {
     if (!canSubmit) return;
     setSending(true);
     try {
-      await onSubmit(trimmed);
+      // Relit les drafts JUSTE avant l'envoi (la liste a pu changer).
+      const currentDrafts = await listDraftMedia(visitId);
+      const kind = computeKind(
+        currentDrafts.length,
+        currentDrafts.length > 0 &&
+          currentDrafts.every((d) => d.media_profile === "pdf"),
+      );
+
+      const result = await onSubmit({ content: trimmed, kind });
+      // Si onSubmit a renvoyé { id }, on rattache les drafts.
+      if (
+        currentDrafts.length > 0 &&
+        result &&
+        typeof result === "object" &&
+        "id" in result &&
+        typeof result.id === "string"
+      ) {
+        await attachPendingMediaToMessage(visitId, result.id);
+      }
       setValue("");
       // Reset height après envoi
       if (ref.current) ref.current.style.height = "auto";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast.error("Envoi impossible", { description: msg });
     } finally {
       setSending(false);
     }
@@ -69,8 +130,11 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
         className="input-bar-safe-bottom safe-x border-t border-border bg-card"
         data-testid="chat-input-bar"
       >
+        {/* Aperçu drafts médias (It. 9) */}
+        <PhotoPreviewPanel visitId={visitId} />
+
         <div className="flex items-end gap-2 p-2">
-          {/* Bouton [+] — attachements (stubs Phase 2) */}
+          {/* Bouton [+] — ouvre l'AttachmentSheet intention-first */}
           <Button
             type="button"
             variant="ghost"
@@ -107,7 +171,8 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
             className="touch-target shrink-0 rounded-full"
             onClick={() =>
               toast.message("Dictée vocale", {
-                description: "Disponible en Phase 2.",
+                description:
+                  "Bientôt — utilisez la dictée clavier iOS pour l'instant.",
               })
             }
             aria-label="Dictée vocale (bientôt disponible)"
@@ -130,7 +195,11 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
         </div>
       </div>
 
-      <AttachmentSheet open={sheetOpen} onOpenChange={setSheetOpen} />
+      <AttachmentSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        visitId={visitId}
+      />
     </>
   );
 }
