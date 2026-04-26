@@ -154,6 +154,9 @@ export async function runSyncOnce(
 
 type ProcessResult = "ok" | "failed" | "retry-later";
 
+/** Délai (ms) avant retry quand on attend une dépendance serveur (message). */
+const WAIT_DEPENDENCY_BACKOFF_MS = 2_000;
+
 async function processEntry(
   supabase: SyncSupabaseLike,
   entry: SyncQueueEntry,
@@ -164,6 +167,10 @@ async function processEntry(
   await markLocalRowSyncing(entry);
 
   try {
+    if (entry.op === "attachment_upload") {
+      return await processAttachmentUpload(supabase, entry);
+    }
+
     if (entry.op === "insert") {
       const { error } = await supabase
         .from(entry.table)
@@ -198,33 +205,274 @@ async function processEntry(
     );
     return "ok";
   } catch (err) {
-    const message = extractErrorMessage(err);
-    const nextAttempts = entry.attempts + 1;
+    return await scheduleRetryOrFail(entry, err);
+  }
+}
 
-    if (nextAttempts >= MAX_ATTEMPTS) {
-      await db.transaction(
-        "rw",
-        [db.sync_queue, tableForName(entry.table)],
-        async () => {
-          await markLocalRowFailed(entry, message);
-          if (entry.id != null) await db.sync_queue.delete(entry.id);
+/**
+ * Schedule un retry standard (incrémente attempts + backoff exponentiel)
+ * ou bascule en "failed" si MAX_ATTEMPTS atteint. Utilisé pour TOUTES les
+ * erreurs "réelles" (réseau, 5xx, etc.) — l'attente de dépendance message
+ * passe par `scheduleDependencyWait` qui n'incrémente PAS attempts.
+ */
+async function scheduleRetryOrFail(
+  entry: SyncQueueEntry,
+  err: unknown,
+): Promise<ProcessResult> {
+  const db = getDb();
+  const message = extractErrorMessage(err);
+  const nextAttempts = entry.attempts + 1;
+
+  if (nextAttempts >= MAX_ATTEMPTS) {
+    await db.transaction(
+      "rw",
+      [db.sync_queue, tableForName(entry.table)],
+      async () => {
+        await markLocalRowFailed(entry, message);
+        if (entry.id != null) await db.sync_queue.delete(entry.id);
+      },
+    );
+    return "failed";
+  }
+
+  const backoff = computeBackoffMs(nextAttempts);
+  const next = new Date(Date.now() + backoff).toISOString();
+  if (entry.id != null) {
+    await db.sync_queue.update(entry.id, {
+      attempts: nextAttempts,
+      last_error: message,
+      next_attempt_at: next,
+    });
+  }
+  await markLocalRowSyncing(entry, message, nextAttempts);
+  return "retry-later";
+}
+
+/**
+ * Re-schedule l'entry SANS incrémenter `attempts` (la cause n'est pas un
+ * échec de la sync de l'attachment elle-même : on attend juste que le
+ * message porteur soit synced côté serveur — RLS bloque sinon).
+ */
+async function scheduleDependencyWait(
+  entry: SyncQueueEntry,
+  reason: string,
+): Promise<ProcessResult> {
+  const db = getDb();
+  const next = new Date(Date.now() + WAIT_DEPENDENCY_BACKOFF_MS).toISOString();
+  if (entry.id != null) {
+    await db.sync_queue.update(entry.id, {
+      // attempts INCHANGÉ
+      last_error: reason,
+      next_attempt_at: next,
+    });
+  }
+  // On garde la ligne locale en "pending" (pas "syncing") pour l'UI.
+  const table = tableForName(entry.table);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (table as any)
+    .update(entry.row_id, {
+      sync_status: "pending",
+      sync_last_error: reason,
+      local_updated_at: new Date().toISOString(),
+    })
+    .catch(() => undefined);
+  return "retry-later";
+}
+
+// ---------------------------------------------------------------------------
+// attachment_upload handler (It. 9)
+//
+// Workflow (KNOWLEDGE §14) :
+//   a) load LocalAttachment (introuvable / déjà synced → mark synced)
+//   b) load AttachmentBlobRow (introuvable → mark failed "blob_missing")
+//   c) check messages.id côté serveur (null → backoff sans incrément)
+//   d) upload Storage compressed + thumbnail (upsert:true → idempotent)
+//   e) SELECT attachments.id (présent → skip insert)
+//   f) INSERT attachments (23505 = succès logique)
+//   g) mark synced + remove queue entry
+// ---------------------------------------------------------------------------
+async function processAttachmentUpload(
+  supabase: SyncSupabaseLike,
+  entry: SyncQueueEntry,
+): Promise<ProcessResult> {
+  const db = getDb();
+
+  // a) Charger l'attachment local
+  const attachment = await db.attachments.get(entry.row_id);
+  if (!attachment) {
+    // Row supprimée localement (discard) → on dégage la queue entry.
+    if (entry.id != null) await db.sync_queue.delete(entry.id);
+    return "ok";
+  }
+  if (attachment.sync_status === "synced") {
+    if (entry.id != null) await db.sync_queue.delete(entry.id);
+    return "ok";
+  }
+  if (!attachment.message_id) {
+    // Sécurité : ne devrait pas arriver (attachPendingMediaToMessage
+    // garantit message_id). On traite comme attente de dépendance.
+    return await scheduleDependencyWait(entry, "missing_message_id");
+  }
+
+  // b) Charger les blobs
+  const blob = await db.attachment_blobs.get(entry.row_id);
+  if (!blob) {
+    // Incident grave — on stoppe immédiatement.
+    await db.transaction(
+      "rw",
+      [db.sync_queue, db.attachments],
+      async () => {
+        await markLocalRowFailed(entry, "blob_missing");
+        if (entry.id != null) await db.sync_queue.delete(entry.id);
+      },
+    );
+    return "failed";
+  }
+
+  // c) Check dépendance message côté serveur
+  const messagesTable = supabase.from("messages");
+  if (!messagesTable.select) {
+    // Mock incomplet — on traite comme dépendance OK pour rester rétrocompat.
+  } else {
+    try {
+      const { data, error } = await messagesTable
+        .select("id")
+        .eq("id", attachment.message_id)
+        .maybeSingle();
+      if (error) return await scheduleRetryOrFail(entry, error);
+      if (data === null)
+        return await scheduleDependencyWait(entry, "message_not_synced");
+    } catch (err) {
+      return await scheduleRetryOrFail(entry, err);
+    }
+  }
+
+  // d) Upload Storage (upsert:true → idempotent)
+  if (!supabase.storage) {
+    return await scheduleRetryOrFail(
+      entry,
+      new Error("storage api unavailable"),
+    );
+  }
+  const bucket = supabase.storage.from(attachment.bucket);
+
+  if (!attachment.compressed_path) {
+    await db.transaction(
+      "rw",
+      [db.sync_queue, db.attachments],
+      async () => {
+        await markLocalRowFailed(entry, "missing_compressed_path");
+        if (entry.id != null) await db.sync_queue.delete(entry.id);
+      },
+    );
+    return "failed";
+  }
+
+  try {
+    const up1 = await bucket.upload(
+      attachment.compressed_path,
+      blob.compressed,
+      { upsert: true, contentType: attachment.format ?? undefined },
+    );
+    if (up1.error) return await scheduleRetryOrFail(entry, up1.error);
+
+    if (blob.thumbnail !== null && attachment.thumbnail_path !== null) {
+      const up2 = await bucket.upload(
+        attachment.thumbnail_path,
+        blob.thumbnail,
+        {
+          upsert: true,
+          contentType:
+            attachment.format === "application/pdf"
+              ? "image/png"
+              : (attachment.format ?? undefined),
         },
       );
-      return "failed";
+      if (up2.error) return await scheduleRetryOrFail(entry, up2.error);
     }
-
-    const backoff = computeBackoffMs(nextAttempts);
-    const next = new Date(Date.now() + backoff).toISOString();
-    if (entry.id != null) {
-      await db.sync_queue.update(entry.id, {
-        attempts: nextAttempts,
-        last_error: message,
-        next_attempt_at: next,
-      });
-    }
-    await markLocalRowSyncing(entry, message, nextAttempts);
-    return "retry-later";
+  } catch (err) {
+    return await scheduleRetryOrFail(entry, err);
   }
+
+  // e) SELECT id pour idempotence post-crash
+  const attachmentsTable = supabase.from("attachments");
+  if (attachmentsTable.select) {
+    try {
+      const { data, error } = await attachmentsTable
+        .select("id")
+        .eq("id", attachment.id)
+        .maybeSingle();
+      if (error) return await scheduleRetryOrFail(entry, error);
+      if (data !== null) {
+        // Row déjà côté serveur → skip insert
+        await db.transaction(
+          "rw",
+          [db.sync_queue, db.attachments],
+          async () => {
+            await markLocalRowSynced(entry);
+            if (entry.id != null) await db.sync_queue.delete(entry.id);
+          },
+        );
+        return "ok";
+      }
+    } catch (err) {
+      return await scheduleRetryOrFail(entry, err);
+    }
+  }
+
+  // f) INSERT row
+  try {
+    const payload = serializeAttachmentForSync(attachment);
+    const { error } = await attachmentsTable.insert(payload);
+    if (error) {
+      const code = (error as { code?: string }).code;
+      const message = error.message ?? "";
+      const isDuplicate =
+        code === "23505" || message.toLowerCase().includes("duplicate");
+      if (!isDuplicate) return await scheduleRetryOrFail(entry, error);
+    }
+  } catch (err) {
+    return await scheduleRetryOrFail(entry, err);
+  }
+
+  // g) Mark synced
+  await db.transaction(
+    "rw",
+    [db.sync_queue, db.attachments],
+    async () => {
+      await markLocalRowSynced(entry);
+      if (entry.id != null) await db.sync_queue.delete(entry.id);
+    },
+  );
+  // h) Cleanup blob → DIFFÉRÉ (cf. pruneOldBlobs, KNOWLEDGE §14)
+  return "ok";
+}
+
+function serializeAttachmentForSync(
+  a: import("@/shared/db/schema").LocalAttachment,
+): Record<string, unknown> {
+  return {
+    id: a.id,
+    message_id: a.message_id,
+    user_id: a.user_id,
+    visit_id: a.visit_id,
+    bucket: a.bucket,
+    storage_path: a.storage_path,
+    mime_type: a.mime_type,
+    size_bytes: a.size_bytes,
+    metadata: a.metadata,
+    created_at: a.created_at,
+    compressed_path: a.compressed_path,
+    thumbnail_path: a.thumbnail_path,
+    width_px: a.width_px,
+    height_px: a.height_px,
+    sha256: a.sha256,
+    gps_lat: a.gps_lat,
+    gps_lng: a.gps_lng,
+    format: a.format,
+    media_profile: a.media_profile,
+    linked_sections: a.linked_sections,
+  };
 }
 
 // ---------------------------------------------------------------------------

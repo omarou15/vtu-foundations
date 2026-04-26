@@ -256,6 +256,24 @@ export async function linkMediaToSection(
 }
 
 // ---------------------------------------------------------------------------
+// pruneOldBlobs — stub Phase 2 (cf. KNOWLEDGE §14)
+//
+// Idée : supprimer les attachment_blobs dont l'attachment associé est
+// "synced" depuis > TTL_DAYS (par défaut 7). Implémentation TTL réelle
+// reportée à Phase 3 si le quota IndexedDB devient un problème.
+// On garde la signature stable pour pouvoir l'appeler dès maintenant
+// dans App init sans rien casser.
+// ---------------------------------------------------------------------------
+
+export async function pruneOldBlobs(_options?: {
+  ttlDays?: number;
+  now?: () => number;
+}): Promise<number> {
+  // Stub : on ne supprime rien Phase 2.
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

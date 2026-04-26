@@ -70,7 +70,7 @@ export interface VisitRow {
 // ---------------------------------------------------------------------------
 
 export type MessageRole = "user" | "assistant" | "system";
-export type MessageKind = "text" | "audio" | "photo" | "system_event";
+export type MessageKind = "text" | "audio" | "photo" | "document" | "system_event";
 
 export interface MessageRow {
   id: string;

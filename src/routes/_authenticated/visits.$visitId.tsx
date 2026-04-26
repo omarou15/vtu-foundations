@@ -93,7 +93,10 @@ function VisitChatPage() {
     ? BUILDING_LABEL[visit.building_type]
     : "Type non précisé";
 
-  async function handleSubmit(content: string) {
+  async function handleSubmit(input: {
+    content: string;
+    kind: "text" | "audio" | "photo" | "document" | "system_event";
+  }): Promise<{ id: string } | void> {
     if (!userId) {
       toast.error("Session expirée — veuillez vous reconnecter.");
       return;
@@ -101,13 +104,14 @@ function VisitChatPage() {
     try {
       // appendLocalMessage est atomique : insert + enqueue sync_queue
       // dans une transaction Dexie (cf. messages.repo.ts).
-      await appendLocalMessage({
+      const message = await appendLocalMessage({
         userId,
         visitId,
         role: "user",
-        kind: "text",
-        content,
+        kind: input.kind,
+        content: input.content,
       });
+      return { id: message.id };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur inconnue";
       toast.error("Envoi impossible", { description: message });
