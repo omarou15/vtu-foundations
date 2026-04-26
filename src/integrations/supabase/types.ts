@@ -17,39 +17,69 @@ export type Database = {
       attachments: {
         Row: {
           bucket: string
+          compressed_path: string | null
           created_at: string
+          format: string | null
+          gps_lat: number | null
+          gps_lng: number | null
+          height_px: number | null
           id: string
+          linked_sections: Json
+          media_profile: string | null
           message_id: string
           metadata: Json
           mime_type: string | null
+          sha256: string | null
           size_bytes: number | null
           storage_path: string
+          thumbnail_path: string | null
           user_id: string
           visit_id: string
+          width_px: number | null
         }
         Insert: {
           bucket: string
+          compressed_path?: string | null
           created_at?: string
+          format?: string | null
+          gps_lat?: number | null
+          gps_lng?: number | null
+          height_px?: number | null
           id?: string
+          linked_sections?: Json
+          media_profile?: string | null
           message_id: string
           metadata?: Json
           mime_type?: string | null
+          sha256?: string | null
           size_bytes?: number | null
           storage_path: string
+          thumbnail_path?: string | null
           user_id: string
           visit_id: string
+          width_px?: number | null
         }
         Update: {
           bucket?: string
+          compressed_path?: string | null
           created_at?: string
+          format?: string | null
+          gps_lat?: number | null
+          gps_lng?: number | null
+          height_px?: number | null
           id?: string
+          linked_sections?: Json
+          media_profile?: string | null
           message_id?: string
           metadata?: Json
           mime_type?: string | null
+          sha256?: string | null
           size_bytes?: number | null
           storage_path?: string
+          thumbnail_path?: string | null
           user_id?: string
           visit_id?: string
+          width_px?: number | null
         }
         Relationships: [
           {
