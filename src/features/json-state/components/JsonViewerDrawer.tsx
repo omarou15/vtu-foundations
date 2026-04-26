@@ -129,6 +129,41 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
               {lowCount} champ{lowCount > 1 ? "s" : ""} à vérifier
             </div>
           ) : null}
+
+          {/* It. 9 — compteurs médias (stub : grille reportée It. 11+) */}
+          <div
+            className="mt-2 flex flex-wrap items-center gap-2"
+            data-testid="media-counters"
+          >
+            <span className="font-ui inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+              {mediaStats.total} média{mediaStats.total > 1 ? "s" : ""}
+            </span>
+            {mediaStats.photo > 0 ? (
+              <span className="font-ui inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                <Camera className="h-3 w-3" /> {mediaStats.photo}
+              </span>
+            ) : null}
+            {mediaStats.plan > 0 ? (
+              <span className="font-ui inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                <Layers className="h-3 w-3" /> {mediaStats.plan}
+              </span>
+            ) : null}
+            {mediaStats.pdf > 0 ? (
+              <span className="font-ui inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                <FileText className="h-3 w-3" /> {mediaStats.pdf}
+              </span>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled
+              className="font-ui h-6 text-[10px]"
+              title="Grille thumbnails — Itération 11"
+            >
+              Voir tous
+            </Button>
+          </div>
         </SheetHeader>
 
         <div className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs">
