@@ -39,8 +39,8 @@ const EMPTY: Counts = {
 export function VisitAttachmentSyncStatus({
   visitId,
 }: VisitAttachmentSyncStatusProps) {
-  const counts = useLiveQuery<Counts>(
-    async () => {
+  const counts = useLiveQuery(
+    async (): Promise<Counts> => {
       const db = getDb();
       const attachments = await db.attachments
         .where("visit_id")
