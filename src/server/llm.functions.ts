@@ -227,7 +227,7 @@ export const describeMedia = createServerFn({ method: "POST" })
         stable_prompt_hash: await hashContext({
           mode: "describe_media_skipped",
         }),
-        raw_response: { skipped: true },
+        raw_response_json: JSON.stringify({ skipped: true }),
       };
     }
 
@@ -259,7 +259,7 @@ export const describeMedia = createServerFn({ method: "POST" })
         result: validated,
         meta: out.meta,
         stable_prompt_hash: stable,
-        raw_response: out.rawResponse,
+        raw_response_json: JSON.stringify(out.rawResponse),
       };
     } catch (err) {
       return errorPayload(err, stable);
@@ -306,7 +306,7 @@ export const extractFromMessage = createServerFn({ method: "POST" })
         result: validated,
         meta: out.meta,
         stable_prompt_hash: stable,
-        raw_response: out.rawResponse,
+        raw_response_json: JSON.stringify(out.rawResponse),
       };
     } catch (err) {
       return errorPayload(err, stable);
@@ -356,7 +356,7 @@ export const conversationalQuery = createServerFn({ method: "POST" })
         result: validated,
         meta: out.meta,
         stable_prompt_hash: stable,
-        raw_response: out.rawResponse,
+        raw_response_json: JSON.stringify(out.rawResponse),
       };
     } catch (err) {
       return errorPayload(err, stable);
@@ -391,7 +391,7 @@ export const routeMessageLlm = createServerFn({ method: "POST" })
         result: validated,
         meta: out.meta,
         stable_prompt_hash: stable,
-        raw_response: out.rawResponse,
+        raw_response_json: JSON.stringify(out.rawResponse),
       };
     } catch (err) {
       return errorPayload(err, stable);
