@@ -219,7 +219,7 @@ function VisitChatPage() {
             </span>
             <button
               type="button"
-              onClick={() => setJsonOpen(true)}
+              onClick={() => openJson("tree")}
               className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
               aria-label="Ouvrir l'état JSON"
               data-testid="open-json-viewer"
@@ -245,6 +245,31 @@ function VisitChatPage() {
               </Label>
             </div>
             <div className="flex items-center gap-2">
+              {/* It. 11 — badges cliquables : ouvrent le drawer en mode "À traiter". */}
+              {unvalidatedCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => openJson("todo")}
+                  className="font-ui inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition hover:bg-primary/15 active:bg-primary/20"
+                  aria-label={`${unvalidatedCount} champ${unvalidatedCount > 1 ? "s" : ""} à valider — ouvrir`}
+                  data-testid="header-unvalidated-badge"
+                >
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                  {unvalidatedCount} à valider
+                </button>
+              ) : null}
+              {conflictsCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => openJson("todo")}
+                  className="font-ui inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive transition hover:bg-destructive/15 active:bg-destructive/20"
+                  aria-label={`${conflictsCount} conflit${conflictsCount > 1 ? "s" : ""} — ouvrir`}
+                  data-testid="header-conflicts-badge"
+                >
+                  <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                  {conflictsCount} conflit{conflictsCount > 1 ? "s" : ""}
+                </button>
+              ) : null}
               {!isOnline ? (
                 <span
                   className="font-ui inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
@@ -292,6 +317,7 @@ function VisitChatPage() {
         visitId={visit.id}
         open={jsonOpen}
         onOpenChange={setJsonOpen}
+        initialMode={jsonInitialMode}
       />
     </div>
   );
