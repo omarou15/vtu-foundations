@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { listLocalMessagesByVisit, type LocalMessage } from "@/shared/db";
+import { getDb, listLocalMessagesByVisit, type LocalMessage } from "@/shared/db";
 import { formatRelative } from "../lib/relativeTime";
 
 interface MessageListProps {
