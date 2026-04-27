@@ -25,6 +25,16 @@ export interface BuildContextInput {
     media_profile: string | null;
     description: AttachmentAiDescriptionRow["description"];
   }>;
+  /**
+   * It. 14.1 — Attachments mentionnés sans description IA disponible.
+   * Calculé par le call site (engine.llm.ts ou UI) à partir des
+   * messages récents + Dexie. Anti-hallucination dans le prompt.
+   */
+  pendingAttachments?: Array<{
+    id: string;
+    media_profile: string | null;
+    reason: "no_description_yet" | "ai_disabled_when_sent";
+  }>;
   /** Hints de nomenclature filtrés par mission_type. */
   nomenclatureHints?: Record<string, unknown>;
   /** Limite par défaut de messages récents inclus. */
@@ -62,6 +72,7 @@ export function buildContextBundle(input: BuildContextInput): ContextBundle {
       detailed_description: d.description.detailed_description,
       ocr_text: d.description.ocr_text,
     })),
+    pending_attachments: input.pendingAttachments ?? [],
     nomenclature_hints: input.nomenclatureHints ?? {},
   };
 }

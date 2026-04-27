@@ -38,6 +38,16 @@ export interface ContextBundle {
     detailed_description: string | null;
     ocr_text: string | null;
   }>;
+  /**
+   * It. 14.1 — Attachments mentionnés (recent_messages ou message courant)
+   * dont l'analyse visuelle n'a PAS encore produit de description.
+   * Le LLM doit explicitement refuser d'inventer leur contenu.
+   */
+  pending_attachments: Array<{
+    id: string;
+    media_profile: string | null;
+    reason: "no_description_yet" | "ai_disabled_when_sent";
+  }>;
   /** Nomenclature pertinente (paths déterminés via mission_type). */
   nomenclature_hints: Record<string, unknown>;
 }
