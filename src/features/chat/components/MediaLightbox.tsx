@@ -83,77 +83,76 @@ export function MediaLightbox({
     setTranslateX(0);
   }
 
-  if (!current) return null;
+  if (!current || !open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        hideCloseButton
-        className="h-[100dvh] max-h-[100dvh] w-screen max-w-[100vw] gap-0 border-0 bg-black/95 p-0 sm:rounded-none"
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Visualiseur de médias"
+      className="fixed inset-0 z-[100] bg-black/95 animate-in fade-in duration-200"
+    >
+      {/* Header */}
+      <div className="safe-top safe-x absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/70 to-transparent">
+        <span className="font-ui rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white tabular-nums backdrop-blur">
+          {index + 1} / {attachments.length}
+        </span>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          aria-label="Fermer"
+          className="touch-target inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition-colors hover:bg-white/20"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Image */}
+      <div
+        className="relative flex h-full w-full items-center justify-center overflow-hidden"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onOpenChange(false);
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
-        {/* Header */}
-        <div className="safe-top safe-x absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/70 to-transparent">
-          <span className="font-ui rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white tabular-nums backdrop-blur">
-            {index + 1} / {attachments.length}
-          </span>
+        <div
+          style={{
+            transform: `translateX(${translateX}px)`,
+            transition: translateX === 0 ? "transform 0.2s ease-out" : "none",
+          }}
+          className="flex h-full w-full items-center justify-center pointer-events-none"
+        >
+          <LightboxMedia attachment={current} />
+        </div>
+
+        {index > 0 ? (
           <button
             type="button"
-            onClick={() => onOpenChange(false)}
-            aria-label="Fermer"
-            className="touch-target inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition-colors hover:bg-white/20"
+            onClick={() => setIndex(index - 1)}
+            aria-label="Précédent"
+            className="touch-target absolute left-2 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur hover:bg-white/20 md:inline-flex"
           >
-            <X className="h-5 w-5" />
+            <ChevronLeft className="h-6 w-6" />
           </button>
-        </div>
-
-        {/* Image */}
-        <div
-          className="relative flex h-full w-full items-center justify-center overflow-hidden"
-          onClick={(e) => {
-            // Tap sur fond noir = fermer (mais pas sur l'image)
-            if (e.target === e.currentTarget) onOpenChange(false);
-          }}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-          <div
-            style={{
-              transform: `translateX(${translateX}px)`,
-              transition: translateX === 0 ? "transform 0.2s ease-out" : "none",
-            }}
-            className="flex h-full w-full items-center justify-center"
+        ) : null}
+        {index < attachments.length - 1 ? (
+          <button
+            type="button"
+            onClick={() => setIndex(index + 1)}
+            aria-label="Suivant"
+            className="touch-target absolute right-2 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur hover:bg-white/20 md:inline-flex"
           >
-            <LightboxMedia attachment={current} />
-          </div>
+            <ChevronRight className="h-6 w-6" />
+          </button>
+        ) : null}
+      </div>
 
-          {/* Flèches desktop */}
-          {index > 0 ? (
-            <button
-              type="button"
-              onClick={() => setIndex(index - 1)}
-              aria-label="Précédent"
-              className="touch-target absolute left-2 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur hover:bg-white/20 md:inline-flex"
-            >
-              <ChevronLeft className="h-6 w-6" />
-            </button>
-          ) : null}
-          {index < attachments.length - 1 ? (
-            <button
-              type="button"
-              onClick={() => setIndex(index + 1)}
-              aria-label="Suivant"
-              className="touch-target absolute right-2 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur hover:bg-white/20 md:inline-flex"
-            >
-              <ChevronRight className="h-6 w-6" />
-            </button>
-          ) : null}
-        </div>
-
-        {/* Footer description IA */}
-        <AiDescriptionFooter attachmentId={current.id} />
-      </DialogContent>
-    </Dialog>
+      <AiDescriptionFooter attachmentId={current.id} />
+    </div>,
+    document.body,
   );
 }
 
