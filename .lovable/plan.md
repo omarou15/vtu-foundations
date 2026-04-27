@@ -76,3 +76,13 @@ Audit confirme : tous les imports (caméra rafale `handleCameraFiles`, galerie `
 - `src/features/chat/__tests__/burst-multi-import.test.ts` — 1 test helper.
 
 Aucune migration SQL, aucun changement schéma Dexie.
+
+---
+## ✅ It. 10.6.2 livré
+
+- `compress.ts` : `maxSizeMB: 0.5` ajouté au profil photo (itération qualité automatique). Plan reste sans cible.
+- `heuristics.ts` : helper `isHeavyPhoto(draft)` partagé + constante `HEAVY_PHOTO_BYTES = 500 * 1024`.
+- `PhotoPreviewPanel` : badge ⚠ "Lourde" sur le thumb si photo > 500 Ko après compression (mutuellement exclusif avec badge Dup).
+- `AttachmentSheet → DraftRow` : pill "lourde" à côté de la taille en `text-warning`.
+- Audit confirme : un seul chemin de compression (`addMediaToVisit → compressMedia`), pour caméra rafale, galerie, docs ET toggle profil.
+- Tests : 189/189 verts (+ 5 isHeavyPhoto, + 2 maxSizeMB transmission).
