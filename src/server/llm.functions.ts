@@ -37,6 +37,10 @@ import {
 } from "@/shared/llm/prompts";
 import { hashContext } from "@/shared/llm/context/hash";
 import { LlmError } from "@/shared/llm/types";
+import {
+  buildUserPromptConversational as _buildConv,
+  buildUserPromptExtract as _buildExt,
+} from "./llm.prompt-builders";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -412,13 +416,8 @@ export const routeMessageLlm = createServerFn({ method: "POST" })
 
 // ---------------------------------------------------------------------------
 // Helpers prompt building — délégués à `llm.prompt-builders.ts`
-// (pour rester testables sans charger @tanstack/react-start).
+// (importés en haut de fichier).
 // ---------------------------------------------------------------------------
-
-import {
-  buildUserPromptConversational as _buildConv,
-  buildUserPromptExtract as _buildExt,
-} from "./llm.prompt-builders";
 
 function buildUserPromptExtract(
   messageText: string,
