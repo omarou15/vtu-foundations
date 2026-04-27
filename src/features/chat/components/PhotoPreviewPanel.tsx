@@ -98,6 +98,26 @@ function DraftThumb({ draft }: { draft: LocalAttachment }) {
     false,
   );
 
+  // It. 10 — badge ✨ si une description IA existe pour cet attachment.
+  // Sur les drafts (pré-attach) c'est toujours false ; le hook reste
+  // câblé pour les surfaces futures qui rendront des thumbnails déjà
+  // uploadés (e.g. drawer "Voir tous", It. 11).
+  const hasAiDescription = useLiveQuery(
+    async () => {
+      try {
+        const rows = await db.attachment_ai_descriptions
+          .where("attachment_id")
+          .equals(draft.id)
+          .toArray();
+        return rows.length > 0;
+      } catch {
+        return false;
+      }
+    },
+    [draft.id],
+    false,
+  );
+
   async function handleToggleProfile() {
     if (draft.media_profile === "pdf") return;
     const next: MediaProfile =
