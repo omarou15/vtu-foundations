@@ -190,12 +190,7 @@ function mapHttpToCode(status: number): LlmErrorCode {
 
 function buildImageContent(
   imageUrl: string,
-  mimeType: string | null | undefined,
+  _mimeType: string | null | undefined,
 ): Record<string, unknown> {
-  if (imageUrl.startsWith("data:")) {
-    const [header, data] = imageUrl.split(",", 2);
-    const mediaType = header?.slice(5).split(";")[0] || mimeType || "image/jpeg";
-    return { type: "image", source: { type: "base64", media_type: mediaType, data } };
-  }
   return { type: "image_url", image_url: { url: imageUrl } };
 }
