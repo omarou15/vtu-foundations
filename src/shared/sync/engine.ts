@@ -362,6 +362,8 @@ async function scheduleDependencyWaitLlm(
   }
   return "retry-later";
 }
+// ---------------------------------------------------------------------------
+// attachment_upload handler (It. 9)
 //
 // Workflow (KNOWLEDGE §14) :
 //   a) load LocalAttachment (introuvable / déjà synced → mark synced)
