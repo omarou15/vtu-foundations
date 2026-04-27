@@ -56,3 +56,39 @@ export function findLowConfidenceFieldPaths(state: VisitJsonState): string[] {
 export function countLowConfidenceFields(state: VisitJsonState): number {
   return findLowConfidenceFieldPaths(state).length;
 }
+
+/**
+ * It. 10 — Compte les Field<T> issus de l'IA et non encore validés
+ * par l'utilisateur (`source==="ai_infer" && validation_status==="unvalidated"`).
+ *
+ * Affiché dans le drawer JSON pour signaler le travail de validation
+ * restant (doctrine "LLM propose / user valide" — KNOWLEDGE §15).
+ */
+export function countUnvalidatedAiFields(state: VisitJsonState): number {
+  let count = 0;
+
+  function walk(value: unknown) {
+    if (isField(value)) {
+      const v = value as unknown as Record<string, unknown>;
+      if (
+        v.source === "ai_infer" &&
+        v.validation_status === "unvalidated" &&
+        v.value !== null &&
+        v.value !== undefined
+      ) {
+        count++;
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (value && typeof value === "object") {
+      for (const v of Object.values(value as Record<string, unknown>)) walk(v);
+    }
+  }
+
+  walk(state);
+  return count;
+}
