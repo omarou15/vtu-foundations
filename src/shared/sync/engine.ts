@@ -179,6 +179,7 @@ async function processEntry(
   supabase: SyncSupabaseLike,
   entry: SyncQueueEntry,
 ): Promise<ProcessResult> {
+  const db = getDb();
   const isLlmOp =
     entry.op === "describe_media" || entry.op === "llm_route_and_dispatch";
 
