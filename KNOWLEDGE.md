@@ -192,9 +192,10 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 7 — Schéma JSON dynamique v2 + Schema Registry offline-first
 - [x] Itération 9 — Pipeline médias photos / plans / PDFs (intention-first)
 - [x] Itération 10 — Cerveau LLM (router hybride + extract + describe + conversational)
+- [x] Itération 10.5 — Refonte UX IA (Edge Function `vtu-llm-agent`, validation inline, skeleton card, dual output `assistant_message` + patches)
 
-**✅ Phase 1 + It. 7 + It. 9 + It. 10 (Phase 2) COMPLÈTES.** Prochaine
-étape : audio (it. 8 reportée), validation IA en UI (it. 11), rapport Word.
+**✅ Phase 1 + It. 7 + It. 9 + It. 10 + It. 10.5 (Phase 2) COMPLÈTES.** Prochaine
+étape : audio (it. 8 reportée), rapport Word.
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,
@@ -238,11 +239,14 @@ multi-user, partage, push, édition message, export.
 - **It. 9 — Cleanup blobs locaux** : `pruneOldBlobs()` est un stub
   Phase 2 (retourne 0). Implémentation TTL 7 jours Phase 3 si le quota
   IndexedDB devient problématique.
-- **It. 10 — Provider LLM en client TanStack Server Function** : le
-  provider Lovable Gemini est appelé depuis `src/server/llm.functions.ts`
-  (server fn TanStack). Phase 3 → migrer vers une Edge Function dédiée
-  pour bénéficier du cache prompt côté plateforme et d'un quota séparé
-  par tenant. Aucun blocage Phase 2.
+- **It. 10.5 — Provider LLM migré vers Edge Function `vtu-llm-agent`** :
+  l'extract et le conversational passent maintenant par la Supabase Edge
+  Function (modèle `google/gemini-3-flash-preview`) via
+  `src/shared/llm/providers/edge-function-client.ts`. Latence cible <8s
+  (vs. ~50s en server fn TanStack). `describeMedia` reste sur la server
+  fn TanStack — non bloquant car découplé du chat. Workaround
+  sérialisation TanStack (cf. ci-dessous) toujours d'actualité pour
+  describe_media uniquement.
 - **It. 10 — Vision PDF différée Phase 2.5** : `processDescribeMedia`
   écrit `description.skipped=true reason="pdf_no_render_phase2"` dès
   qu'il rencontre `media_profile==="pdf"`. Pas de rendu page 1 vers PNG
