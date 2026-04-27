@@ -37,6 +37,7 @@ import {
   discardDraftMedia,
   listDraftMedia,
   getAttachmentBlob,
+  isHeavyPhoto,
 } from "@/shared/photo";
 import { attachPendingMediaToMessage } from "@/shared/photo";
 import { appendLocalMessage } from "@/shared/db";
@@ -688,6 +689,7 @@ function DraftList({ drafts }: { drafts: LocalAttachment[] }) {
 function DraftRow({ draft }: { draft: LocalAttachment }) {
   const url = useDraftThumbUrl(draft);
   const isPdf = draft.media_profile === "pdf";
+  const heavy = isHeavyPhoto(draft);
   const sizeKb = useMemo(() => {
     const kb = (draft.size_bytes ?? 0) / 1024;
     return kb > 1024 ? `${(kb / 1024).toFixed(1)} Mo` : `${Math.round(kb)} Ko`;
@@ -717,6 +719,15 @@ function DraftRow({ draft }: { draft: LocalAttachment }) {
         <p className="font-body text-xs text-muted-foreground">
           {isPdf ? "PDF" : draft.media_profile === "plan" ? "Plan" : "Photo"} ·{" "}
           {sizeKb}
+          {heavy ? (
+            <span
+              className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning-foreground"
+              title="Photo lourde — connexion lente probable"
+              data-testid={`import-heavy-${draft.id}`}
+            >
+              lourde
+            </span>
+          ) : null}
         </p>
       </div>
       <button
