@@ -1,1 +1,4 @@
 project_id = "pbrxotiadmubghuyictp"
+
+[functions.vtu-llm-agent]
+verify_jwt = true

@@ -8,9 +8,11 @@ export {
 } from "./describe-media.schema";
 export {
   ExtractOutputSchema,
+  UnifiedAgentOutputSchema,
   AiFieldPatchSchema,
   AiCustomFieldSchema,
   type ExtractOutput,
+  type UnifiedAgentOutput,
 } from "./extract.schema";
 export {
   ConversationalOutputSchema,

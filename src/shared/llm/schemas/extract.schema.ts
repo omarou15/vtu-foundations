@@ -38,3 +38,19 @@ export const ExtractOutputSchema = z.object({
 });
 
 export type ExtractOutput = z.infer<typeof ExtractOutputSchema>;
+
+/**
+ * It. 10.5 — Sortie unifiée Edge Function `vtu-llm-agent`.
+ * Étend ExtractOutputSchema avec un assistant_message obligatoire
+ * (≤400 chars, jamais vide). Mode "extract" et "conversational" partagent
+ * ce schéma : pour conversational, patches et custom_fields sont vides.
+ */
+export const UnifiedAgentOutputSchema = z.object({
+  assistant_message: z.string().min(1).max(400),
+  patches: z.array(AiFieldPatchSchema).max(40).default([]),
+  custom_fields: z.array(AiCustomFieldSchema).max(20).default([]),
+  warnings: z.array(z.string().max(200)).max(20).default([]),
+  confidence_overall: z.number().min(0).max(1),
+});
+
+export type UnifiedAgentOutput = z.infer<typeof UnifiedAgentOutputSchema>;

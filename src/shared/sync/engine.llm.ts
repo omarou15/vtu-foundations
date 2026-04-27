@@ -26,16 +26,14 @@ import {
   compressContextBundle,
   routeMessage,
   type ContextBundle,
-  type ConversationalResult,
   type DescribeMediaResult,
-  type ExtractResult,
   type ProviderMeta,
 } from "@/shared/llm";
+import { describeMedia } from "@/server/llm.functions";
 import {
-  conversationalQuery,
-  describeMedia,
-  extractFromMessage,
-} from "@/server/llm.functions";
+  callVtuLlmAgent,
+  type CallVtuLlmAgentResponse,
+} from "@/shared/llm/providers/edge-function-client";
 
 // ---------------------------------------------------------------------------
 // Types contract avec engine.ts core
@@ -399,38 +397,35 @@ async function handleExtract(
 ): Promise<ProcessResult> {
   void visit;
   const db = getDb();
-  let resp: Awaited<ReturnType<typeof extractFromMessage>>;
+  let resp: CallVtuLlmAgentResponse;
   try {
-    resp = await extractFromMessage({
-      data: {
-        messageText: message.content ?? "",
-        contextBundle: bundle,
-      },
+    resp = await callVtuLlmAgent({
+      mode: "extract",
+      messageText: message.content ?? "",
+      contextBundle: bundle,
     });
   } catch (err) {
     return await helpers.scheduleRetryOrFail(entry, err);
   }
 
   if (!resp.ok) {
-    return await handleLlmError(resp, entry, helpers, {
-      userId: message.user_id,
-      visitId: message.visit_id,
-      messageId: message.id,
-      mode: "extract_from_message",
-    });
+    return await handleLlmError(
+      { ...resp, stable_prompt_hash: "" },
+      entry,
+      helpers,
+      {
+        userId: message.user_id,
+        visitId: message.visit_id,
+        messageId: message.id,
+        mode: "extract_from_message",
+      },
+    );
   }
 
-  let result: ExtractResult;
-  let raw: Record<string, unknown>;
-  try {
-    result = JSON.parse(resp.result_json) as ExtractResult;
-    raw = JSON.parse(resp.raw_response_json) as Record<string, unknown>;
-  } catch (err) {
-    return await helpers.scheduleRetryOrFail(entry, err);
-  }
+  const result = resp.result;
+  const raw = resp.raw_response;
 
-  // Persistance audit trail d'abord pour avoir l'extraction_id à référencer
-  // depuis les Field<T> et la version JSON.
+  // Persistance audit trail d'abord pour avoir l'extraction_id à référencer.
   const extraction = await appendLocalLlmExtraction({
     userId: message.user_id,
     visitId: message.visit_id,
@@ -449,7 +444,7 @@ async function handleExtract(
       model: resp.meta.model_version,
       schema_version: bundle.schema_version,
     },
-    stablePromptHash: resp.stable_prompt_hash,
+    stablePromptHash: null,
     providerRequestId: resp.meta.provider_request_id,
     rawResponse: raw,
     patchesCount: result.patches?.length ?? 0,
@@ -458,7 +453,9 @@ async function handleExtract(
     warnings: result.warnings ?? [],
   });
 
-  // Application patches + custom fields
+  // Apply patches + custom fields immédiatement (Field<T> en
+  // validation_status="unvalidated", source="ai_infer"). Le user validera
+  // ensuite via la PendingActionsCard.
   const afterPatches = applyPatches({
     state: currentState,
     patches: result.patches ?? [],
@@ -484,22 +481,28 @@ async function handleExtract(
     });
   }
 
-  // Message assistant récap (court ; pas de re-trigger car role="assistant")
-  const summary = buildExtractSummary(
-    afterPatches.applied.length,
-    afterCustom.applied.length,
-    afterPatches.ignored.length,
-    result.warnings ?? [],
-  );
+  // It. 10.5 — Message assistant : actions_card si patches/custom_fields,
+  // sinon text simple. Plus jamais de "Aucun champ mis à jour".
+  const hasProposals =
+    (result.patches?.length ?? 0) > 0 || (result.custom_fields?.length ?? 0) > 0;
+  const assistantMessage = (result.assistant_message ?? "").trim() ||
+    "Bien noté, n'hésite pas à préciser.";
   await appendLocalMessage({
     userId: message.user_id,
     visitId: message.visit_id,
     role: "assistant",
-    kind: "text",
-    content: summary,
+    kind: hasProposals ? "actions_card" : "text",
+    content: assistantMessage,
     metadata: {
       llm_extraction_id: extraction.id,
       mode: "extract",
+      proposed_patches: result.patches ?? [],
+      proposed_custom_fields: result.custom_fields ?? [],
+      applied_paths: afterPatches.applied.map((a) => a.path),
+      ignored_paths: afterPatches.ignored.map((i) => ({
+        path: i.path,
+        reason: i.reason,
+      })),
     },
   });
 
@@ -515,35 +518,33 @@ async function handleConversational(
   helpers: EngineHelpers,
 ): Promise<ProcessResult> {
   const db = getDb();
-  let resp: Awaited<ReturnType<typeof conversationalQuery>>;
+  let resp: CallVtuLlmAgentResponse;
   try {
-    resp = await conversationalQuery({
-      data: {
-        messageText: message.content ?? "",
-        contextBundle: bundle,
-      },
+    resp = await callVtuLlmAgent({
+      mode: "conversational",
+      messageText: message.content ?? "",
+      contextBundle: bundle,
     });
   } catch (err) {
     return await helpers.scheduleRetryOrFail(entry, err);
   }
 
   if (!resp.ok) {
-    return await handleLlmError(resp, entry, helpers, {
-      userId: message.user_id,
-      visitId: message.visit_id,
-      messageId: message.id,
-      mode: "conversational_query",
-    });
+    return await handleLlmError(
+      { ...resp, stable_prompt_hash: "" },
+      entry,
+      helpers,
+      {
+        userId: message.user_id,
+        visitId: message.visit_id,
+        messageId: message.id,
+        mode: "conversational_query",
+      },
+    );
   }
 
-  let result: ConversationalResult;
-  let raw: Record<string, unknown>;
-  try {
-    result = JSON.parse(resp.result_json) as ConversationalResult;
-    raw = JSON.parse(resp.raw_response_json) as Record<string, unknown>;
-  } catch (err) {
-    return await helpers.scheduleRetryOrFail(entry, err);
-  }
+  const result = resp.result;
+  const raw = resp.raw_response;
 
   const extraction = await appendLocalLlmExtraction({
     userId: message.user_id,
@@ -563,19 +564,21 @@ async function handleConversational(
       model: resp.meta.model_version,
       schema_version: bundle.schema_version,
     },
-    stablePromptHash: resp.stable_prompt_hash,
+    stablePromptHash: null,
     providerRequestId: resp.meta.provider_request_id,
     rawResponse: raw,
     status: "success",
     warnings: result.warnings ?? [],
   });
 
+  const assistantMessage = (result.assistant_message ?? "").trim() ||
+    "Désolé, je n'ai pas su répondre à cette question.";
   await appendLocalMessage({
     userId: message.user_id,
     visitId: message.visit_id,
     role: "assistant",
     kind: "text",
-    content: result.answer_markdown,
+    content: assistantMessage,
     metadata: {
       llm_extraction_id: extraction.id,
       mode: "conversational",
