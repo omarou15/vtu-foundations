@@ -320,13 +320,15 @@ describe("Dexie v2 — sync_state", () => {
     expect(v).toBe("2026-04-24T15:00:00.000Z");
   });
 
-  it("la DB s'ouvre en v4 avec sync_state + schema_registry + attachment_blobs", async () => {
+  it("la DB s'ouvre en v5 avec sync_state + schema_registry + attachment_blobs + llm tables", async () => {
     const db = getDb();
     await db.open();
-    expect(db.verno).toBe(4);
+    expect(db.verno).toBe(5);
     const names = db.tables.map((t) => t.name).sort();
     expect(names).toContain("sync_state");
     expect(names).toContain("schema_registry");
     expect(names).toContain("attachment_blobs");
+    expect(names).toContain("llm_extractions");
+    expect(names).toContain("attachment_ai_descriptions");
   });
 });

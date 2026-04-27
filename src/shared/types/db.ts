@@ -24,13 +24,9 @@ export type SyncStatus =
   | "failed";
 
 export interface SyncFields {
-  /** État de synchronisation côté local. */
   sync_status: SyncStatus;
-  /** Nombre de tentatives de sync (pour backoff). */
   sync_attempts: number;
-  /** Dernier message d'erreur de sync, ou null si pas d'erreur. */
   sync_last_error: string | null;
-  /** Timestamp de dernière mutation locale (ISO). */
   local_updated_at: string;
 }
 
@@ -55,9 +51,7 @@ export interface VisitRow {
   client_id: string;
   title: string;
   status: VisitStatus;
-  /** Optimistic concurrency : chaque write envoie sa version. */
   version: number;
-  /** Itération 4 — métadonnées renseignées à la création (modal). */
   address: string | null;
   mission_type: MissionType | null;
   building_type: BuildingType | null;
@@ -90,38 +84,19 @@ export interface MessageRow {
 
 export type AttachmentBucket = "visit-audio" | "visit-photos" | "attachments";
 
-/**
- * Profil de média choisi côté UI (intention-first) — pilote la
- * compression et la stratégie d'affichage.
- *  - "photo" : photo terrain (1600px, WebP 0.80, EXIF strip sauf GPS)
- *  - "plan"  : plan/document scanné (3000px, WebP 0.95, EXIF préservé)
- *  - "pdf"   : PDF brut (pas de compression, thumbnail = icône SVG inline)
- */
 export type MediaProfile = "photo" | "plan" | "pdf";
 
 export interface AttachmentRow {
   id: string;
-  /**
-   * NOT NULL côté DB. Côté local, peut être null tant que l'attachment
-   * est en sync_status="draft" (en attente d'être rattaché à un
-   * message via attachPendingMediaToMessage). Au moment de l'enqueue
-   * sync, message_id DOIT être renseigné.
-   */
   message_id: string | null;
   user_id: string;
   visit_id: string;
   bucket: AttachmentBucket;
-  /**
-   * Path serveur de la version "principale" (= compressed_path pour
-   * les photos/plans, fichier brut pour les PDF). Identique à
-   * compressed_path en pratique, conservé pour rétrocompat Phase 1.
-   */
   storage_path: string;
   mime_type: string | null;
   size_bytes: number | null;
   metadata: Record<string, unknown>;
   created_at: string;
-  // ---- Itération 9 : pipeline médias ----
   compressed_path: string | null;
   thumbnail_path: string | null;
   width_px: number | null;
@@ -129,9 +104,8 @@ export interface AttachmentRow {
   sha256: string | null;
   gps_lat: number | null;
   gps_lng: number | null;
-  format: string | null; // "image/webp", "image/jpeg", "application/pdf", ...
+  format: string | null;
   media_profile: MediaProfile | null;
-  /** Sections JSON auxquelles ce média est rattaché (paths canonisés). */
   linked_sections: string[];
 }
 
@@ -149,6 +123,8 @@ export interface VisitJsonStateRow {
   state: VisitJsonState;
   created_by_message_id: string | null;
   created_at: string;
+  /** It. 10 — lien optionnel vers la ligne llm_extractions à l'origine. */
+  source_extraction_id?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,23 +137,33 @@ export interface VisitJsonStateRow {
  *  - "attachment_upload" (It. 9) : pipeline en 3 étapes — upload Storage
  *    compressé + thumbnail puis INSERT attachments. Différé tant que le
  *    message porteur n'est pas synced côté serveur (RLS).
+ *  - "describe_media" (It. 10) : appel LLM décrit visuel (multimodal).
+ *    Différé tant que l'attachment n'est pas synced (URL signée requise).
+ *  - "llm_route_and_dispatch" (It. 10) : router hybride sur un message
+ *    user. Branche sur extract_from_message OU conversational_query.
+ *    Attend que les médias liés soient describe_media-d.
  */
-export type SyncQueueOp = "insert" | "update" | "attachment_upload";
+export type SyncQueueOp =
+  | "insert"
+  | "update"
+  | "attachment_upload"
+  | "describe_media"
+  | "llm_route_and_dispatch";
+
 export type SyncQueueTable =
   | "visits"
   | "messages"
   | "attachments"
   | "visit_json_state"
-  | "schema_registry"; // Phase 2 It. 7
+  | "schema_registry"
+  | "llm_extractions"
+  | "attachment_ai_descriptions";
 
 export interface SyncQueueEntry {
-  /** Auto-incrément Dexie. */
   id?: number;
   table: SyncQueueTable;
   op: SyncQueueOp;
-  /** Clé primaire de la ligne concernée (UUID). */
   row_id: string;
-  /** Payload sérialisé à envoyer. */
   payload: Record<string, unknown>;
   attempts: number;
   last_error: string | null;
@@ -208,7 +194,7 @@ export interface SchemaRegistryEntry {
   organization_id: string | null;
   registry_urn: string;
   field_key: string;
-  section_path: string; // TOUJOURS canonisé (collections : ecs[] pas ecs[0])
+  section_path: string;
   label_fr: string;
   value_type: SchemaRegistryValueType;
   unit: string | null;
@@ -224,4 +210,85 @@ export interface SchemaRegistryEntry {
   status: SchemaRegistryStatus;
   created_at: string;
   updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// LLM extractions (It. 10) — audit trail append-only
+// ---------------------------------------------------------------------------
+
+export type LlmMode =
+  | "router"
+  | "describe_media"
+  | "extract_from_message"
+  | "conversational_query";
+
+export type LlmExtractionStatus =
+  | "success"
+  | "partial"
+  | "failed"
+  | "rate_limited"
+  | "malformed";
+
+export interface LlmExtractionRow {
+  id: string;
+  user_id: string;
+  organization_id: string | null;
+  visit_id: string;
+  message_id: string | null;
+  attachment_id: string | null;
+  mode: LlmMode;
+  provider: string;
+  model_version: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_input_tokens: number | null;
+  cost_usd: number | null;
+  latency_ms: number | null;
+  confidence_overall: number | null;
+  context_bundle: Record<string, unknown>;
+  raw_request_summary: Record<string, unknown>;
+  stable_prompt_hash: string | null;
+  provider_request_id: string | null;
+  raw_response: Record<string, unknown>;
+  patches_count: number;
+  custom_fields_count: number;
+  status: LlmExtractionStatus;
+  warnings: string[];
+  error_message: string | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Attachment AI descriptions (It. 10) — append-only, 1 row par (user, attachment, mode)
+// ---------------------------------------------------------------------------
+
+export interface AttachmentAiDescriptionRow {
+  id: string;
+  user_id: string;
+  organization_id: string | null;
+  visit_id: string;
+  attachment_id: string;
+  mode: "describe_media";
+  provider: string;
+  model_version: string;
+  description: AttachmentAiDescriptionPayload;
+  confidence_overall: number | null;
+  created_at: string;
+}
+
+/**
+ * Payload `description` d'une attachment_ai_description.
+ * Schema 2 niveaux : court (caption) + détaillé (≤180 mots).
+ * `skipped: true` pour les PDFs (pas envoyés à Gemini Phase 2).
+ */
+export interface AttachmentAiDescriptionPayload {
+  skipped?: boolean;
+  reason?: string;
+  short_caption: string;
+  detailed_description: string | null;
+  structured_observations: Array<{
+    section_hint: string;
+    observation: string;
+  }>;
+  ocr_text: string | null;
 }

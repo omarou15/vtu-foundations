@@ -18,11 +18,15 @@
  *  - v3 : ajout schema_registry (vocabulaire métier, mirror local)
  *  - v4 : pipeline médias (It. 9) — extension index attachments + table
  *         attachment_blobs (blobs lourds isolés du store métier)
+ *  - v5 : cerveau LLM (It. 10) — llm_extractions + attachment_ai_descriptions
+ *         + index composé `[op+row_id]` sur sync_queue (re-enqueue ciblée).
  */
 
 import Dexie, { type Table } from "dexie";
 import type {
+  AttachmentAiDescriptionRow,
   AttachmentRow,
+  LlmExtractionRow,
   MessageRow,
   SchemaRegistryEntry,
   SyncFields,
@@ -40,28 +44,18 @@ export type LocalMessage = MessageRow & SyncFields;
 export type LocalAttachment = AttachmentRow & SyncFields;
 export type LocalVisitJsonState = VisitJsonStateRow & SyncFields;
 export type LocalSchemaRegistryEntry = SchemaRegistryEntry & SyncFields;
+export type LocalLlmExtraction = LlmExtractionRow & SyncFields;
+export type LocalAttachmentAiDescription = AttachmentAiDescriptionRow &
+  SyncFields;
 
-/**
- * Curseur de pull cross-device. `key` typique :
- *   - "visits:last_pulled_at"
- *   - "visit_json_state:last_pulled_at"
- *   - "messages:last_pulled_at:{visitId}"
- */
 export interface SyncStateRow {
   key: string;
-  value: string; // ISO timestamp
+  value: string;
 }
 
-/**
- * It. 9 — Blobs lourds (compressed + thumbnail) stockés à part de la
- * table métier `attachments`. La FK locale est `attachment_id` (= row id).
- * Cleanup TTL délégué à It. 12 (housekeeping).
- */
 export interface AttachmentBlobRow {
   attachment_id: string;
-  /** Version compressée (ou file brut pour PDF). */
   compressed: Blob;
-  /** Thumbnail. NULL pour les PDF (rendu via icône SVG inline). */
   thumbnail: Blob | null;
   created_at: string;
 }
@@ -79,11 +73,12 @@ export class VtuDatabase extends Dexie {
   sync_state!: Table<SyncStateRow, string>;
   schema_registry!: Table<LocalSchemaRegistryEntry, string>;
   attachment_blobs!: Table<AttachmentBlobRow, string>;
+  llm_extractions!: Table<LocalLlmExtraction, string>;
+  attachment_ai_descriptions!: Table<LocalAttachmentAiDescription, string>;
 
   constructor() {
     super("vtu");
 
-    // -------- v1 --------
     this.version(1).stores({
       visits:
         "id, user_id, [user_id+updated_at], [user_id+status], status, sync_status, client_id, [user_id+client_id]",
@@ -97,37 +92,38 @@ export class VtuDatabase extends Dexie {
         "++id, [next_attempt_at+attempts], table, row_id, [table+row_id]",
     });
 
-    // -------- v2 -------- (Itération 6.5 : pull cross-device)
     this.version(2).stores({
       sync_state: "&key",
     });
 
-    // -------- v3 -------- (Itération 7 : Schema Registry mirror)
-    // Index principaux :
-    //   - registry_urn UNIQUE local (cohérent avec UNIQUE(user_id, registry_urn) côté DB)
-    //   - [section_path+field_key] pour le matching exact local (évite un trip réseau)
-    //   - section_path pour énumérer les fields d'une section (UI It. 11)
-    //   - sync_status pour que l'engine puisse retrouver les pending
     this.version(3).stores({
       schema_registry:
         "id, &registry_urn, section_path, [section_path+field_key], status, sync_status",
     });
 
-    // -------- v4 -------- (Itération 9 : pipeline médias)
-    // - attachments : ajout sha256 + index composé pour la dedup informatif
-    //   et [visit_id+sync_status] pour la liste des drafts (PhotoPreviewPanel).
-    //   Le statut "draft" (sync_status) signifie : créé localement mais pas
-    //   encore enqueue dans sync_queue (en attente d'un message porteur).
-    // - attachment_blobs : nouvelle table, blobs lourds isolés du store métier.
     this.version(4).stores({
       attachments:
         "id, message_id, visit_id, user_id, sync_status, sha256, [user_id+sha256], [visit_id+sync_status]",
       attachment_blobs: "&attachment_id, created_at",
     });
+
+    // -------- v5 -------- (Itération 10 : cerveau LLM)
+    // - llm_extractions : audit trail (append-only)
+    // - attachment_ai_descriptions : 1 row par (user, attachment, mode)
+    // - sync_queue : ajout index composé [op+row_id] pour re-enqueue
+    //   ciblée (réveiller un llm_route_and_dispatch quand un
+    //   describe_media de la même VT vient d'aboutir).
+    this.version(5).stores({
+      sync_queue:
+        "++id, [next_attempt_at+attempts], table, row_id, [table+row_id], op, [op+row_id]",
+      llm_extractions:
+        "id, visit_id, message_id, attachment_id, mode, sync_status, created_at",
+      attachment_ai_descriptions:
+        "id, attachment_id, visit_id, sync_status, created_at",
+    });
   }
 }
 
-// Singleton lazy : on n'ouvre IndexedDB que côté client (pas en SSR).
 let _db: VtuDatabase | null = null;
 
 export function getDb(): VtuDatabase {
@@ -142,7 +138,6 @@ export function getDb(): VtuDatabase {
   return _db;
 }
 
-/** Reset uniquement utilisé par les tests. */
 export function __resetDbForTests(): void {
   _db = null;
 }

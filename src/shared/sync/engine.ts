@@ -492,6 +492,10 @@ function tableForName(name: SyncQueueEntry["table"]) {
       return db.visit_json_state;
     case "schema_registry":
       return db.schema_registry;
+    case "llm_extractions":
+      return db.llm_extractions;
+    case "attachment_ai_descriptions":
+      return db.attachment_ai_descriptions;
   }
 }
 
