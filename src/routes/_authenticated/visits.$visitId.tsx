@@ -260,12 +260,12 @@ function VisitChatPage() {
             </span>
             <button
               type="button"
-              onClick={() => openJson("tree")}
+              onClick={() => openDrawer()}
               className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
-              aria-label="Ouvrir l'état JSON"
+              aria-label="Ouvrir le panneau VT"
               data-testid="open-json-viewer"
             >
-              <Braces className="h-5 w-5" />
+              <LayoutDashboard className="h-5 w-5" />
             </button>
           </div>
 
