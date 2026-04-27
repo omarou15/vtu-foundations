@@ -6,6 +6,7 @@ import { formatRelative } from "../lib/relativeTime";
 import { PendingActionsCard } from "./PendingActionsCard";
 import { ConflictCard } from "./ConflictCard";
 import { MessageAttachments } from "./MessageAttachments";
+import { PhotoBatchProgressCard } from "./PhotoBatchProgressCard";
 
 interface MessageListProps {
   visitId: string;
