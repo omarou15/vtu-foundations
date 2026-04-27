@@ -71,7 +71,7 @@ export function MessageList({ visitId, userId }: MessageListProps) {
     <div className="px-3 py-4" role="log" aria-label="Conversation de la visite">
       <ul className="flex flex-col gap-3">
         {messages
-          .filter((m) => m.kind === "text" || m.kind === "actions_card")
+          .filter((m) => m.kind === "text" || m.kind === "actions_card" || m.kind === "photo" || m.kind === "document")
           .map((m) => {
             if (m.kind === "actions_card" && m.role === "assistant") {
               return (
