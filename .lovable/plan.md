@@ -1,111 +1,124 @@
-# Itération 14 — Thumbnails fiables + progression photo par photo
+# Fix : couper le mensonge IA + statut réel des pièces jointes (v2 — corrigé)
 
-## Diagnostic
+Objectif : (1) empêcher l'IA d'inventer le contenu d'une photo non analysée, côté **conversational ET extract**, (2) donner à l'utilisateur un retour visuel persistant sur l'état des pièces jointes au niveau VT. Aucune migration DB / RLS / sync engine.
 
-### Bug 1 — Thumbnails ne s'affichent pas dans le chat (les 8 carrés bleus avec « ? »)
+---
 
-`MessageAttachments.tsx` lit le blob via `attachment_blobs.get(attachment.id)` et fait `useLiveQuery`. Mais quand on ouvre une visite re-pullée depuis un autre device (ou après un reload + cache vidé), il n'y a **pas de blob local** : la photo a été uploadée vers le bucket `attachments`, la row `attachments` est arrivée via realtime, mais `attachment_blobs` est vide pour cet `id`. Au bout de 5 s, le composant bascule sur l'icône `ImageOff` (ce qu'on voit avec les « ? » bleus).
+## 1. Étendre le ContextBundle avec `pending_attachments` (prérequis)
 
-Aucun mécanisme ne va chercher la thumbnail signée depuis Supabase Storage si le blob local n'existe pas.
+Sans cela, la garde n'a rien à filtrer (vérifié : `builder.ts:58` ne génère `attachments_context` qu'à partir des descriptions existantes).
 
-### Bug 2 — Aucun retour pendant que l'IA analyse les photos
-
-Aujourd'hui le flow rafale (8 photos) est :
-
-```
-1. addMediaToVisit ×8       → 8 attachments draft + 8 blobs locaux
-2. send                      → 1 message + attachPendingMediaToMessage (×8 sync_queue attachment_upload)
-3. appendLocalMessage user   → enqueue 1 job llm_route_and_dispatch (lié au message)
-4. engine sériel :
-   a) 8 × attachment_upload   → chacun finit en enqueue describe_media
-   b) 8 × describe_media       → ~15-25 s par photo via Gemini
-   c) llm_route_and_dispatch  → BLOQUE jusqu'à ce que TOUTES les 8 photos soient describe (cf engine.llm.ts L298-306 boucle attachments + scheduleDependencyWait)
-   d) extract                  → 1 seul message assistant final
+**`src/shared/llm/types.ts`** — ajouter au type `ContextBundle` :
+```ts
+pending_attachments: Array<{
+  id: string;
+  media_profile: string | null;
+  reason: "no_description_yet" | "ai_disabled_when_sent";
+}>;
 ```
 
-→ Pendant 2-4 minutes, l'utilisateur voit uniquement le `ThinkingSkeletonCard` « J'analyse vos observations… ». Aucun signal de progression. La synthèse n'arrive qu'à la toute fin.
+**`src/shared/llm/context/builder.ts`** :
+- Étendre `BuildContextInput` avec `pendingAttachments: Array<{ id, media_profile, reason }>`.
+- Inclure tel quel dans le bundle retourné (default `[]`).
 
-L'utilisateur demande deux choses, dans l'ordre :
-1. Indicateur **« n/N analysées »** qui progresse au fur et à mesure.
-2. Si techniquement c'est analysé une par une, **émettre une bulle assistant dès qu'une photo est prête** au lieu d'attendre toutes.
+**Call sites** (sync engine + UI qui construisent le bundle) — `src/shared/sync/engine.llm.ts` et tout autre appelant de `buildContextBundle` :
+- Charger via Dexie les `attachments` du message courant (mode extract) ou de la VT entière (mode conversational, fenêtre N derniers messages).
+- Pour chaque attachment, vérifier l'absence de ligne dans `attachment_ai_descriptions` (mode `describe_media`) → ajouter à `pendingAttachments`.
+- Distinguer `reason` :
+  - `ai_disabled_when_sent` si le `messages.metadata.ai_enabled === false` du message porteur.
+  - `no_description_yet` sinon.
 
-Le pipeline actuel analyse déjà **photo par photo** (1 job describe_media par attachment) → on a tout pour streamer.
+**`src/server/llm.functions.ts`** — `ContextBundleSchema` (ligne ~55) : ajouter
+```ts
+pending_attachments: z.array(z.object({
+  id: z.string(),
+  media_profile: z.string().nullable(),
+  reason: z.enum(["no_description_yet", "ai_disabled_when_sent"]),
+})).default([]),
+```
 
----
+## 2. Garde anti-hallucination — conversational ET extract
 
-## Plan d'action
+**`src/server/llm.functions.ts`** — extraire `buildUserPromptConversational` et `buildUserPromptExtract` en fonctions exportées (testables). Dans chacune, si `bundle.pending_attachments.length > 0`, prepend un bloc :
 
-### A. Réparer les thumbnails (priorité #1)
+```
+## ATTACHMENTS NON ENCORE ANALYSÉS
+Les pièces jointes suivantes ont été reçues mais leur analyse visuelle
+n'est PAS terminée :
+  - {id} ({media_profile}) — {reason}
+RÈGLE STRICTE : tu NE DOIS PAS prétendre avoir vu, lu, analysé ces
+fichiers. Confirme leur réception (nombre, type), jamais leur contenu.
+[extract] N'émets AUCUN patch ni custom_field basé sur ces attachments.
+```
 
-**Composant `MessageAttachments.tsx` + nouveau hook `useAttachmentThumb`**
+**`src/shared/llm/prompts/system-conversational.ts`** : ajouter en fin :
+> « Si une pièce jointe figure dans `pending_attachments` ou n'a ni caption ni description ni OCR, tu n'as PAS vu son contenu. N'invente jamais. Dis que l'analyse est en cours. »
 
-1. Étendre la lecture : si le blob local est absent **ET** que `attachment.sync_status === "synced"` **ET** que `attachment.thumbnail_path` existe, on appelle `supabase.storage.from(bucket).createSignedUrl(thumbnail_path, 3600)` (ou `compressed_path` en fallback) **une seule fois par session**.
-2. Cacher l'URL signée dans une Map mémoire (`attachmentId → { url, expiresAt }`) pour éviter de re-signer à chaque rerender. TTL 1h, refresh quand on s'approche.
-3. Optionnel mais sain : back-fill du blob local en arrière-plan (`fetch(signedUrl) → put attachment_blobs`) pour que la prochaine ouverture soit instantanée et offline-friendly. Ne bloque pas l'affichage.
-4. Le délai « 5 s sans blob = failed » est trop court : on l'enlève. La nouvelle logique est : `blob local || URL signée distante || skeleton tant qu'on n'a essayé ni l'un ni l'autre`. `failed` n'apparaît que si le fetch distant échoue avec 404 (vraie photo perdue).
+**`src/shared/llm/prompts/system-extract.ts`** : ajouter dans « Règles dures » :
+> « Tout attachment listé dans `pending_attachments` est INVISIBLE pour toi : aucun patch, aucun custom_field, aucun evidence_ref ne doit s'y appuyer. Tu peux ajouter un warning `attachment_pending_analysis`. »
 
-Appliquer la même logique dans `PhotosTab.tsx` (drawer) qui a la même structure que `AttachmentThumb`.
+**Note système** : SYSTEM_UNIFIED contient probablement la même logique fusionnée — vérifier `src/shared/llm/prompts/system-unified.ts` et appliquer la même règle si utilisé.
 
-### B. Streaming « n/N analysées » + bulles assistant intermédiaires
+## 3. Statut visuel — décision sur `PhotoBatchProgressCard`
 
-**1. Nouveau composant `PhotoBatchProgressCard` (chat)**
+Coexistence assumée, rôles distincts et nommage clair :
 
-Affiché **à la place** du `ThinkingSkeletonCard` quand le dernier message user est un `kind === "photo"` ou `"document"` avec `attachment_count > 1`.
+- **`PhotoBatchProgressCard`** (existant, par-message, transitoire) : conservé tel quel. Affichage in-flow pendant le batch d'un message photo, disparaît à `done === total`.
+- **Nouveau `VisitAttachmentSyncStatus`** (par-VT, persistant) : remplace le nom proposé `AttachmentBatchStatus`.
 
-Lit en `useLiveQuery` :
-- `count(attachment_ai_descriptions WHERE message_id du dernier user)` → analysées
-- `attachment_count` du message → total
+**Nouveau `src/features/chat/components/VisitAttachmentSyncStatus.tsx`** :
+- Props `{ visitId: string }`.
+- 2× `useLiveQuery` Dexie filtrés sur `visit_id` :
+  - `attachments` (toutes),
+  - `attachment_ai_descriptions` (mode `describe_media`).
+- Compteurs :
+  - `total = attachments.length` (exclure ceux en `sync_status === "draft"`)
+  - `uploaded = sync_status === "synced"`
+  - `inFlight = sync_status in ("pending","syncing")`
+  - `failed = sync_status === "failed"`
+  - `analyzed = nb d'attachment_id ayant ≥ 1 ai_description`
+  - `aiDisabledCount` = attachments dont le message porteur a `metadata.ai_enabled === false` ET sans description (nécessite jointure messages)
+- Rendu (compact, design-tokens uniquement, `text-xs font-ui`) :
+  - `total === 0` → `null`.
+  - Format base : `📎 {analyzed}/{total} analysées · {uploaded}/{total} uploadées`.
+  - `inFlight > 0` → spinner + « upload/analyse en cours… ».
+  - `failed > 0` → badge destructif `{failed} échec(s)`.
+  - `aiDisabledCount > 0` → libellé info « {n} envoyée(s) avec IA désactivée — réactiver l'IA pour analyser ».
+  - Tout réussi → vert discret « tout est synchronisé ».
 
-Affiche : `Sparkles + barre de progression + "3/8 photos analysées"`. Quand `analysées === total`, le card disparaît et on retombe sur le `ThinkingSkeletonCard` standard pour la phase extract finale.
+**Intégration `src/routes/_authenticated/visits.$visitId.tsx`** : insérer entre `<section>` MessageList et `<ChatInputBar>` (ligne ~318).
 
-**2. Émission incrémentale d'une bulle assistant par photo prête**
+Export via `src/features/chat/index.ts`.
 
-Modifier `processDescribeMedia` (engine.llm.ts) : juste après `appendLocalAttachmentAiDescription`, si **plusieurs** attachments sont liés au même message :
-- Émettre un message assistant `kind: "text"` court, contenu = `result.short_caption` (légende ≤ 160c déjà produite par le LLM, parfaite pour cet usage).
-- Metadata : `{ kind_origin: "photo_caption", attachment_id, batch_index: N, batch_total: M, ai_enabled: false }` (`ai_enabled: false` empêche tout dispatch en cascade).
-- Idempotent : check qu'aucun message assistant `photo_caption` n'existe déjà pour cet attachment_id avant d'insérer (chercher via metadata, ou plus simple : une nouvelle table légère `assistant_caption_emitted` ou un flag dans `attachment_ai_descriptions`).
+## 4. Tests
 
-Si **une seule** photo est attachée au message, on n'émet pas de caption intermédiaire (le futur message extract suffit, pas de bruit).
+**`src/server/__tests__/buildUserPrompt.test.ts`** (nouveau) :
+- `buildUserPromptConversational` avec `pending_attachments=[{id,media_profile:"photo",reason:"no_description_yet"}]` → contient `ATTACHMENTS NON ENCORE ANALYSÉS` + `tu NE DOIS PAS prétendre`.
+- Idem `pending_attachments=[]` → bloc absent.
+- `buildUserPromptExtract` : mêmes 2 cas + vérifier `N'émets AUCUN patch`.
+- `buildUserPromptConversational` avec `reason:"ai_disabled_when_sent"` → mention spécifique du choix utilisateur.
 
-**3. Présentation dans `MessageList`**
+**`src/shared/llm/__tests__/context.test.ts`** : étendre les cas existants pour vérifier que `pendingAttachments` est propagé correctement par `buildContextBundle`.
 
-Les bulles `photo_caption` s'affichent comme des bulles assistant standard mais avec :
-- Icône ✨ devant
-- Style légèrement plus discret (`text-muted-foreground`, `border-dashed`, `text-xs`)
-- Pas de timestamp (ou très discret)
+**`src/features/chat/__tests__/VisitAttachmentSyncStatus.test.tsx`** (nouveau) :
+- 0 attachments → `null`.
+- 3 `synced` + 0 ai_descriptions → `0/3 analysées · 3/3 uploadées`.
+- 3 `synced` + 3 ai_descriptions → `tout est synchronisé`.
+- 2 `synced` + 1 `pending` → spinner + label « en cours ».
+- 1 `synced` sans description, message porteur `ai_enabled:false` → label « IA désactivée ».
 
-Optionnellement, on les **regroupe visuellement** : si N captions consécutives partagent le même `parent_message_id`, on les empile dans un seul container avec une mini-grille de thumbnails à gauche. À spécifier au moment du build, défaut = bulles séparées (plus simple).
+## 5. Hors scope (prompts suivants)
 
-**4. Card final inchangé**
+- Pull cross-device des `attachments` + `attachment_ai_descriptions` + blobs → prompt 2.
+- Re-analyse a posteriori d'attachments envoyés en IA off → prompt 3.
+- Pas de migration DB ni RLS.
 
-Quand `processLlmRouteAndDispatch` finit, le message `actions_card` final arrive et offre la synthèse globale + les patches à valider. Les captions intermédiaires restent dans l'historique comme trace.
+## Critères d'acceptation
 
-### C. Détails complémentaires
-
-- **Toast d'échec ciblé** : si une photo échoue (`describe_media` → status `failed`), émettre une bulle assistant courte « ⚠️ Photo X non analysée » + lien pour relancer.
-- **Drawer « Photos »** : afficher un petit badge ✨ sur les vignettes déjà décrites (déjà partiellement présent dans `MessageAttachments`, le porter dans `PhotosTab`).
-
----
-
-## Fichiers touchés
-
-**Nouveau**
-- `src/features/chat/lib/useAttachmentThumb.ts` — hook qui résout `blob local → signed url → fetch back-fill`.
-- `src/features/chat/components/PhotoBatchProgressCard.tsx` — card « n/N analysées ».
-
-**Modifiés**
-- `src/features/chat/components/MessageAttachments.tsx` — utilise `useAttachmentThumb`, retire le timeout 5 s naïf.
-- `src/features/visits/components/PhotosTab.tsx` — idem.
-- `src/features/chat/components/MessageList.tsx` — sélectionne `PhotoBatchProgressCard` quand last user message est photo/document multi.
-- `src/shared/sync/engine.llm.ts` — émission idempotente d'une bulle assistant `photo_caption` après chaque `describe_media` réussi (uniquement si batch ≥ 2).
-- `src/shared/types/db.ts` — élargir le type metadata des messages pour `kind_origin: "photo_caption"`.
-- Tests à ajouter : `MessageAttachments.thumb-fallback.test.ts`, `engine.describe-media.batch-emit.test.ts`.
-
----
-
-## Hors-scope (à confirmer)
-
-- Migration DB pour stocker un cache d'URL signée → **non**, on garde en mémoire (régénérable).
-- Déplacer les analyses photo vers un job `EdgeRuntime.waitUntil` côté Edge Function → **non** maintenant : l'engine côté client gère déjà la file en série, le vrai problème UX est juste l'absence de feedback. On y reviendra si la latence Gemini reste un blocker après ce fix.
-
-GO ?
+- [ ] `bun run lint` + `bun run typecheck` verts.
+- [ ] Tests existants (44/44) restent verts.
+- [ ] Nouveaux tests verts (prompt builders × 2 modes + composant).
+- [ ] Quand un attachment sans description est dans le contexte, l'IA conversationnelle répond explicitement « analyse en cours » et ne décrit pas le contenu.
+- [ ] `extract_from_message` ne produit aucun patch/custom_field référençant un `pending_attachment`.
+- [ ] Sous l'input bar, compteur `n/m analysées · n/m uploadées` visible et réactif (Dexie liveQuery).
+- [ ] État « IA désactivée » distingué de « analyse en cours ».
