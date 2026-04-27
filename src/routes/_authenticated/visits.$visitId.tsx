@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Braces, Menu, WifiOff } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Braces, Menu, Sparkles, WifiOff } from "lucide-react";
 import { toast } from "sonner";
-import { appendLocalMessage, getDb } from "@/shared/db";
+import { appendLocalMessage, getDb, getLatestLocalJsonState, type LocalMessage } from "@/shared/db";
 import { useAuth } from "@/features/auth";
 import { useVirtualKeyboard } from "@/shared/hooks";
 import { useConnectionStore, useMessagesSync } from "@/shared/sync";
@@ -19,6 +19,8 @@ import {
 } from "@/features/visits/lib/icons";
 import { ChatInputBar, MessageList, useChatStore } from "@/features/chat";
 import { JsonViewerDrawer } from "@/features/json-state";
+import { countUnvalidatedAiFields } from "@/features/json-state/lib/inspect";
+import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
 
 /**
  * Itération 5 — écran chat d'une visite (zones 20/60/20).
@@ -45,6 +47,7 @@ function VisitChatPage() {
   const isOnline = useConnectionStore((s) => s.isOnline);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
+  const [jsonInitialMode, setJsonInitialMode] = useState<"tree" | "todo">("tree");
 
   // Met à jour la variable CSS --kb-height pour garder l'input bar au-dessus du clavier.
   useVirtualKeyboard();
@@ -57,6 +60,34 @@ function VisitChatPage() {
     () => getDb().visits.get(visitId),
     [visitId],
   );
+
+  // It. 11 — compteurs "à valider" / "conflits" pour les badges header.
+  const latestState = useLiveQuery(
+    () => getLatestLocalJsonState(visitId),
+    [visitId],
+  );
+  const visitMessages = useLiveQuery(
+    () =>
+      getDb().messages.where("visit_id").equals(visitId).toArray(),
+    [visitId],
+    [] as LocalMessage[],
+  );
+  const unvalidatedCount = useMemo(
+    () => (latestState ? countUnvalidatedAiFields(latestState.state) : 0),
+    [latestState],
+  );
+  const conflictsCount = useMemo(
+    () =>
+      latestState
+        ? findActiveConflicts(latestState.state, visitMessages).length
+        : 0,
+    [latestState, visitMessages],
+  );
+
+  const openJson = (mode: "tree" | "todo") => {
+    setJsonInitialMode(mode);
+    setJsonOpen(true);
+  };
 
   if (visit === undefined) {
     return (
