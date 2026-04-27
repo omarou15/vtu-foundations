@@ -45,10 +45,11 @@ export function PhotosTab({ visitId }: PhotosTabProps) {
 
   // Tri stable : photos d'abord, puis plans, puis PDF.
   const sortedMedia = useMemo(() => {
-    const order = { photo: 0, plan: 1, pdf: 2 } as Record<string, number>;
+    const order: Record<string, number> = { photo: 0, plan: 1, pdf: 2 };
     return [...media].sort(
       (a, b) =>
-        (order[a.media_profile] ?? 9) - (order[b.media_profile] ?? 9) ||
+        (order[a.media_profile ?? "photo"] ?? 9) -
+          (order[b.media_profile ?? "photo"] ?? 9) ||
         (a.created_at ?? "").localeCompare(b.created_at ?? ""),
     );
   }, [media]);
