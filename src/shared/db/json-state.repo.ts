@@ -11,7 +11,11 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { getDb, type LocalVisitJsonState } from "@/shared/db/schema";
-import type { VisitJsonState, VisitJsonStateRow } from "@/shared/types";
+import type {
+  SyncQueueEntry,
+  VisitJsonState,
+  VisitJsonStateRow,
+} from "@/shared/types";
 import { migrateVisitJsonState } from "@/shared/types/json-state.migrate";
 
 interface InsertLocalJsonStateInput {
