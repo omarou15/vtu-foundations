@@ -192,9 +192,10 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 7 — Schéma JSON dynamique v2 + Schema Registry offline-first
 - [x] Itération 9 — Pipeline médias photos / plans / PDFs (intention-first)
 - [x] Itération 10 — Cerveau LLM (router hybride + extract + describe + conversational)
+- [x] Itération 10.5 — Refonte UX IA (Edge Function `vtu-llm-agent`, validation inline, skeleton card, dual output `assistant_message` + patches)
 
-**✅ Phase 1 + It. 7 + It. 9 + It. 10 (Phase 2) COMPLÈTES.** Prochaine
-étape : audio (it. 8 reportée), validation IA en UI (it. 11), rapport Word.
+**✅ Phase 1 + It. 7 + It. 9 + It. 10 + It. 10.5 (Phase 2) COMPLÈTES.** Prochaine
+étape : audio (it. 8 reportée), rapport Word.
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,
@@ -238,11 +239,14 @@ multi-user, partage, push, édition message, export.
 - **It. 9 — Cleanup blobs locaux** : `pruneOldBlobs()` est un stub
   Phase 2 (retourne 0). Implémentation TTL 7 jours Phase 3 si le quota
   IndexedDB devient problématique.
-- **It. 10 — Provider LLM en client TanStack Server Function** : le
-  provider Lovable Gemini est appelé depuis `src/server/llm.functions.ts`
-  (server fn TanStack). Phase 3 → migrer vers une Edge Function dédiée
-  pour bénéficier du cache prompt côté plateforme et d'un quota séparé
-  par tenant. Aucun blocage Phase 2.
+- **It. 10.5 — Provider LLM migré vers Edge Function `vtu-llm-agent`** :
+  l'extract et le conversational passent maintenant par la Supabase Edge
+  Function (modèle `google/gemini-3-flash-preview`) via
+  `src/shared/llm/providers/edge-function-client.ts`. Latence cible <8s
+  (vs. ~50s en server fn TanStack). `describeMedia` reste sur la server
+  fn TanStack — non bloquant car découplé du chat. Workaround
+  sérialisation TanStack (cf. ci-dessous) toujours d'actualité pour
+  describe_media uniquement.
 - **It. 10 — Vision PDF différée Phase 2.5** : `processDescribeMedia`
   écrit `description.skipped=true reason="pdf_no_render_phase2"` dès
   qu'il rencontre `media_profile==="pdf"`. Pas de rendu page 1 vers PNG
@@ -498,10 +502,34 @@ variantes `scheduleRetryOrFailLlm` / `scheduleDependencyWaitLlm`
 queue-only. L'audit LLM est tracké séparément dans `llm_extractions` /
 `attachment_ai_descriptions`.
 
-### Doctrine "LLM propose / user valide" (It. 11)
+### Doctrine "LLM propose / user valide" — livrée It. 10.5
 
-It. 10 livre la moitié du cerveau : la **proposition**. It. 11 livre
-l'autre moitié : la **validation UI** (Field<T> badge ✨, accept/reject
-inline, batch validate par section). Le compteur "X champs IA à valider"
-dans le drawer JSON sert de signal en attendant.
+It. 10 livrait la moitié du cerveau (la **proposition**). It. 10.5 livre
+l'autre moitié : la **validation inline dans le chat**, sans détour par
+le drawer JSON.
+
+**Brief flow** :
+1. User envoie un message terrain (ex: "ECS gaz 200L installée 2018").
+2. Engine route → Edge Function `vtu-llm-agent` (mode `extract`).
+3. La fonction renvoie `assistant_message` (texte naturel) + `patches[]`
+   + `custom_fields[]`. Les patches sont appliqués immédiatement comme
+   `Field<T>` `source="ai_infer"` + `validation_status="unvalidated"`.
+4. Engine crée un message assistant `kind="actions_card"` avec les
+   patches en metadata.
+5. `MessageList` rend ce message via `PendingActionsCard.tsx` : libellé
+   humain via `path-labels.ts` + boutons Apply/Ignore par patch + "Tout
+   valider" si >1 pending.
+6. Apply → `validateFieldPatch()` (passe à `validated`, append nouvelle
+   version JSON). Ignore → `rejectFieldPatch()` (reset à null si
+   `ai_infer`, sinon préserve la valeur, statut `rejected`). Toutes les
+   actions créent une **nouvelle version** du JSON state (append-only).
+
+**UX premium It. 10.5** :
+- **Pas de récap robot** : `assistant_message` Gemini, jamais "Aucun
+  champ mis à jour".
+- **Skeleton card-shaped** pendant que le LLM travaille (préfigure la
+  forme finale → réduit la latence perçue).
+- **Latence cible <8s** via Edge Function + `gemini-3-flash-preview`.
+- **Cohérence drawer JSON** : la card lit le `Field<T>` réel via
+  `useLiveQuery`, donc reflète aussi les changements faits dans le drawer.
 

@@ -242,7 +242,9 @@ function VisitChatPage() {
           className="min-h-0 flex-1 overflow-y-auto bg-background"
           aria-label="Messages de la visite"
         >
-          <MessageList visitId={visit.id} />
+          {userId ? (
+            <MessageList visitId={visit.id} userId={userId} />
+          ) : null}
         </section>
 
         {/* BAS : input bar — fixée au-dessus du clavier via .input-bar-safe-bottom */}
