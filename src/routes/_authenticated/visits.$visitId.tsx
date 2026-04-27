@@ -95,7 +95,7 @@ function VisitChatPage() {
 
   async function handleSubmit(input: {
     content: string;
-    kind: "text" | "audio" | "photo" | "document" | "system_event";
+    kind: import("@/shared/types").MessageKind;
   }): Promise<{ id: string } | void> {
     if (!userId) {
       toast.error("Session expirée — veuillez vous reconnecter.");
