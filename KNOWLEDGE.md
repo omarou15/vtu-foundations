@@ -502,10 +502,34 @@ variantes `scheduleRetryOrFailLlm` / `scheduleDependencyWaitLlm`
 queue-only. L'audit LLM est tracké séparément dans `llm_extractions` /
 `attachment_ai_descriptions`.
 
-### Doctrine "LLM propose / user valide" (It. 11)
+### Doctrine "LLM propose / user valide" — livrée It. 10.5
 
-It. 10 livre la moitié du cerveau : la **proposition**. It. 11 livre
-l'autre moitié : la **validation UI** (Field<T> badge ✨, accept/reject
-inline, batch validate par section). Le compteur "X champs IA à valider"
-dans le drawer JSON sert de signal en attendant.
+It. 10 livrait la moitié du cerveau (la **proposition**). It. 10.5 livre
+l'autre moitié : la **validation inline dans le chat**, sans détour par
+le drawer JSON.
+
+**Brief flow** :
+1. User envoie un message terrain (ex: "ECS gaz 200L installée 2018").
+2. Engine route → Edge Function `vtu-llm-agent` (mode `extract`).
+3. La fonction renvoie `assistant_message` (texte naturel) + `patches[]`
+   + `custom_fields[]`. Les patches sont appliqués immédiatement comme
+   `Field<T>` `source="ai_infer"` + `validation_status="unvalidated"`.
+4. Engine crée un message assistant `kind="actions_card"` avec les
+   patches en metadata.
+5. `MessageList` rend ce message via `PendingActionsCard.tsx` : libellé
+   humain via `path-labels.ts` + boutons Apply/Ignore par patch + "Tout
+   valider" si >1 pending.
+6. Apply → `validateFieldPatch()` (passe à `validated`, append nouvelle
+   version JSON). Ignore → `rejectFieldPatch()` (reset à null si
+   `ai_infer`, sinon préserve la valeur, statut `rejected`). Toutes les
+   actions créent une **nouvelle version** du JSON state (append-only).
+
+**UX premium It. 10.5** :
+- **Pas de récap robot** : `assistant_message` Gemini, jamais "Aucun
+  champ mis à jour".
+- **Skeleton card-shaped** pendant que le LLM travaille (préfigure la
+  forme finale → réduit la latence perçue).
+- **Latence cible <8s** via Edge Function + `gemini-3-flash-preview`.
+- **Cohérence drawer JSON** : la card lit le `Field<T>` réel via
+  `useLiveQuery`, donc reflète aussi les changements faits dans le drawer.
 
