@@ -85,20 +85,35 @@ export function detectDefaultProfile(file: File): MediaProfile {
 interface ProfileConfig {
   maxWidthOrHeight: number;
   initialQuality: number;
+  /**
+   * Cible de taille en Mo. Si défini, browser-image-compression itère
+   * la qualité à la baisse jusqu'à descendre sous cette cible.
+   * Non défini = pas d'itération (utile pour les plans haute fidélité).
+   */
+  maxSizeMB?: number;
   fileType: string; // image/webp, image/jpeg, image/png
   preserveExif: boolean;
   thumbnail: { maxWidthOrHeight: number; initialQuality: number };
 }
 
+/**
+ * Seuil "photo lourde" — au-delà, on tag visuellement le draft (cas rare
+ * où même quality basse ne descend pas sous la cible : scène très détaillée).
+ * Exporté pour partage avec le helper `isHeavyPhoto`.
+ */
+export const HEAVY_PHOTO_BYTES = 500 * 1024;
+
 const PROFILE_CONFIGS: Record<"photo" | "plan", ProfileConfig> = {
   photo: {
     maxWidthOrHeight: 1600,
     initialQuality: 0.8,
+    maxSizeMB: 0.5, // ≤ 500 Ko cible terrain (data mobile, batches de 5-15)
     fileType: "image/webp",
     preserveExif: false, // GPS extrait à part avant strip
     thumbnail: { maxWidthOrHeight: 256, initialQuality: 0.6 },
   },
   plan: {
+    // Pas de maxSizeMB : on garde la lisibilité des plans détaillés.
     maxWidthOrHeight: 3000,
     initialQuality: 0.95,
     fileType: "image/webp",
@@ -154,6 +169,7 @@ async function compressImage(
   const compressed = await imageCompression(file, {
     maxWidthOrHeight: cfg.maxWidthOrHeight,
     initialQuality: cfg.initialQuality,
+    ...(cfg.maxSizeMB !== undefined ? { maxSizeMB: cfg.maxSizeMB } : {}),
     fileType: cfg.fileType,
     preserveExif: cfg.preserveExif,
     useWebWorker: true,
