@@ -78,7 +78,8 @@ export function AttachmentSheet({
   const [busy, setBusy] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const cameraRef = useRef<HTMLInputElement | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const galleryRef = useRef<HTMLInputElement | null>(null);
+  const docsRef = useRef<HTMLInputElement | null>(null);
 
   // Drafts médias de cette VT — réactif Dexie. C'est notre source de vérité
   // pour le compteur et la grille de preview.
