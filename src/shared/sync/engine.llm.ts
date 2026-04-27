@@ -26,16 +26,14 @@ import {
   compressContextBundle,
   routeMessage,
   type ContextBundle,
-  type ConversationalResult,
   type DescribeMediaResult,
-  type ExtractResult,
   type ProviderMeta,
 } from "@/shared/llm";
+import { describeMedia } from "@/server/llm.functions";
 import {
-  conversationalQuery,
-  describeMedia,
-  extractFromMessage,
-} from "@/server/llm.functions";
+  callVtuLlmAgent,
+  type CallVtuLlmAgentResponse,
+} from "@/shared/llm/providers/edge-function-client";
 
 // ---------------------------------------------------------------------------
 // Types contract avec engine.ts core
