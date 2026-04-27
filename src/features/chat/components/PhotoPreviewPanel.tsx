@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FileText, Loader2, X, AlertTriangle, Camera, Layers } from "lucide-react";
+import { FileText, Loader2, X, AlertTriangle, Camera, Layers, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { getDb } from "@/shared/db";
 import {
