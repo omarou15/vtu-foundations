@@ -518,35 +518,33 @@ async function handleConversational(
   helpers: EngineHelpers,
 ): Promise<ProcessResult> {
   const db = getDb();
-  let resp: Awaited<ReturnType<typeof conversationalQuery>>;
+  let resp: CallVtuLlmAgentResponse;
   try {
-    resp = await conversationalQuery({
-      data: {
-        messageText: message.content ?? "",
-        contextBundle: bundle,
-      },
+    resp = await callVtuLlmAgent({
+      mode: "conversational",
+      messageText: message.content ?? "",
+      contextBundle: bundle,
     });
   } catch (err) {
     return await helpers.scheduleRetryOrFail(entry, err);
   }
 
   if (!resp.ok) {
-    return await handleLlmError(resp, entry, helpers, {
-      userId: message.user_id,
-      visitId: message.visit_id,
-      messageId: message.id,
-      mode: "conversational_query",
-    });
+    return await handleLlmError(
+      { ...resp, stable_prompt_hash: "" },
+      entry,
+      helpers,
+      {
+        userId: message.user_id,
+        visitId: message.visit_id,
+        messageId: message.id,
+        mode: "conversational_query",
+      },
+    );
   }
 
-  let result: ConversationalResult;
-  let raw: Record<string, unknown>;
-  try {
-    result = JSON.parse(resp.result_json) as ConversationalResult;
-    raw = JSON.parse(resp.raw_response_json) as Record<string, unknown>;
-  } catch (err) {
-    return await helpers.scheduleRetryOrFail(entry, err);
-  }
+  const result = resp.result;
+  const raw = resp.raw_response;
 
   const extraction = await appendLocalLlmExtraction({
     userId: message.user_id,
@@ -566,19 +564,21 @@ async function handleConversational(
       model: resp.meta.model_version,
       schema_version: bundle.schema_version,
     },
-    stablePromptHash: resp.stable_prompt_hash,
+    stablePromptHash: null,
     providerRequestId: resp.meta.provider_request_id,
     rawResponse: raw,
     status: "success",
     warnings: result.warnings ?? [],
   });
 
+  const assistantMessage = (result.assistant_message ?? "").trim() ||
+    "Désolé, je n'ai pas su répondre à cette question.";
   await appendLocalMessage({
     userId: message.user_id,
     visitId: message.visit_id,
     role: "assistant",
     kind: "text",
-    content: result.answer_markdown,
+    content: assistantMessage,
     metadata: {
       llm_extraction_id: extraction.id,
       mode: "conversational",
