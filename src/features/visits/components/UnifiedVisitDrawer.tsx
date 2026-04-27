@@ -109,7 +109,11 @@ const FAMILIES: FamilyDef[] = [
     key: "artifacts",
     label: "Artifacts",
     Icon: FolderOpen,
-    tabs: [{ key: "documents", label: "Documents", Icon: Camera }],
+    tabs: [
+      { key: "photos", label: "Photos", Icon: Images },
+      { key: "input_docs", label: "Input docs", Icon: FileInput, comingSoon: true },
+      { key: "output_docs", label: "Output docs", Icon: FileOutput, comingSoon: true },
+    ],
   },
   {
     key: "exporter",
