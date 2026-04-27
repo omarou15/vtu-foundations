@@ -196,11 +196,15 @@ async function processEntry(
     }
 
     if (entry.op === "describe_media" || entry.op === "llm_route_and_dispatch") {
+      // Helpers wrappés : les ops LLM ne doivent pas modifier le sync_status
+      // de la row sous-jacente (attachment / message). On no-op les marks de
+      // ligne locale ; seule la queue est gérée. L'audit LLM est tracké
+      // dans llm_extractions / attachment_ai_descriptions.
       const helpers: EngineHelpers = {
-        markLocalRowSynced,
-        markLocalRowFailed,
-        scheduleDependencyWait: (e, reason) => scheduleDependencyWait(e, reason),
-        scheduleRetryOrFail: (e, err) => scheduleRetryOrFail(e, err),
+        markLocalRowSynced: async () => undefined,
+        markLocalRowFailed: async () => undefined,
+        scheduleDependencyWait: (e, reason) => scheduleDependencyWaitLlm(e, reason),
+        scheduleRetryOrFail: (e, err) => scheduleRetryOrFailLlm(e, err),
       };
       const supaForLlm = supabase as unknown as SyncSupabaseLikeForLlm;
       if (entry.op === "describe_media") {
