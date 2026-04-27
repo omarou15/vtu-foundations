@@ -164,15 +164,22 @@ export function AttachmentSheet({
 
   async function handleSend() {
     if (!userId || drafts.length === 0) return;
+    setSending();
     setBusy(true);
     try {
       const allPdf = drafts.every((d) => d.media_profile === "pdf");
+      // Lecture toggle IA pour gate dispatch côté repo (it. 10.7)
+      const aiEnabled = useChatStoreApi.getState().isAiEnabled(visitId);
       const message = await appendLocalMessage({
         userId,
         visitId,
         role: "user",
         kind: allPdf ? "document" : "photo",
         content: null,
+        metadata: {
+          attachment_count: drafts.length,
+          ai_enabled: aiEnabled,
+        },
       });
       await attachPendingMediaToMessage(visitId, message.id);
       toast.success(
