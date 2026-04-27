@@ -6,8 +6,6 @@ import {
   ArrowLeft,
   LayoutDashboard,
   List,
-  Menu,
-  Send,
   Sparkles,
   WifiOff,
 } from "lucide-react";
