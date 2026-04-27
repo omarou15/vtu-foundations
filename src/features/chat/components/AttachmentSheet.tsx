@@ -340,9 +340,11 @@ export function AttachmentSheet({
 function MenuView({
   onPickPhoto,
   onPickGallery,
+  onPickDocs,
 }: {
   onPickPhoto: () => void;
   onPickGallery: () => void;
+  onPickDocs: () => void;
 }) {
   return (
     <>
@@ -364,10 +366,17 @@ function MenuView({
           testId="attach-photo"
         />
         <IntentButton
+          icon={ImageIcon}
+          title="Importer depuis la galerie"
+          subtitle="Photos déjà prises (multi-sélection)"
+          onClick={onPickGallery}
+          testId="attach-gallery"
+        />
+        <IntentButton
           icon={FileText}
           title="Importer plans / documents"
-          subtitle="Galerie multi-sélection ou PDF"
-          onClick={onPickGallery}
+          subtitle="PDF, plans scannés"
+          onClick={onPickDocs}
           testId="attach-plan"
         />
         <IntentButton
