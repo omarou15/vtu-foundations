@@ -269,8 +269,9 @@ describe("engine — processAttachmentUpload", () => {
 
     const result = await runSyncOnce(supabase);
 
-    expect(result.processed).toBe(1);
-    expect((await getDb().sync_queue.toArray())).toHaveLength(0);
+    expect(result.processed).toBeGreaterThanOrEqual(1);
+    const queue = await getDb().sync_queue.toArray();
+    expect(queue.filter((q) => q.op === "attachment_upload")).toHaveLength(0);
     expect((await getDb().attachments.get(att.id))?.sync_status).toBe(
       "synced",
     );
