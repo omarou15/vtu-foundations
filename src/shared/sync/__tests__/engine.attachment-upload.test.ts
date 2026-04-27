@@ -247,9 +247,12 @@ describe("engine — processAttachmentUpload", () => {
 
     const result = await runSyncOnce(supabase);
 
-    expect(result.processed).toBe(1);
+    // PDF : attachment_upload + describe_media (PDF skip qui écrit
+    // attachment_ai_descriptions) + insert ai_description = 3 ops processed.
+    expect(result.processed).toBeGreaterThanOrEqual(1);
     expect(state.uploads).toHaveLength(1); // SEULEMENT compressed
-    expect(state.inserts).toHaveLength(1);
+    const attachInserts = state.inserts.filter((i) => i.table === "attachments");
+    expect(attachInserts).toHaveLength(1);
   });
 
   it("conflict 23505 sur INSERT → traité comme succès, mark synced", async () => {
