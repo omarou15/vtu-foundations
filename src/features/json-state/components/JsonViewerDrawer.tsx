@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { JsonView, defaultStyles } from "react-json-view-lite";
 import "react-json-view-lite/dist/index.css";
-import { Copy, Check, AlertTriangle, X, Camera, Layers, FileText } from "lucide-react";
+import { Copy, Check, AlertTriangle, X, Camera, Layers, FileText, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { getLatestLocalJsonState } from "@/shared/db";
 import { listVisitMedia } from "@/shared/photo";
-import { countLowConfidenceFields } from "../lib/inspect";
+import { countLowConfidenceFields, countUnvalidatedAiFields } from "../lib/inspect";
 
 interface JsonViewerDrawerProps {
   visitId: string;
@@ -41,6 +41,11 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
 
   const lowCount = useMemo(
     () => (latest ? countLowConfidenceFields(latest.state) : 0),
+    [latest],
+  );
+  // It. 10 — compteur Field<T> issus IA non encore validés
+  const unvalidatedAiCount = useMemo(
+    () => (latest ? countUnvalidatedAiFields(latest.state) : 0),
     [latest],
   );
 
@@ -127,6 +132,18 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
             >
               <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
               {lowCount} champ{lowCount > 1 ? "s" : ""} à vérifier
+            </div>
+          ) : null}
+
+          {/* It. 10 — Field<T> IA non encore validés par l'utilisateur */}
+          {unvalidatedAiCount > 0 ? (
+            <div
+              className="font-ui mt-2 inline-flex items-center gap-1.5 self-start rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary"
+              role="status"
+              data-testid="unvalidated-ai-badge"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              {unvalidatedAiCount} champ{unvalidatedAiCount > 1 ? "s" : ""} IA à valider
             </div>
           ) : null}
 

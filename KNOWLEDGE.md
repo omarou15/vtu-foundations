@@ -191,9 +191,10 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 6.5 — Pull cross-device + Realtime (pré-requis prod)
 - [x] Itération 7 — Schéma JSON dynamique v2 + Schema Registry offline-first
 - [x] Itération 9 — Pipeline médias photos / plans / PDFs (intention-first)
+- [x] Itération 10 — Cerveau LLM (router hybride + extract + describe + conversational)
 
-**✅ Phase 1 + It. 7 + It. 9 (Phase 2) COMPLÈTES.** Prochaine étape :
-audio (it. 8 reportée), IA mutation JSON (it. 10), rapport Word.
+**✅ Phase 1 + It. 7 + It. 9 + It. 10 (Phase 2) COMPLÈTES.** Prochaine
+étape : audio (it. 8 reportée), validation IA en UI (it. 11), rapport Word.
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
 Word, artifacts, transcription, croquis, géoloc, laser, settings,
@@ -237,6 +238,48 @@ multi-user, partage, push, édition message, export.
 - **It. 9 — Cleanup blobs locaux** : `pruneOldBlobs()` est un stub
   Phase 2 (retourne 0). Implémentation TTL 7 jours Phase 3 si le quota
   IndexedDB devient problématique.
+- **It. 10 — Provider LLM en client TanStack Server Function** : le
+  provider Lovable Gemini est appelé depuis `src/server/llm.functions.ts`
+  (server fn TanStack). Phase 3 → migrer vers une Edge Function dédiée
+  pour bénéficier du cache prompt côté plateforme et d'un quota séparé
+  par tenant. Aucun blocage Phase 2.
+- **It. 10 — Vision PDF différée Phase 2.5** : `processDescribeMedia`
+  écrit `description.skipped=true reason="pdf_no_render_phase2"` dès
+  qu'il rencontre `media_profile==="pdf"`. Pas de rendu page 1 vers PNG
+  pour l'instant (économie ~400KB pdfjs-dist). Le router donne quand
+  même la trace OCR via attachments_context (vide tant que skipped).
+- **It. 10 — Audio (Whisper) reporté Phase 3** : la transcription audio
+  reste hors-scope. Les messages `kind="audio"` sont routés `extract`
+  (média) mais sans contenu textuel exploitable tant que la
+  transcription n'arrive pas. UI It. 8 reportée.
+- **It. 10 — Nomenclatures vides en Phase 2** : `nomenclature_hints`
+  est passé à `{}` dans `buildContextBundle`. Phase 2.5 : injecter les
+  catalogues 3CL_DPE / DTG / méthode_energyco selon
+  `meta.calculation_method` pour orienter `extract_from_message`.
+- **It. 10 — Cap context 100k tokens, compress 5 passes max** :
+  `compressContextBundle` applique 5 passes (drop nomenclature → drop
+  ocr_text long → réduire detailed_description → tronquer recent_messages
+  → drop attachments_context). Au-delà → status `failed` avec
+  `context_too_large_after_compress` (logué dans `llm_extractions`).
+  L'utilisateur ne voit qu'un récap "extraction trop volumineuse, je
+  retente sur le prochain message".
+- **It. 10 — Recall Gemini estimé 55-70% en extract** : sur des
+  messages terrain courts (« VMC SF, R+2, HSP 2.7, 145 m² »), Gemini
+  Flash extrait correctement 55-70% des champs. Le reste passe par la
+  validation manuelle (compteur "X champs IA à valider" dans le
+  drawer JSON). Doctrine : LLM propose, user valide.
+- **It. 10 — Workaround sérialisation TanStack** : les server
+  functions LLM retournent `result_json` et `raw_response_json`
+  (chaînes JSON) plutôt que les types nus. Cause : TanStack Start v1
+  enforce une `ValidateSerializableMapped` qui rejette `Record<string,
+  unknown>` et `unknown`. Les call sites (`engine.llm.ts`)
+  `JSON.parse` à la réception. Re-évaluer Phase 3 si TanStack assouplit
+  la contrainte ou si on passe en Edge Function.
+- **It. 10 — Router edge case "VMC ok ?"** : la phrase courte « VMC
+  ok ? » match d'abord `CONVERSATIONAL_HINTS` (« ? » final) →
+  `conversational`. C'est l'arbitrage doctrinal documenté §15 (hint
+  prime sur terrain_pattern). Si le user attendait une saisie, il
+  écrira sans le « ? ».
 
 ### §14 — Pipeline médias (Phase 2 It. 9)
 
@@ -355,3 +398,110 @@ est toujours renseigné avant l'upload.
 - Mesurer avant d'affirmer (tailles bundle, temps de build)
 - JAMAIS de mensonge de rapport : si une correction échoue, le
   dire clairement au lieu de prétendre qu'elle est faite
+
+---
+
+## §15 — Cerveau LLM It. 10 (Context Engineering 2026)
+
+Le cerveau de VTU est un orchestrateur LLM **hybride et déterministe-d'abord**.
+Aucune instance ne décide seule de modifier la source de vérité (le JSON
+state versionné). Doctrine non négociable : **LLM propose, user valide**.
+
+### Les 4 modes
+
+1. **`router`** (déterministe, fallback Flash-Lite réservé Phase 2.5).
+   Décide si un message user → `extract` / `conversational` / `ignore`.
+   Implémenté dans `src/shared/llm/router.ts`. Ordre des règles :
+   `media → non_user → empty → noise → conversational_hint →
+   terrain_pattern → short_capture → default_extract`.
+   **Arbitrage clé** : `conversational_hint` PRIME sur `terrain_pattern`.
+
+2. **`describe_media`** (Gemini multimodal). Analyse une photo / un plan
+   et écrit `attachment_ai_descriptions` (short_caption + detailed +
+   ocr_text + structured_observations). PDF skippé Phase 2 (rendu page 1
+   reporté). Réveille les jobs `llm_route_and_dispatch` en attente sur
+   le même message via index Dexie composé `[op+row_id]`.
+
+3. **`extract_from_message`** (Gemini Pro/Flash structured output).
+   Génère des `AiFieldPatch[]` ciblant des Field<T> du JSON state. Passe
+   par `applyPatches` (gates de sécurité, cf. plus bas) puis
+   `appendJsonStateVersion` avec `source_extraction_id`. Émet un
+   message assistant récapitulatif court.
+
+4. **`conversational_query`** (Gemini Flash). Réponse texte (markdown
+   léger) sur le contexte de la VT. Pas de mutation du JSON state.
+
+### Architecture en 3 blocs (context bundle stable)
+
+`buildContextBundle` produit un bundle dont la sérialisation est
+déterministe (clés triées, `stableSerialize`) → `hashContext` SHA-256
+identique entre 2 builds équivalents → cache prompt côté Gemini OK.
+
+- **Bloc 1 — Visit + state_summary** : projection plate du JSON state
+  v2 (incluant Field<T> avec source/validation_status, indispensables
+  aux gates).
+- **Bloc 2 — Recent messages** : 8 derniers (dispatch) ou 20 (defaults),
+  triés par `created_at`.
+- **Bloc 3 — Attachments context** : descriptions IA des médias liés
+  au message courant (short_caption + detailed + ocr_text).
+- (Optionnel) **nomenclature_hints** : vide en Phase 2.
+
+### 4 stratégies (Write / Select / Compress / Isolate)
+
+- **Write** : audit trail systématique. Toute requête LLM aboutit à
+  une row `llm_extractions` (provider, model_version, input/output
+  tokens, latency, stable_prompt_hash, status, raw_response complet).
+  Toute description média écrit `attachment_ai_descriptions`.
+- **Select** : le router déterministe sélectionne la voie. Les patches
+  IA traversent `applyPatches` qui sélectionne ce qu'il accepte.
+- **Compress** : `compressContextBundle` réduit en 5 passes successives
+  jusqu'à ≤100k tokens estimés. Au-delà → `failed`, audit trail.
+- **Isolate** : provider abstrait derrière
+  `src/shared/llm/providers/lovable-gemini.ts`. Les server functions
+  ne connaissent que le contrat `ProviderResult<T>`. Phase 3 = swap
+  vers Edge Function sans toucher engine ni call sites.
+
+### Garde-fous anti-hallucination (apply-patches)
+
+Tous appliqués dans l'ordre :
+
+1. **`validation_status === "validated"`** → IGNORÉ
+   (`validated_by_human`). Un user peut toujours bloquer un champ.
+2. **`source ∈ {user, voice, photo_ocr, import}` ET `value !== null`** →
+   IGNORÉ (`human_source_prime`). Une donnée humaine n'est JAMAIS
+   écrasée par une extraction IA, même `high`.
+3. **`source === "ai_infer"` + `unvalidated` + `value !== null`** : gate
+   confidence (`high=0.9 / medium=0.7 / low=0.4 / null=0`). Si
+   `score(cur) >= score(patch) - 0.1` → IGNORÉ
+   (`lower_or_equal_confidence_than_current`). Effet : seul un `high`
+   peut écraser un `low`/`medium` plus ancien ; les égalités préservent
+   la 1re extraction (audit trail stable).
+4. **Bornes physiques** (`json-state.bounds.ts`) — pré-check côté schéma
+   Zod : rejet UNIQUEMENT des hallucinations (60 niveaux, etc.), jamais
+   un bâtiment français réel.
+
+### Anti-boucle (impératif)
+
+- `appendLocalMessage` enqueue `llm_route_and_dispatch` UNIQUEMENT si
+  `role === "user"` ET (`content.length >= 10` OU `attachment_count > 0`).
+- `processLlmRouteAndDispatch` re-vérifie `message.role === "user"` avant
+  d'appeler le LLM (sécurité en profondeur).
+- Le message assistant récap émis après `extract` ou `conversational`
+  ne déclenche RIEN (gate role).
+
+### Isolation sync_status
+
+Les ops LLM (`describe_media`, `llm_route_and_dispatch`) ne contaminent
+PAS le `sync_status` de la row sous-jacente (attachment / message). Le
+processeur core skip `markLocalRowSyncing` pour ces ops, et utilise des
+variantes `scheduleRetryOrFailLlm` / `scheduleDependencyWaitLlm`
+queue-only. L'audit LLM est tracké séparément dans `llm_extractions` /
+`attachment_ai_descriptions`.
+
+### Doctrine "LLM propose / user valide" (It. 11)
+
+It. 10 livre la moitié du cerveau : la **proposition**. It. 11 livre
+l'autre moitié : la **validation UI** (Field<T> badge ✨, accept/reject
+inline, batch validate par section). Le compteur "X champs IA à valider"
+dans le drawer JSON sert de signal en attendant.
+

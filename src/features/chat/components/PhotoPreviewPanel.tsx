@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FileText, Loader2, X, AlertTriangle, Camera, Layers } from "lucide-react";
+import { FileText, Loader2, X, AlertTriangle, Camera, Layers, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { getDb } from "@/shared/db";
 import {
@@ -95,6 +95,26 @@ function DraftThumb({ draft }: { draft: LocalAttachment }) {
       return matches.filter((m) => m.id !== draft.id).length > 0;
     },
     [draft.id, draft.sha256, draft.user_id],
+    false,
+  );
+
+  // It. 10 — badge ✨ si une description IA existe pour cet attachment.
+  // Sur les drafts (pré-attach) c'est toujours false ; le hook reste
+  // câblé pour les surfaces futures qui rendront des thumbnails déjà
+  // uploadés (e.g. drawer "Voir tous", It. 11).
+  const hasAiDescription = useLiveQuery(
+    async () => {
+      try {
+        const rows = await db.attachment_ai_descriptions
+          .where("attachment_id")
+          .equals(draft.id)
+          .toArray();
+        return rows.length > 0;
+      } catch {
+        return false;
+      }
+    },
+    [draft.id],
     false,
   );
 
@@ -213,6 +233,17 @@ function DraftThumb({ draft }: { draft: LocalAttachment }) {
         >
           <AlertTriangle className="h-3 w-3" />
           Dup
+        </div>
+      ) : null}
+
+      {/* It. 10 — Badge ✨ description IA disponible */}
+      {hasAiDescription ? (
+        <div
+          className="pointer-events-none absolute right-1 bottom-8 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/90 text-primary-foreground shadow-sm"
+          aria-label="Analysé par l'IA"
+          data-testid={`ai-described-${draft.id}`}
+        >
+          <Sparkles className="h-3 w-3" />
         </div>
       ) : null}
     </div>
