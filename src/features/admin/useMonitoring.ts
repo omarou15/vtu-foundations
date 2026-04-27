@@ -91,15 +91,34 @@ export function useMonitoring(opts: {
     refetchInterval: 30_000,
     staleTime: 25_000,
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke<MonitoringSnapshot>(
-        "vtu-monitoring",
-        {
-          method: "GET",
-          // @ts-expect-error supabase-js types n'incluent pas query mais le runtime le supporte
-          query: { hours: String(opts.hours) },
+      // Fetch direct (l'Edge Function attend des query params, supabase-js
+      // functions.invoke ne les gère pas proprement → on calque le pattern
+      // de `edge-function-client.ts`).
+      const env = (import.meta as { env?: Record<string, string | undefined> })
+        .env;
+      const baseUrl = env?.VITE_SUPABASE_URL;
+      const anon = env?.VITE_SUPABASE_PUBLISHABLE_KEY;
+      if (!baseUrl) throw new Error("VITE_SUPABASE_URL manquant");
+
+      const { data: sess, error: sessErr } = await supabase.auth.getSession();
+      if (sessErr) throw new Error(sessErr.message);
+      const jwt = sess?.session?.access_token;
+      if (!jwt) throw new Error("Session manquante (reconnecte-toi)");
+
+      const url = `${baseUrl}/functions/v1/vtu-monitoring?hours=${opts.hours}`;
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          ...(anon ? { apikey: anon } : {}),
+          "Content-Type": "application/json",
         },
-      );
-      if (error) throw new Error(error.message);
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      const data = (await res.json()) as MonitoringSnapshot;
       if (!data?.ok) throw new Error("monitoring snapshot invalid");
       return data;
     },
