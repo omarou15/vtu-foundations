@@ -344,6 +344,37 @@ export async function processLlmRouteAndDispatch(
     }),
   );
 
+  // It. 14.1 — Détecter les attachments mentionnés dans `recent` mais
+  // sans description IA (anti-hallucination). Couvre le cas "user a
+  // envoyé des photos avec IA off, puis réactive l'IA et pose une
+  // question" : ces photos ne seront pas dans `attachmentDescriptions`
+  // mais le LLM les voit dans l'historique.
+  const recentMessageIds = recent.map((m) => m.id);
+  const recentAttachments = recentMessageIds.length
+    ? await db.attachments
+        .where("message_id")
+        .anyOf(recentMessageIds)
+        .toArray()
+    : [];
+  const pendingAttachments: Array<{
+    id: string;
+    media_profile: string | null;
+    reason: "no_description_yet" | "ai_disabled_when_sent";
+  }> = [];
+  const describedIds = new Set(attachmentDescriptions.map((d) => d.attachment_id));
+  for (const a of recentAttachments) {
+    if (describedIds.has(a.id)) continue;
+    const desc = await getLatestAiDescriptionForAttachment(a.id);
+    if (desc) continue;
+    const parent = recent.find((m) => m.id === a.message_id);
+    const aiEnabledMeta = (parent?.metadata as Record<string, unknown> | undefined)?.ai_enabled;
+    pendingAttachments.push({
+      id: a.id,
+      media_profile: a.media_profile,
+      reason: aiEnabledMeta === false ? "ai_disabled_when_sent" : "no_description_yet",
+    });
+  }
+
   // Construction + compression context bundle
   const visitRow: VisitRow = visit;
   const bundle = buildContextBundle({
@@ -351,6 +382,7 @@ export async function processLlmRouteAndDispatch(
     latestState,
     recentMessages: recent as MessageRow[],
     attachmentDescriptions,
+    pendingAttachments,
   });
   const compressed = compressContextBundle(bundle);
   if (compressed.status === "failed") {
