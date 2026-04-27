@@ -216,19 +216,9 @@ function VisitChatPage() {
                   <List className="mr-2 h-4 w-4" />
                   Liste des visites
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link
-                    to="/visits/$visitId/summary"
-                    params={{ visitId: visit.id }}
-                    data-testid="visit-menu-summary"
-                  >
-                    <FileText className="mr-2 h-4 w-4" />
-                    Synthèse de la VT
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => openJson("tree")}>
-                  <Braces className="mr-2 h-4 w-4" />
-                  Vue JSON brut
+                <DropdownMenuItem onSelect={() => openDrawer("summary")}>
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  Ouvrir le panneau VT
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="md:hidden" />
                 <DropdownMenuItem
