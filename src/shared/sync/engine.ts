@@ -322,7 +322,46 @@ async function scheduleDependencyWait(
 }
 
 // ---------------------------------------------------------------------------
-// attachment_upload handler (It. 9)
+// Variantes LLM (queue-only) — ne touchent PAS la row sous-jacente
+// ---------------------------------------------------------------------------
+
+async function scheduleRetryOrFailLlm(
+  entry: SyncQueueEntry,
+  err: unknown,
+): Promise<ProcessResult> {
+  const db = getDb();
+  const message = extractErrorMessage(err);
+  const nextAttempts = entry.attempts + 1;
+  if (nextAttempts >= MAX_ATTEMPTS) {
+    if (entry.id != null) await db.sync_queue.delete(entry.id);
+    return "failed";
+  }
+  const backoff = computeBackoffMs(nextAttempts);
+  const next = new Date(Date.now() + backoff).toISOString();
+  if (entry.id != null) {
+    await db.sync_queue.update(entry.id, {
+      attempts: nextAttempts,
+      last_error: message,
+      next_attempt_at: next,
+    });
+  }
+  return "retry-later";
+}
+
+async function scheduleDependencyWaitLlm(
+  entry: SyncQueueEntry,
+  reason: string,
+): Promise<ProcessResult> {
+  const db = getDb();
+  const next = new Date(Date.now() + WAIT_DEPENDENCY_BACKOFF_MS).toISOString();
+  if (entry.id != null) {
+    await db.sync_queue.update(entry.id, {
+      last_error: reason,
+      next_attempt_at: next,
+    });
+  }
+  return "retry-later";
+}
 //
 // Workflow (KNOWLEDGE §14) :
 //   a) load LocalAttachment (introuvable / déjà synced → mark synced)
