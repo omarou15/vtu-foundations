@@ -154,17 +154,17 @@ export async function processDescribeMedia(
       );
     }
     if (!imageDataUrl && bucketApi?.createSignedUrl && attachment.compressed_path) {
-    const { data, error } = await bucketApi.createSignedUrl(
-      attachment.compressed_path,
-      SIGNED_URL_TTL_S,
-    );
-    if (error || !data?.signedUrl) {
-      return await helpers.scheduleRetryOrFail(
-        entry,
-        new Error(error?.message ?? "no signed url"),
+      const { data, error } = await bucketApi.createSignedUrl(
+        attachment.compressed_path,
+        SIGNED_URL_TTL_S,
       );
-    }
-    signedUrl = data.signedUrl;
+      if (error || !data?.signedUrl) {
+        return await helpers.scheduleRetryOrFail(
+          entry,
+          new Error(error?.message ?? "no signed url"),
+        );
+      }
+      signedUrl = data.signedUrl;
     }
   } catch (err) {
     return await helpers.scheduleRetryOrFail(entry, err);
@@ -839,6 +839,15 @@ async function maybeEmitPhotoCaption(args: {
       // appendLocalMessage / messages.repo.ts).
       ai_enabled: false,
     },
+  });
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("blob_read_failed"));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
   });
 }
 
