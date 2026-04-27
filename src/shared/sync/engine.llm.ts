@@ -483,10 +483,20 @@ async function handleExtract(
 
   // It. 10.5 — Message assistant : actions_card si patches/custom_fields,
   // sinon text simple. Plus jamais de "Aucun champ mis à jour".
+  // It. 11 — Si des patches ont été ignorés pour `human_source_prime`,
+  //   on émet en PLUS un message `conflict_card` séparé. Le user
+  //   arbitrera via ConflictCard sans polluer le actions_card normal.
   const hasProposals =
     (result.patches?.length ?? 0) > 0 || (result.custom_fields?.length ?? 0) > 0;
   const assistantMessage = (result.assistant_message ?? "").trim() ||
     "Bien noté, n'hésite pas à préciser.";
+  const ignoredPaths = afterPatches.ignored.map((i) => ({
+    path: i.path,
+    reason: i.reason,
+  }));
+  const conflictPaths = ignoredPaths.filter((i) => i.reason === "human_source_prime");
+  const proposedPatches = result.patches ?? [];
+
   await appendLocalMessage({
     userId: message.user_id,
     visitId: message.visit_id,
@@ -496,15 +506,38 @@ async function handleExtract(
     metadata: {
       llm_extraction_id: extraction.id,
       mode: "extract",
-      proposed_patches: result.patches ?? [],
+      proposed_patches: proposedPatches,
       proposed_custom_fields: result.custom_fields ?? [],
       applied_paths: afterPatches.applied.map((a) => a.path),
-      ignored_paths: afterPatches.ignored.map((i) => ({
-        path: i.path,
-        reason: i.reason,
-      })),
+      ignored_paths: ignoredPaths,
     },
   });
+
+  // It. 11 — message conflict_card dédié si conflits humains détectés.
+  if (conflictPaths.length > 0) {
+    const conflictPatches = proposedPatches.filter((p) =>
+      conflictPaths.some((c) => c.path === p.path),
+    );
+    await appendLocalMessage({
+      userId: message.user_id,
+      visitId: message.visit_id,
+      role: "assistant",
+      kind: "conflict_card",
+      content:
+        conflictPaths.length === 1
+          ? "J'ai relevé une valeur différente de la tienne — laquelle garder ?"
+          : `J'ai relevé ${conflictPaths.length} valeurs différentes des tiennes — arbitre celles à garder.`,
+      metadata: {
+        llm_extraction_id: extraction.id,
+        mode: "extract",
+        proposed_patches: conflictPatches,
+        ignored_paths: conflictPaths,
+        // ai_enabled=false pour éviter tout dispatch LLM sur ce message
+        // (gate dans messages.repo.ts).
+        ai_enabled: false,
+      },
+    });
+  }
 
   await helpers.markLocalRowSynced(entry);
   if (entry.id != null) await db.sync_queue.delete(entry.id);
