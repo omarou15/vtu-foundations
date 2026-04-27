@@ -11,7 +11,7 @@ export {
 export { PhotosTab } from "./components/PhotosTab";
 export { AiActionsTab } from "./components/AiActionsTab";
 export { MapboxTab } from "./components/MapboxTab";
-export { DocumentsTab, type DocumentsSubTab } from "./components/DocumentsTab";
+
 export { ExportMondayTab } from "./components/ExportMondayTab";
 export { ExportEmailTab } from "./components/ExportEmailTab";
 export { ComingSoonPanel } from "./components/ComingSoonPanel";
