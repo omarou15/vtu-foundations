@@ -21,9 +21,12 @@ import {
   appendJsonStateVersion,
   getLatestLocalJsonState,
 } from "@/shared/db/json-state.repo";
-import { emptyField, type Field } from "@/shared/types/json-state.field";
+import { emptyField, aiInferField, type Field } from "@/shared/types/json-state.field";
+import { listUnvalidatedAiFieldsInSection } from "@/features/json-state/lib/section-paths";
 import type { LocalVisitJsonState } from "@/shared/db/schema";
 import type { VisitJsonState } from "@/shared/types";
+import type { AiFieldPatch } from "@/shared/llm";
+import { getDb } from "@/shared/db/schema";
 
 export interface ValidatePatchInput {
   userId: string;
