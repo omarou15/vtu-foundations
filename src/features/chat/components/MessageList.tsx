@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { getDb, listLocalMessagesByVisit, type LocalMessage } from "@/shared/db";
 import { formatRelative } from "../lib/relativeTime";
 import { PendingActionsCard } from "./PendingActionsCard";
+import { ConflictCard } from "./ConflictCard";
 import { MessageAttachments } from "./MessageAttachments";
 
 interface MessageListProps {
@@ -71,11 +72,27 @@ export function MessageList({ visitId, userId }: MessageListProps) {
     <div className="px-3 py-4" role="log" aria-label="Conversation de la visite">
       <ul className="flex flex-col gap-3">
         {messages
-          .filter((m) => m.kind === "text" || m.kind === "actions_card" || m.kind === "photo" || m.kind === "document")
+          .filter((m) =>
+            m.kind === "text" ||
+            m.kind === "actions_card" ||
+            m.kind === "conflict_card" ||
+            m.kind === "photo" ||
+            m.kind === "document",
+          )
           .map((m) => {
             if (m.kind === "actions_card" && m.role === "assistant") {
               return (
                 <PendingActionsCard
+                  key={m.id}
+                  message={m}
+                  userId={userId}
+                  visitId={visitId}
+                />
+              );
+            }
+            if (m.kind === "conflict_card" && m.role === "assistant") {
+              return (
+                <ConflictCard
                   key={m.id}
                   message={m}
                   userId={userId}
