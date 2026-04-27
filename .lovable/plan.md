@@ -1,129 +1,219 @@
-## Itération 10 — Steps 6 → 9 (LLM Brain wiring + tests + UI + doc)
+# Itération 10.5 — Refonte IA "Effet Wow + Validation Inline"
 
-Foundations livrées en Steps 1-5 (build vert, 127/127 tests). On câble maintenant le cerveau dans le sync engine, on monte l'UI minimale, on ajoute ~30 tests et on documente. **2 corrections préalables** avant Step 6.
+## Objectif
 
----
+Passer de "IA techniquement OK" à "magique sur le terrain". Latence perçue <3s, validation 1-clic dans le chat, plus jamais de "Aucun champ mis à jour", card de propositions visuellement premium (style Claude Artifacts / Linear).
 
-### Pré-requis : Corrections A & B
+## Architecture cible
 
-**A. `apply-patches.ts` — gate confidence sur ai_infer unvalidated**
-- Avant d'écrire un nouveau Field<T> dont `cur.source === "ai_infer"` et `cur.validation_status === "unvalidated"`, comparer la confidence actuelle vs nouvelle (mapping `high=0.9 / medium=0.7 / low=0.4 / null=0`).
-- Si `score(cur.confidence) >= score(patch.confidence) - 0.1` → `ignored` avec reason `lower_or_equal_confidence_than_current`.
-- Effet : en cas d'égalité (medium → medium), la 1re extraction prime. Seul un `high` peut écraser un `low`/`medium` plus ancien.
-
-**B. `router.ts` — patterns terrain métier**
-- Ajouter `TERRAIN_PATTERNS` (chiffres+unités m²/kW/kWh/kVA/cm/mm/°C/hPa/m, codes RT/RE/R+n/HSP, acronymes VMC/ECS/ITI/ITE/PAC/AEP/EU/EP/EVRT/GTB/CTA/UTA/FCU/BAES).
-- Ordre final des règles déterministes : `media → non_user → empty → noise → conversational_hint → terrain_pattern → short_capture (≤4 mots) → default_extract`.
-- Doctrine arbitrée : **conversational_hint prime sur terrain_pattern** (ex: « résume cette VT, surface 145 m² » → `conversational`). Documenté dans la dette §10.
-
----
-
-### Step 6 — Sync engine handlers
-
-#### 6.1 Type `SyncQueueOp` étendu
-```ts
-type SyncQueueOp = "insert" | "update" | "attachment_upload"
-                 | "describe_media" | "llm_route_and_dispatch";
+```text
+User envoie message
+   │
+   ▼
+appendLocalMessage  ─►  llm_route_and_dispatch enqueued
+   │                                   │
+   ▼ (UI: <100ms)                      ▼ (latence Edge ~3-5s)
+Loader "thinking" inline       Edge Function vtu-llm-agent
+                                       │
+                                       ▼ retourne {assistant_message, patches[], custom_fields[]}
+                                       │
+                                       ▼
+                          appendLocalMessage(role=assistant, kind="actions_card",
+                                             metadata={proposed_patches, extraction_id})
+                                       │
+                                       ▼
+                          MessageList  →  <PendingActionsCard/>
+                                       │
+                              [Apply] / [Ignore] inline (1 clic)
+                                       │
+                                       ▼
+                  validateFieldPatch / rejectFieldPatch
+                                       │
+                                       ▼
+                  appendJsonStateVersion (Field<T>.validation_status muté)
+                                       │
+                                       ▼
+                  useLiveQuery → card re-render avec badge ✓ / ✗
 ```
 
-#### 6.2 `processDescribeMedia(supabase, entry)`
-Pipeline :
-1. Charger attachment Dexie. Introuvable → `mark synced`. PDF → écrire `appendLocalAttachmentAiDescription` avec `description.skipped=true, reason="pdf_no_render_phase2"` + réveiller jobs `llm_route_and_dispatch` en attente, return ok.
-2. Idempotence : si `getLatestAiDescriptionForAttachment(att.id)` existe → mark synced.
-3. Dépendance : si `attachment.sync_status !== "synced"` → `scheduleDependencyWait("attachment_not_uploaded")`.
-4. Récupérer URL signée Storage du `compressed_path` (TTL 60s) via `supabase.storage.from(bucket).createSignedUrl(...)`. Étendre `SyncSupabaseLike.storage.from()` avec `createSignedUrl?`.
-5. Appeler `describeMedia` server fn. Si `ok` → parser `result_json`/`raw_response_json`, écrire `appendLocalAttachmentAiDescription` + `appendLocalLlmExtraction` (mode `describe_media`, confidence/tokens/hash/raw response). Mark synced. Réveiller jobs en attente (cf. ci-dessous).
-6. Erreurs : `rate_limited` → `scheduleDependencyWait` sans incrément (cap 3 tries puis status `rate_limited`). `payment_required` → mark failed + log llm_extractions status `failed`. `malformed_response` → 1 retry puis mark failed `malformed`. Sinon → `scheduleRetryOrFail` standard.
+## Chantier 1 — Edge Function `vtu-llm-agent`
 
-**Réveil jobs (Correction C v2.1) :**
-```ts
-const pending = await db.sync_queue
-  .where("[op+row_id]").equals(["llm_route_and_dispatch", attachment.message_id])
-  .filter(j => j.next_attempt_at > now && j.sync_status !== "synced")
-  .toArray();
-for (const j of pending) await db.sync_queue.update(j.id, { next_attempt_at: now });
+**Fichier** : `supabase/functions/vtu-llm-agent/index.ts`
+
+- Auth Bearer JWT (vérification via `getUser()` avec auth header)
+- Input : `{ mode: "extract" | "conversational", messageText, contextBundle }`
+- Modèle : `google/gemini-3-flash-preview` via `https://ai.gateway.lovable.dev/v1/chat/completions`
+- Tool calling unique : `propose_visit_patches` qui retourne `{ assistant_message: string (≤300 chars), patches: AiFieldPatch[], custom_fields: AiCustomField[], warnings: string[], confidence_overall: number }`
+- Mapping erreurs : 429 `rate_limited`, 402 `payment_required`, timeout 504, autres 502
+- Timeout 60s, CORS headers
+- Logging dans `llm_extractions` côté **client** (pas dans l'Edge — on garde le pattern actuel : l'Edge retourne, le client persiste)
+
+**Ajouts `supabase/config.toml`** :
+```
+[functions.vtu-llm-agent]
+verify_jwt = true
 ```
 
-#### 6.3 `processLlmRouteAndDispatch(supabase, entry)`
-1. Charger message. `role !== "user"` → mark synced (anti-boucle défensive).
-2. Charger visit + dernier `visit_json_state`.
-3. Charger attachments du message ; si l'un n'est pas `synced` → `scheduleDependencyWait("attachments_not_synced")`. Si pas de description IA → `scheduleDependencyWait("ai_description_pending")`.
-4. Charger les 8 derniers messages de la visite + descriptions IA des attachments.
-5. `buildContextBundle(...)` puis `compressIfNeeded()` (Step 5). Si `failed` → log llm_extractions `failed` avec error_message `context_too_large_after_compress` + mark synced.
-6. Router déterministe `routeMessage({ role, kind, content })` ; si `needsLlm` → `routeMessageLlm` server fn.
-7. Switch :
-   - `ignore` → mark synced.
-   - `extract` → `extractFromMessage` server fn → parse → `applyPatches` → `applyCustomFields` → `appendJsonStateVersion` (avec `source_extraction_id`) → `appendLocalLlmExtraction` (counts, status) → `appendLocalMessage` assistant text récap court (`metadata: { llm_extraction_id, mode: "extract" }`).
-   - `conversational` → `conversationalQuery` server fn → `appendLocalLlmExtraction` + `appendLocalMessage` assistant avec `result.answer_markdown`.
-8. Erreurs : même mapping que 6.2.
+## Chantier 2 — Système prompt dual (message + patches)
 
-#### 6.4 Export `tableForName` (déjà géré pour les nouvelles tables, OK).
+**Fichier nouveau** : `src/shared/llm/prompts/system-unified.ts`
 
-#### 6.5 Trigger `appendLocalMessage`
-Dans `messages.repo.ts`, **dans la même transaction** que l'insert messages + sync_queue principal :
-```ts
-if (input.role === "user" && (
-    (input.content?.length ?? 0) >= 10 ||
-    (input.metadata?.attachment_count ?? 0) > 0)) {
-  await db.sync_queue.add({
-    table: "messages", op: "llm_route_and_dispatch",
-    row_id: message.id, payload: { message_id: message.id, visit_id: input.visitId },
-    attempts: 0, last_error: null, created_at: now, next_attempt_at: now,
-  });
-}
+Le prompt force le LLM à TOUJOURS produire `assistant_message` + (éventuels patches). Doctrine :
+
+> "Tu es le collègue thermicien IA. Tu N'ÉCRIS JAMAIS 'Aucun champ mis à jour'. Tu réponds toujours comme un humain qui répond à un humain.
+> - Si tu extrais des données : annonce-les ('J'ai relevé 4 informations, examine les propositions ci-dessous')
+> - Si message conversationnel : réponds naturellement (≤2 phrases)
+> - Si pas d'extraction possible mais user partage : encourage ('Décris ce que tu observes, je structurerai')"
+
+Schéma Zod ajouté : `UnifiedExtractOutputSchema` dans `src/shared/llm/schemas/extract.schema.ts` (extension de `ExtractOutputSchema` avec `assistant_message: z.string().max(400)`).
+
+Type étendu : `ExtractResult` gagne `assistant_message: string`.
+
+## Chantier 3 — UX Card `<PendingActionsCard/>`
+
+**Fichier nouveau** : `src/features/chat/components/PendingActionsCard.tsx`
+
+Carte premium pour les messages `kind="actions_card"`. Structure :
+
+```text
+┌─────────────────────────────────────────┐
+│ ✨ 4 propositions IA          [Tout appliquer] │
+│ "J'ai relevé 4 informations..."         │
+├─────────────────────────────────────────┤
+│ Type de chauffage                       │
+│ [badge: Radiateur électrique]  ●●○ med  │
+│ 💡 mentionné explicitement              │
+│ [Appliquer] [Ignorer]                   │
+├─────────────────────────────────────────┤
+│ ... 1 sous-card par patch               │
+└─────────────────────────────────────────┘
 ```
 
-#### 6.6 Trigger `describe_media` après upload attachment
-Dans `processAttachmentUpload`, après mark synced réussi : enqueue `describe_media` pour cet attachment (PDF inclus, le handler skip lui-même).
+- **Animations** : framer-motion (déjà installé) — entrée `fade-in + slide-up` sur la card, `scale-in` sur les badges post-action
+- **États sous-cards** : pending (terracotta vif) / applied (badge vert ✓, opacity 0.7) / rejected (gris barré, opacity 0.5)
+- **Boutons** ≥44×44px mobile-first
+- **Tokens** : utilise variables CSS existantes (`--primary` terracotta, `--muted`, `--card`)
+- **Hover/focus** : ring terracotta, scale 1.02 sur boutons
 
----
+**Fichier nouveau** : `src/shared/llm/path-labels.ts` — mapping `path → { label_fr, format }` pour ~50 paths courants du JSON v2 (heating, ecs, ventilation, building, envelope, meta). Helper `formatPatchValue(path, value)` qui retourne badge/monospace/texte.
 
-### Step 7 — Tests (~30 nouveaux, total ≈ 157)
+## Chantier 4 — Validation persistée sur Field<T>
 
-Tous les appels Gemini mockés via `vi.mock` sur `@/shared/llm/providers/lovable-gemini`. **Aucun réseau réel.**
+**Fichier nouveau** : `src/shared/db/json-state.validate.repo.ts`
 
-| Fichier | Tests |
-|---|---|
-| `router.test.ts` | media→extract, "?" seul→conversational, "explique"→conversational, R+2/HSP 2.7/VMC SF→extract via terrain_pattern, "résume cette VT, surface 145 m²"→conversational, "ok"→ignore (~7) |
-| `describe-media.test.ts` | photo OK→row créée, PDF→skipped écrit sans server fn, plan OK, photo flou→warnings (~4) |
-| `extract.test.ts` | Field vide→appliqué, source ∈ {user, voice, photo_ocr, import}→ignoré, ai_infer validated→ignoré, ai_infer unvalidated low→high (overwrite), high→low (ignored), medium→medium (ignored, égalité), bornes physiques violées→ignoré+warning, custom_field→registry call, appendJsonStateVersion 1× pour N patches (~10) |
-| `conversational.test.ts` | résumé cite champs, hors-sujet recadré (~2) |
-| `context-builder.test.ts` | bloc 1 stable bit-pour-bit (snapshot sortKeys), nomenclature 3CL si `calculation_method="3cl_dpe"`, DTG si `methode_energyco`+`dtg`, cap tokens→compress 5 passes, registry top + section_path (~5) |
-| `engine.llm.test.ts` | happy describe_media→row, llm_route_and_dispatch attend describe_media, 429→backoff sans incrément, role="assistant" jamais déclenché, PDF→skipped 1 seul appel (~5) |
+Deux fonctions :
 
----
+```typescript
+validateFieldPatch({ visitId, patchPath, sourceExtractionId, validatedBy })
+  → Charge latest state, mut Field<T> au path :
+    - validation_status = "validated"
+    - validated_at = now, validated_by = userId
+  → appendJsonStateVersion()
+  → Retourne { ok, version }
 
-### Step 8 — UI minimale (3 affichages, pas de cartes d'action)
+rejectFieldPatch({ visitId, patchPath, sourceExtractionId, rejectedBy })
+  → Idem mais validation_status = "rejected"
+  → SI source était "ai_infer" exclusivement → reset value=null, source="init"
+  → SI source antérieure humaine → garde value, juste mut le statut sur le patch
+    (le patch IA n'est pas dans le state actuel s'il a été ignoré par apply-patches,
+     mais on enregistre le refus dans `llm_extractions.warnings` pour audit)
+  → appendJsonStateVersion()
+```
 
-#### 8.1 Loader chat
-`src/features/chat/components/MessageList.tsx` — `useLiveQuery` sur `sync_queue [op+row_id]=["llm_route_and_dispatch", lastUserMessageId]`. Si entry non synced → afficher 3 dots animés sous le dernier user message.
+Edge case "le patch n'existe pas dans le state" (filtré par apply-patches) : on enregistre quand même le rejet dans `llm_extractions.warnings` pour traçabilité, sans nouvelle version JSON.
 
-#### 8.2 Compteur "X champs IA non validés"
-Dans le drawer JSON viewer (`src/features/json-state/components/JsonViewerDrawer.tsx`) :
-- Ajouter helper `countUnvalidatedAiFields(state)` (deep walk, count Field<T> avec `source==="ai_infer" && validation_status==="unvalidated"`) — placer dans `src/shared/types/json-state.field.ts` ou nouveau `json-state.helpers.ts`.
-- `useLiveQuery` sur `visit_json_state` → badge à côté du titre.
+**Hook nouveau** : `src/features/chat/hooks/usePendingActions.ts`
 
-#### 8.3 Badge ✨ thumbnails
-`PhotoPreviewPanel.tsx` (+ équivalent drawer) — `useLiveQuery` sur `attachment_ai_descriptions where attachment_id`. Si présent → overlay petit ✨.
+```typescript
+usePendingActions(extractionId, proposedPatches)
+  → useLiveQuery sur visit_json_state latest
+  → calcule { applied: Set<path>, rejected: Set<path>, pending: AiFieldPatch[] }
+    en lisant Field<T>.source_extraction_id === extractionId
+                && validation_status ∈ {validated, rejected}
+```
 
----
+## Chantier 5 — Message kind `"actions_card"`
 
-### Step 9 — KNOWLEDGE.md
+**Modifs** :
 
-- §8 Phase 2 : cocher [x] It. 10.
-- §10 Dette technique — ajouter 8 entrées (provider Gateway → Edge Fn Phase 3, vision PDF Phase 2.5, Whisper Phase 3, nomenclatures vides, cap 100k tokens compress 5 passes, recall Gemini ~55-70%, workaround sérialisation `result_json`, router edge case "VMC ok ?").
-- §15 NOUVEAU — "Cerveau LLM It. 10 (Context Engineering 2026)" : 4 modes, architecture 3 blocs, 4 stratégies (Write/Select/Compress/Isolate), garde-fous anti-hallu, audit trail, anti-boucle, doctrine "LLM propose / user valide en It. 11", isolation provider.
+1. `src/shared/types/db.ts` — étendre `MessageKind` avec `"actions_card"`
+2. `src/shared/db/messages.repo.ts` — anti-boucle inchangé (assistant ne déclenche jamais)
+3. `src/shared/sync/engine.llm.ts` — `handleExtract` :
+   - Crée le message assistant avec `kind="actions_card"`, `content=result.assistant_message`, `metadata={llm_extraction_id, proposed_patches, proposed_custom_fields, mode}`
+   - Si 0 patch + 0 custom_field → `kind="text"` avec `content=result.assistant_message` (jamais le récap brut)
+   - **Supprimer `buildExtractSummary`** (plus utilisé)
+4. `src/features/chat/components/MessageList.tsx` — switch sur `message.kind` :
+   - `"text"` → `MessageBubble` existant
+   - `"actions_card"` → `<PendingActionsCard message={m}/>`
 
----
+## Chantier 6 — Loader instantané (bonus UX)
 
-### Critères d'acceptation
-- 157/157 tests verts, TS strict 0 warning, `bun run build` OK.
-- Anti-boucle vérifié (assistant message ne déclenche jamais `llm_route_and_dispatch`).
-- `stable_prompt_hash` identique entre 2 appels équivalents (snapshot test).
-- Sources humaines (`user`, `voice`, `photo_ocr`, `import`) jamais overwritten ; `ai_infer + validated` jamais overwritten ; gate confidence sur `ai_infer + unvalidated` opérationnel.
-- KNOWLEDGE §8/§10/§15 à jour.
+`MessageList` détecte déjà `llmPending` via `useLiveQuery` sur `sync_queue`. Améliorer :
+- Skeleton de la future card (shape grise pulsante) au lieu des 3 dots quand le dernier message user est ≥10 chars
+- 3 dots conservés pour les messages courts (conversational probable)
 
----
+Animation `animate-pulse` Tailwind, hauteur ~120px pour suggérer la card à venir.
 
-### Questions résiduelles
-Aucune — les 2 arbitrages (gate confidence, ordre router conversational > terrain) sont fixés ci-dessus. GO code après approbation.
+## Chantier 7 — Migration provider client-side
+
+**Fichier nouveau** : `src/shared/llm/providers/edge-function-client.ts`
+
+```typescript
+async function callVtuLlmAgent(input: {
+  mode: "extract" | "conversational",
+  messageText: string,
+  contextBundle: ContextBundle,
+  authToken: string
+}): Promise<{ ok: true, result, meta, stable_prompt_hash, raw_response } | { ok: false, ... }>
+```
+
+- Fetch direct vers `${VITE_SUPABASE_URL}/functions/v1/vtu-llm-agent`
+- Bearer token issu de `supabase.auth.getSession()`
+- Pas de workaround `result_json/raw_response_json` (Edge retourne JSON natif)
+
+**Modifs `engine.llm.ts`** :
+- `handleExtract` et `handleConversational` appellent `callVtuLlmAgent` au lieu de `extractFromMessage`/`conversationalQuery` (TanStack)
+- `processDescribeMedia` reste inchangé (TanStack `describeMedia`)
+- Suppression imports `extractFromMessage`, `conversationalQuery` depuis `@/server/llm.functions`
+
+`src/server/llm.functions.ts` : on garde `describeMedia` et `routeMessageLlm`, on **supprime** `extractFromMessage` et `conversationalQuery` (morts).
+
+## Chantier 8 — Tests
+
+Nouveaux :
+- `src/features/chat/__tests__/PendingActionsCard.test.tsx` — render, click apply mut le state, click ignore reset value, états applied/rejected
+- `src/shared/db/__tests__/json-state-validate.test.ts` — `validateFieldPatch` mut le statut, `rejectFieldPatch` reset value si source ai_infer, garde si source humaine
+- `src/features/chat/__tests__/usePendingActions.test.ts` — useLiveQuery dérive correctement applied/rejected/pending
+- `supabase/functions/vtu-llm-agent/index_test.ts` (Deno) — auth manquante 401, payload valide → 200 avec assistant_message, 429 mappé
+
+Tests existants à mettre à jour :
+- `engine.llm` tests : adapter au nouveau format `assistant_message`
+- Pas de régression sur les 162 tests actuels
+
+## Chantier 9 — Docs
+
+`KNOWLEDGE.md` :
+- §8 : ajouter "Itération 10.5 — Cerveau IA fluide" cochée
+- §10 : retirer dette "Phase 3 → Edge Function" (faite), garder workaround `result_json` pour `describeMedia` uniquement, ajouter "Streaming SSE Gemini Phase 3 si Edge insuffisante"
+- §15 : refondre section "Cerveau LLM" avec nouvelle architecture Edge + format dual + validation inline
+
+## Critères d'acceptation
+
+- ✅ Latence perçue iPhone : <3s avant feedback, <8s pour card complète (test manuel)
+- ✅ Plus jamais de "Aucun champ mis à jour"
+- ✅ Message "Bonjour on commence" → réponse texte naturelle
+- ✅ Message "Maison 1948 radiateur électrique ECS VMC simple flux" → 4-5 patches dans la card
+- ✅ Click Apply → Field<T> validated visible live dans drawer JSON
+- ✅ Click Ignore + source ai_infer seul → value reset à null
+- ✅ Tests 162 + nouveaux passent
+- ✅ Build TS vert
+- ✅ KNOWLEDGE à jour
+
+## Ordre d'implémentation
+
+1. Chantier 1 (Edge Function) + Chantier 2 (prompt) — backend complet
+2. Chantier 7 (client provider) + Chantier 5 (kind actions_card côté engine)
+3. Chantier 4 (repos validate/reject) + hook usePendingActions
+4. Chantier 3 (PendingActionsCard + path-labels) + Chantier 6 (skeleton)
+5. Chantier 8 (tests) + Chantier 9 (docs)
+6. Vérif globale : `tsc --noEmit`, `bunx vitest run`, build prod
