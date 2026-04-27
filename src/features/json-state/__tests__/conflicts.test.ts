@@ -22,14 +22,13 @@ import {
 import { createInitialVisitJsonState, type VisitJsonState } from "@/shared/types";
 import type { LocalMessage } from "@/shared/db";
 
-function userStringField(value: string, userId = "u"): Field<string> {
+function userStringField(value: string): Field<string> {
   const now = new Date().toISOString();
   return {
     value,
     source: "user",
     confidence: "high",
     updated_at: now,
-    updated_by: userId,
     source_message_id: null,
     source_extraction_id: null,
     evidence_refs: [],
