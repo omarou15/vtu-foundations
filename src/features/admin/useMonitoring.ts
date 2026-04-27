@@ -200,12 +200,8 @@ export function useMonitoring(opts: {
       return;
     }
     void load(true);
-    const id = window.setInterval(() => {
-      void load(false);
-    }, 30_000);
     return () => {
       cancelledRef.current = true;
-      window.clearInterval(id);
     };
   }, [enabled, load]);
 
