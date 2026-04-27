@@ -248,6 +248,15 @@ export async function processDescribeMedia(
     warnings: result.warnings,
   });
 
+  // It. 14 — Streaming photo-par-photo : si la photo appartient à un batch
+  // (≥ 2 attachments sur le même message), on émet immédiatement une bulle
+  // assistant `photo_caption` pour donner un signal visible de progression.
+  // Idempotent via metadata.attachment_id (anti-doublon).
+  await maybeEmitPhotoCaption({
+    attachment,
+    shortCaption: result.short_caption,
+  });
+
   await helpers.markLocalRowSynced(entry);
   if (entry.id != null) await db.sync_queue.delete(entry.id);
 
@@ -754,6 +763,73 @@ async function wakeUpPendingDispatchJobs(
     if (j.next_attempt_at <= now) continue;
     await db.sync_queue.update(j.id, { next_attempt_at: now });
   }
+}
+
+/**
+ * It. 14 — Émet une bulle assistant `photo_caption` dès qu'une photo est
+ * décrite, à condition qu'elle fasse partie d'un batch (≥ 2 attachments
+ * sur le même message). Permet à l'utilisateur de voir la progression
+ * photo-par-photo au lieu d'attendre 2-4 min en silence.
+ *
+ * Idempotent : on cherche un message assistant existant avec
+ * `metadata.attachment_id` égal et on skippe si trouvé. Anti-boucle LLM
+ * via `metadata.ai_enabled = false`.
+ */
+async function maybeEmitPhotoCaption(args: {
+  attachment: import("@/shared/db").LocalAttachment;
+  shortCaption: string;
+}): Promise<void> {
+  const { attachment, shortCaption } = args;
+  if (!attachment.message_id) return;
+
+  const db = getDb();
+
+  // 1. Combien d'attachments sur le message porteur ?
+  const siblings = await db.attachments
+    .where("message_id")
+    .equals(attachment.message_id)
+    .toArray();
+  if (siblings.length < 2) return; // batch unique → on attend l'extract final
+
+  // 2. Idempotence : caption déjà émise pour cet attachment ?
+  const existing = await db.messages
+    .where("visit_id")
+    .equals(attachment.visit_id)
+    .toArray();
+  const already = existing.some(
+    (m) =>
+      m.role === "assistant" &&
+      m.kind === "text" &&
+      (m.metadata as Record<string, unknown> | undefined)?.kind_origin ===
+        "photo_caption" &&
+      (m.metadata as Record<string, unknown> | undefined)?.attachment_id ===
+        attachment.id,
+  );
+  if (already) return;
+
+  // 3. Index dans le batch (1-based) pour affichage "n/N"
+  const sortedIds = siblings
+    .map((s) => s.id)
+    .sort((a, b) => a.localeCompare(b));
+  const indexInBatch = sortedIds.indexOf(attachment.id) + 1;
+
+  await appendLocalMessage({
+    userId: attachment.user_id,
+    visitId: attachment.visit_id,
+    role: "assistant",
+    kind: "text",
+    content: shortCaption?.trim() || "Photo analysée.",
+    metadata: {
+      kind_origin: "photo_caption",
+      attachment_id: attachment.id,
+      parent_message_id: attachment.message_id,
+      batch_index: indexInBatch,
+      batch_total: siblings.length,
+      // ai_enabled=false : empêche tout dispatch LLM secondaire (gate dans
+      // appendLocalMessage / messages.repo.ts).
+      ai_enabled: false,
+    },
+  });
 }
 
 function buildExtractSummary(

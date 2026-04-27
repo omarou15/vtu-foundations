@@ -6,12 +6,13 @@
  * Tap → MediaLightbox (réutilise le composant existant du chat).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Camera, FileText, ImageOff, Layers } from "lucide-react";
-import { getDb, type LocalAttachment } from "@/shared/db";
+import { type LocalAttachment } from "@/shared/db";
 import { listVisitMedia } from "@/shared/photo";
 import { MediaLightbox } from "@/features/chat/components/MediaLightbox";
+import { useAttachmentThumb } from "@/features/chat/lib/useAttachmentThumb";
 import { groupMediaBySection } from "../lib/summary";
 
 const SECTION_LABELS: Record<string, string> = {
@@ -171,26 +172,8 @@ function PhotoTile({
   onClick: () => void;
 }) {
   const isPdf = attachment.media_profile === "pdf";
-  const blob = useLiveQuery(
-    async () => {
-      if (isPdf) return null;
-      const row = await getDb().attachment_blobs.get(attachment.id);
-      return row?.thumbnail ?? row?.compressed ?? null;
-    },
-    [attachment.id, isPdf],
-    null as Blob | null,
-  );
-
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) {
-      setUrl(null);
-      return;
-    }
-    const u = URL.createObjectURL(blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [blob]);
+  const { localUrl, remoteUrl, failed } = useAttachmentThumb(attachment);
+  const url = localUrl ?? remoteUrl;
 
   return (
     <button
@@ -211,13 +194,13 @@ function PhotoTile({
           className="h-full w-full object-cover"
           loading="lazy"
         />
+      ) : failed ? (
+        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+          <ImageOff className="h-4 w-4" aria-hidden="true" />
+        </div>
       ) : (
         <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-          {attachment.sync_status === "synced" ? (
-            <ImageOff className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Camera className="h-4 w-4 animate-pulse" aria-hidden="true" />
-          )}
+          <Camera className="h-4 w-4 animate-pulse" aria-hidden="true" />
         </div>
       )}
     </button>
