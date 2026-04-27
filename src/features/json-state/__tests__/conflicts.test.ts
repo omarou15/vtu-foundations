@@ -17,10 +17,27 @@ import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
 import {
   aiInferField,
   emptyField,
-  userField,
+  type Field,
 } from "@/shared/types/json-state.field";
 import { createInitialVisitJsonState, type VisitJsonState } from "@/shared/types";
 import type { LocalMessage } from "@/shared/db";
+
+function userStringField(value: string, userId = "u"): Field<string> {
+  const now = new Date().toISOString();
+  return {
+    value,
+    source: "user",
+    confidence: "high",
+    updated_at: now,
+    updated_by: userId,
+    source_message_id: null,
+    source_extraction_id: null,
+    evidence_refs: [],
+    validation_status: "unvalidated",
+    validated_at: null,
+    validated_by: null,
+  };
+}
 
 const BASE = {
   visitId: "11111111-1111-1111-1111-111111111111",
