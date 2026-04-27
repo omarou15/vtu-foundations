@@ -421,7 +421,32 @@ export function UnifiedVisitDrawer({
               onCloseDrawer={() => onOpenChange(false)}
             />
           ) : null}
-          {tab === "documents" ? <DocumentsTab visitId={visitId} /> : null}
+          {tab === "photos" ? <PhotosTab visitId={visitId} /> : null}
+          {tab === "input_docs" ? (
+            <ComingSoonPanel
+              Icon={FileInput}
+              title="Documents importés"
+              description="Importez les pièces fournies par le client : plans, DPE existant, factures énergie, devis fournisseurs."
+              bullets={[
+                "Drop PDF / images / plans",
+                "Indexation automatique du contenu",
+                "Lien direct vers les sections concernées",
+              ]}
+            />
+          ) : null}
+          {tab === "output_docs" ? (
+            <ComingSoonPanel
+              Icon={FileOutput}
+              title="Rapports générés"
+              description="Tous les livrables produits depuis la VT : rapport d'audit Word, DPE, PPPT, export JSON."
+              bullets={[
+                "Rapport audit énergétique (.docx)",
+                "DPE projeté (.pdf)",
+                "Plan Pluriannuel de Travaux (.docx)",
+                "Export JSON technique",
+              ]}
+            />
+          ) : null}
           {tab === "export_monday" ? <ExportMondayTab /> : null}
           {tab === "export_email" ? <ExportEmailTab /> : null}
         </div>
