@@ -250,7 +250,7 @@ export function UnifiedVisitDrawer({
 
   const badgeFor = (key: DrawerTab): number => {
     if (key === "ai_actions") return globals.aiUnvalidated + conflictsCount;
-    if (key === "documents") return media.length;
+    if (key === "photos") return media.length;
     return 0;
   };
 
