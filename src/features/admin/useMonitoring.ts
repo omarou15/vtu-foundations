@@ -5,7 +5,7 @@
  * l'utilisateur n'est pas admin (gate côté caller).
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export type AlertLevel = "warning" | "critical";
@@ -75,6 +75,35 @@ export interface MonitoringSnapshot {
   }>;
 }
 
+async function fetchMonitoring(hours: number): Promise<MonitoringSnapshot> {
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+  const baseUrl = env?.VITE_SUPABASE_URL;
+  const anon = env?.VITE_SUPABASE_PUBLISHABLE_KEY;
+  if (!baseUrl) throw new Error("VITE_SUPABASE_URL manquant");
+
+  const { data: sess, error: sessErr } = await supabase.auth.getSession();
+  if (sessErr) throw new Error(sessErr.message);
+  const jwt = sess?.session?.access_token;
+  if (!jwt) throw new Error("Session manquante (reconnecte-toi)");
+
+  const url = `${baseUrl}/functions/v1/vtu-monitoring?hours=${hours}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      ...(anon ? { apikey: anon } : {}),
+      "Content-Type": "application/json",
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  const data = (await res.json()) as MonitoringSnapshot;
+  if (!data?.ok) throw new Error("monitoring snapshot invalid");
+  return data;
+}
+
 export function useMonitoring(opts: {
   enabled: boolean;
   hours: number;
@@ -85,50 +114,55 @@ export function useMonitoring(opts: {
   error: Error | null;
   refetch: () => void;
 } {
-  const q = useQuery({
-    queryKey: ["monitoring", opts.hours],
-    enabled: opts.enabled,
-    refetchInterval: 30_000,
-    staleTime: 25_000,
-    queryFn: async () => {
-      // Fetch direct (l'Edge Function attend des query params, supabase-js
-      // functions.invoke ne les gère pas proprement → on calque le pattern
-      // de `edge-function-client.ts`).
-      const env = (import.meta as { env?: Record<string, string | undefined> })
-        .env;
-      const baseUrl = env?.VITE_SUPABASE_URL;
-      const anon = env?.VITE_SUPABASE_PUBLISHABLE_KEY;
-      if (!baseUrl) throw new Error("VITE_SUPABASE_URL manquant");
+  const { enabled, hours } = opts;
+  const [data, setData] = useState<MonitoringSnapshot | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isFetching, setIsFetching] = useState<boolean>(false);
+  const [error, setError] = useState<Error | null>(null);
+  const cancelledRef = useRef(false);
 
-      const { data: sess, error: sessErr } = await supabase.auth.getSession();
-      if (sessErr) throw new Error(sessErr.message);
-      const jwt = sess?.session?.access_token;
-      if (!jwt) throw new Error("Session manquante (reconnecte-toi)");
-
-      const url = `${baseUrl}/functions/v1/vtu-monitoring?hours=${opts.hours}`;
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          ...(anon ? { apikey: anon } : {}),
-          "Content-Type": "application/json",
-        },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
+  const load = useCallback(
+    async (initial: boolean) => {
+      if (initial) setIsLoading(true);
+      setIsFetching(true);
+      setError(null);
+      try {
+        const snap = await fetchMonitoring(hours);
+        if (cancelledRef.current) return;
+        setData(snap);
+      } catch (e) {
+        if (cancelledRef.current) return;
+        setError(e instanceof Error ? e : new Error(String(e)));
+      } finally {
+        if (!cancelledRef.current) {
+          setIsLoading(false);
+          setIsFetching(false);
+        }
       }
-      const data = (await res.json()) as MonitoringSnapshot;
-      if (!data?.ok) throw new Error("monitoring snapshot invalid");
-      return data;
     },
-  });
+    [hours],
+  );
 
-  return {
-    data: q.data,
-    isLoading: q.isLoading,
-    isFetching: q.isFetching,
-    error: (q.error as Error | null) ?? null,
-    refetch: () => void q.refetch(),
-  };
+  useEffect(() => {
+    cancelledRef.current = false;
+    if (!enabled) {
+      setIsLoading(false);
+      setIsFetching(false);
+      return;
+    }
+    void load(true);
+    const id = window.setInterval(() => {
+      void load(false);
+    }, 30_000);
+    return () => {
+      cancelledRef.current = true;
+      window.clearInterval(id);
+    };
+  }, [enabled, load]);
+
+  const refetch = useCallback(() => {
+    void load(false);
+  }, [load]);
+
+  return { data, isLoading, isFetching, error, refetch };
 }
