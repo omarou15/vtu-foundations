@@ -150,11 +150,12 @@ async function resolveSignedUrl(
       if (error || !data?.signedUrl) {
         return null;
       }
+      const signedUrl = normalizeSignedUrl(data.signedUrl);
       signedUrlCache.set(cacheKey, {
-        url: data.signedUrl,
+        url: signedUrl,
         expiresAt: now + CACHE_TTL_MS,
       });
-      return data.signedUrl;
+      return signedUrl;
     } catch {
       return null;
     } finally {
@@ -203,4 +204,9 @@ export function __resetThumbCaches(): void {
   signedUrlCache.clear();
   inFlight.clear();
   backfillInFlight.clear();
+}
+
+function normalizeSignedUrl(url: string): string {
+  if (!url.startsWith("/")) return url;
+  return `${import.meta.env.VITE_SUPABASE_URL}/storage/v1${url}`;
 }
