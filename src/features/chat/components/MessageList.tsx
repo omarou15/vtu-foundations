@@ -179,6 +179,9 @@ function AnimatedDots() {
 function MessageBubble({ message }: { message: LocalMessage }) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
+  const meta = (message.metadata as Record<string, unknown> | undefined) ?? {};
+  const isPhotoCaption =
+    !isUser && !isSystem && meta.kind_origin === "photo_caption";
 
   if (isSystem) {
     return (
@@ -186,6 +189,28 @@ function MessageBubble({ message }: { message: LocalMessage }) {
         <span className="font-ui rounded-full bg-muted px-3 py-1 text-[11px] text-muted-foreground">
           {message.content}
         </span>
+      </li>
+    );
+  }
+
+  if (isPhotoCaption) {
+    const idx = typeof meta.batch_index === "number" ? meta.batch_index : null;
+    const total = typeof meta.batch_total === "number" ? meta.batch_total : null;
+    return (
+      <li className="flex justify-start">
+        <div className="bg-card/60 text-foreground border-border/60 max-w-[85%] rounded-2xl rounded-bl-sm border border-dashed px-3 py-1.5 text-xs shadow-sm">
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="text-primary h-3 w-3 shrink-0" aria-hidden="true" />
+            {idx && total ? (
+              <span className="font-ui text-muted-foreground tabular-nums text-[10px] font-medium">
+                Photo {idx}/{total}
+              </span>
+            ) : null}
+          </div>
+          <p className="font-body text-foreground mt-0.5 break-words">
+            {message.content}
+          </p>
+        </div>
       </li>
     );
   }
