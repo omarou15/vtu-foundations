@@ -238,6 +238,48 @@ multi-user, partage, push, édition message, export.
 - **It. 9 — Cleanup blobs locaux** : `pruneOldBlobs()` est un stub
   Phase 2 (retourne 0). Implémentation TTL 7 jours Phase 3 si le quota
   IndexedDB devient problématique.
+- **It. 10 — Provider LLM en client TanStack Server Function** : le
+  provider Lovable Gemini est appelé depuis `src/server/llm.functions.ts`
+  (server fn TanStack). Phase 3 → migrer vers une Edge Function dédiée
+  pour bénéficier du cache prompt côté plateforme et d'un quota séparé
+  par tenant. Aucun blocage Phase 2.
+- **It. 10 — Vision PDF différée Phase 2.5** : `processDescribeMedia`
+  écrit `description.skipped=true reason="pdf_no_render_phase2"` dès
+  qu'il rencontre `media_profile==="pdf"`. Pas de rendu page 1 vers PNG
+  pour l'instant (économie ~400KB pdfjs-dist). Le router donne quand
+  même la trace OCR via attachments_context (vide tant que skipped).
+- **It. 10 — Audio (Whisper) reporté Phase 3** : la transcription audio
+  reste hors-scope. Les messages `kind="audio"` sont routés `extract`
+  (média) mais sans contenu textuel exploitable tant que la
+  transcription n'arrive pas. UI It. 8 reportée.
+- **It. 10 — Nomenclatures vides en Phase 2** : `nomenclature_hints`
+  est passé à `{}` dans `buildContextBundle`. Phase 2.5 : injecter les
+  catalogues 3CL_DPE / DTG / méthode_energyco selon
+  `meta.calculation_method` pour orienter `extract_from_message`.
+- **It. 10 — Cap context 100k tokens, compress 5 passes max** :
+  `compressContextBundle` applique 5 passes (drop nomenclature → drop
+  ocr_text long → réduire detailed_description → tronquer recent_messages
+  → drop attachments_context). Au-delà → status `failed` avec
+  `context_too_large_after_compress` (logué dans `llm_extractions`).
+  L'utilisateur ne voit qu'un récap "extraction trop volumineuse, je
+  retente sur le prochain message".
+- **It. 10 — Recall Gemini estimé 55-70% en extract** : sur des
+  messages terrain courts (« VMC SF, R+2, HSP 2.7, 145 m² »), Gemini
+  Flash extrait correctement 55-70% des champs. Le reste passe par la
+  validation manuelle (compteur "X champs IA à valider" dans le
+  drawer JSON). Doctrine : LLM propose, user valide.
+- **It. 10 — Workaround sérialisation TanStack** : les server
+  functions LLM retournent `result_json` et `raw_response_json`
+  (chaînes JSON) plutôt que les types nus. Cause : TanStack Start v1
+  enforce une `ValidateSerializableMapped` qui rejette `Record<string,
+  unknown>` et `unknown`. Les call sites (`engine.llm.ts`)
+  `JSON.parse` à la réception. Re-évaluer Phase 3 si TanStack assouplit
+  la contrainte ou si on passe en Edge Function.
+- **It. 10 — Router edge case "VMC ok ?"** : la phrase courte « VMC
+  ok ? » match d'abord `CONVERSATIONAL_HINTS` (« ? » final) →
+  `conversational`. C'est l'arbitrage doctrinal documenté §15 (hint
+  prime sur terrain_pattern). Si le user attendait une saisie, il
+  écrira sans le « ? ».
 
 ### §14 — Pipeline médias (Phase 2 It. 9)
 
