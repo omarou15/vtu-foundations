@@ -226,3 +226,47 @@ describe("It. 10.6 — Rafale & multi-import flow", () => {
     expect(jobs).toHaveLength(0);
   });
 });
+
+// ===========================================================================
+// It. 10.6.2 — helper isHeavyPhoto (compression > 500 Ko)
+// ===========================================================================
+
+describe("isHeavyPhoto helper", () => {
+  it("photo > 500 Ko → true", async () => {
+    const { isHeavyPhoto } = await import("@/shared/photo/heuristics");
+    expect(
+      isHeavyPhoto({ media_profile: "photo", size_bytes: 600 * 1024 }),
+    ).toBe(true);
+  });
+
+  it("photo ≤ 500 Ko → false", async () => {
+    const { isHeavyPhoto } = await import("@/shared/photo/heuristics");
+    expect(
+      isHeavyPhoto({ media_profile: "photo", size_bytes: 200 * 1024 }),
+    ).toBe(false);
+    expect(
+      isHeavyPhoto({ media_profile: "photo", size_bytes: 500 * 1024 }),
+    ).toBe(false);
+  });
+
+  it("plan lourd → false (volontairement exempt du seuil)", async () => {
+    const { isHeavyPhoto } = await import("@/shared/photo/heuristics");
+    expect(
+      isHeavyPhoto({ media_profile: "plan", size_bytes: 2 * 1024 * 1024 }),
+    ).toBe(false);
+  });
+
+  it("pdf lourd → false", async () => {
+    const { isHeavyPhoto } = await import("@/shared/photo/heuristics");
+    expect(
+      isHeavyPhoto({ media_profile: "pdf", size_bytes: 5 * 1024 * 1024 }),
+    ).toBe(false);
+  });
+
+  it("size_bytes null/undefined → false (defensif)", async () => {
+    const { isHeavyPhoto } = await import("@/shared/photo/heuristics");
+    expect(
+      isHeavyPhoto({ media_profile: "photo", size_bytes: 0 }),
+    ).toBe(false);
+  });
+});
