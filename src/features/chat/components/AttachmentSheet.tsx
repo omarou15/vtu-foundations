@@ -531,12 +531,14 @@ function BurstView({
 // ===========================================================================
 
 function ImportView({
+  kind,
   drafts,
   busy,
   onPickMore,
   onSend,
   onBack,
 }: {
+  kind: "photos" | "docs";
   drafts: LocalAttachment[];
   busy: boolean;
   onPickMore: () => void;
@@ -545,6 +547,7 @@ function ImportView({
 }) {
   const count = drafts.length;
   const reachedMax = count >= MAX_BATCH;
+  const isPhotos = kind === "photos";
   return (
     <>
       <SheetHeader className="text-left">
@@ -558,14 +561,16 @@ function ImportView({
             <ArrowLeft className="h-4 w-4" />
           </button>
           <SheetTitle className="font-heading text-base">
-            Plans &amp; documents
+            {isPhotos ? "Photos importées" : "Plans & documents"}
           </SheetTitle>
           <span className="font-ui ml-auto inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary tabular-nums">
             {count} / {MAX_BATCH}
           </span>
         </div>
         <SheetDescription className="font-body text-xs text-muted-foreground">
-          Sélection multiple supportée. PDFs et images mélangés OK.
+          {isPhotos
+            ? "Sélectionne plusieurs photos depuis ta galerie."
+            : "Sélection multiple supportée. PDFs et images mélangés OK."}
         </SheetDescription>
       </SheetHeader>
 
