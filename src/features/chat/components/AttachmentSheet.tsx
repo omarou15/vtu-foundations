@@ -48,7 +48,7 @@ interface AttachmentSheetProps {
   visitId: string;
 }
 
-type Mode = "menu" | "burst" | "import";
+type Mode = "menu" | "burst" | "import-photos" | "import-docs";
 
 const MAX_BATCH = 10;
 
@@ -78,7 +78,8 @@ export function AttachmentSheet({
   const [busy, setBusy] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const cameraRef = useRef<HTMLInputElement | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const galleryRef = useRef<HTMLInputElement | null>(null);
+  const docsRef = useRef<HTMLInputElement | null>(null);
 
   // Drafts médias de cette VT — réactif Dexie. C'est notre source de vérité
   // pour le compteur et la grille de preview.
@@ -130,7 +131,11 @@ export function AttachmentSheet({
     }
   }
 
-  async function handleImportFiles(files: FileList | null) {
+  async function handleImportFiles(
+    files: FileList | null,
+    forcedProfile: "photo" | null,
+    inputRef: React.MutableRefObject<HTMLInputElement | null>,
+  ) {
     if (!files || files.length === 0) return;
     if (!userId) {
       toast.error("Session expirée");
@@ -144,22 +149,17 @@ export function AttachmentSheet({
       });
     }
     setBusy(true);
-    let added = 0;
     for (const file of arr.slice(0, Math.max(0, room))) {
-      const profile = detectDefaultProfile(file);
+      const profile = forcedProfile ?? detectDefaultProfile(file);
       try {
         await addMediaToVisit({ visitId, userId, file, profile });
-        added++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Erreur inconnue";
         toast.error(`Échec import ${file.name}`, { description: msg });
       }
     }
     setBusy(false);
-    if (fileRef.current) fileRef.current.value = "";
-    if (added === 0 && arr.length > 0) {
-      // On reste en mode import pour que l'user puisse réessayer
-    }
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   async function handleSend() {
@@ -196,7 +196,11 @@ export function AttachmentSheet({
   }
 
   function requestClose(next: boolean) {
-    if (!next && draftCount > 0 && (mode === "burst" || mode === "import")) {
+    if (
+      !next &&
+      draftCount > 0 &&
+      (mode === "burst" || mode === "import-photos" || mode === "import-docs")
+    ) {
       setConfirmCloseOpen(true);
       return;
     }
@@ -205,13 +209,17 @@ export function AttachmentSheet({
 
   function openCameraNative() {
     setMode("burst");
-    // Tick suivant pour s'assurer que l'input est monté
     requestAnimationFrame(() => cameraRef.current?.click());
   }
 
   function openGalleryNative() {
-    setMode("import");
-    requestAnimationFrame(() => fileRef.current?.click());
+    setMode("import-photos");
+    requestAnimationFrame(() => galleryRef.current?.click());
+  }
+
+  function openDocsNative() {
+    setMode("import-docs");
+    requestAnimationFrame(() => docsRef.current?.click());
   }
 
   return (
@@ -225,6 +233,7 @@ export function AttachmentSheet({
             <MenuView
               onPickPhoto={openCameraNative}
               onPickGallery={openGalleryNative}
+              onPickDocs={openDocsNative}
             />
           ) : null}
 
@@ -238,11 +247,23 @@ export function AttachmentSheet({
             />
           ) : null}
 
-          {mode === "import" ? (
+          {mode === "import-photos" ? (
             <ImportView
+              kind="photos"
               drafts={drafts}
               busy={busy}
-              onPickMore={() => fileRef.current?.click()}
+              onPickMore={() => galleryRef.current?.click()}
+              onSend={() => void handleSend()}
+              onBack={() => requestClose(false)}
+            />
+          ) : null}
+
+          {mode === "import-docs" ? (
+            <ImportView
+              kind="docs"
+              drafts={drafts}
+              busy={busy}
+              onPickMore={() => docsRef.current?.click()}
               onSend={() => void handleSend()}
               onBack={() => requestClose(false)}
             />
@@ -258,12 +279,20 @@ export function AttachmentSheet({
             onChange={(e) => void handleCameraFiles(e.target.files)}
           />
           <input
-            ref={fileRef}
+            ref={galleryRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => void handleImportFiles(e.target.files, "photo", galleryRef)}
+          />
+          <input
+            ref={docsRef}
             type="file"
             accept="image/*,application/pdf"
             multiple
             className="hidden"
-            onChange={(e) => void handleImportFiles(e.target.files)}
+            onChange={(e) => void handleImportFiles(e.target.files, null, docsRef)}
           />
         </SheetContent>
       </Sheet>
@@ -311,9 +340,11 @@ export function AttachmentSheet({
 function MenuView({
   onPickPhoto,
   onPickGallery,
+  onPickDocs,
 }: {
   onPickPhoto: () => void;
   onPickGallery: () => void;
+  onPickDocs: () => void;
 }) {
   return (
     <>
@@ -335,10 +366,17 @@ function MenuView({
           testId="attach-photo"
         />
         <IntentButton
+          icon={ImageIcon}
+          title="Importer depuis la galerie"
+          subtitle="Photos déjà prises (multi-sélection)"
+          onClick={onPickGallery}
+          testId="attach-gallery"
+        />
+        <IntentButton
           icon={FileText}
           title="Importer plans / documents"
-          subtitle="Galerie multi-sélection ou PDF"
-          onClick={onPickGallery}
+          subtitle="PDF, plans scannés"
+          onClick={onPickDocs}
           testId="attach-plan"
         />
         <IntentButton
@@ -493,12 +531,14 @@ function BurstView({
 // ===========================================================================
 
 function ImportView({
+  kind,
   drafts,
   busy,
   onPickMore,
   onSend,
   onBack,
 }: {
+  kind: "photos" | "docs";
   drafts: LocalAttachment[];
   busy: boolean;
   onPickMore: () => void;
@@ -507,6 +547,7 @@ function ImportView({
 }) {
   const count = drafts.length;
   const reachedMax = count >= MAX_BATCH;
+  const isPhotos = kind === "photos";
   return (
     <>
       <SheetHeader className="text-left">
@@ -520,14 +561,16 @@ function ImportView({
             <ArrowLeft className="h-4 w-4" />
           </button>
           <SheetTitle className="font-heading text-base">
-            Plans &amp; documents
+            {isPhotos ? "Photos importées" : "Plans & documents"}
           </SheetTitle>
           <span className="font-ui ml-auto inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary tabular-nums">
             {count} / {MAX_BATCH}
           </span>
         </div>
         <SheetDescription className="font-body text-xs text-muted-foreground">
-          Sélection multiple supportée. PDFs et images mélangés OK.
+          {isPhotos
+            ? "Sélectionne plusieurs photos depuis ta galerie."
+            : "Sélection multiple supportée. PDFs et images mélangés OK."}
         </SheetDescription>
       </SheetHeader>
 
@@ -536,8 +579,9 @@ function ImportView({
           <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center">
             <ImageIcon className="h-10 w-10 text-muted-foreground" />
             <p className="font-body text-sm text-muted-foreground">
-              Sélectionne plusieurs fichiers depuis la galerie ou les
-              documents.
+              {isPhotos
+                ? "Choisis plusieurs photos depuis ta pellicule iOS."
+                : "Sélectionne plusieurs fichiers depuis la galerie ou les documents."}
             </p>
           </div>
         ) : (
