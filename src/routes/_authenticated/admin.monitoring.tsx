@@ -5,26 +5,31 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  Info,
   RefreshCw,
+  Target,
   XCircle,
   Zap,
   Database,
   Users,
   Sparkles,
+  Camera,
+  Clock,
+  TrendingUp,
 } from "lucide-react";
 import {
   useIsAdmin,
   useMonitoring,
   type Alert,
+  type KeyResult,
   type MonitoringSnapshot,
+  type Objective,
   type Status,
+  type TimeSeries,
 } from "@/features/admin";
 
 /**
- * Page admin : santé applicative globale.
- *
- * Gate : useIsAdmin() côté client + Edge Function gate côté serveur
- * (has_role(admin)). Refresh auto 30s, fenêtre 24h par défaut.
+ * Page admin : santé applicative globale (technique + fonctionnel + OKRs).
  */
 export const Route = createFileRoute("/_authenticated/admin/monitoring")({
   component: MonitoringPage,
@@ -36,11 +41,9 @@ const HOURS_PRESETS = [1, 6, 24, 72, 168] as const;
 function MonitoringPage() {
   const { isAdmin, isLoading: roleLoading, error: roleError } = useIsAdmin();
   const [hours, setHours] = useState<number>(24);
-  const [eventLevel, setEventLevel] = useState<"all" | "warning" | "error">(
-    "all",
-  );
+  const [eventLevel, setEventLevel] = useState<"all" | "warning" | "error">("all");
   const [eventSource, setEventSource] = useState<
-    "all" | "llm" | "sync" | "usage" | "infra"
+    "all" | "llm" | "sync" | "usage" | "infra" | "functional"
   >("all");
 
   const { data, isLoading, isFetching, error, refetch } = useMonitoring({
@@ -48,17 +51,8 @@ function MonitoringPage() {
     hours,
   });
 
-  if (roleLoading) {
-    return <CenterSpinner label="Vérification du rôle…" />;
-  }
-  if (roleError) {
-    return (
-      <CenterMessage
-        title="Erreur de vérification"
-        message={roleError.message}
-      />
-    );
-  }
+  if (roleLoading) return <CenterSpinner label="Vérification du rôle…" />;
+  if (roleError) return <CenterMessage title="Erreur" message={roleError.message} />;
   if (!isAdmin) {
     return (
       <CenterMessage
@@ -71,7 +65,7 @@ function MonitoringPage() {
   return (
     <div className="bg-background min-h-dvh">
       <header className="bg-card border-border sticky top-0 z-10 border-b">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div className="flex items-center gap-2">
             <Link
               to="/"
@@ -103,16 +97,23 @@ function MonitoringPage() {
               type="button"
               onClick={refetch}
               disabled={isFetching}
-              className="bg-muted hover:bg-muted/80 inline-flex h-8 w-8 items-center justify-center rounded-full disabled:opacity-50"
-              aria-label="Rafraîchir"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 font-ui inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-60"
+              aria-label="Actualiser les données"
             >
               <RefreshCw
                 className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
                 aria-hidden="true"
               />
+              {isFetching ? "Chargement…" : "Actualiser"}
             </button>
           </div>
         </div>
+        {data ? (
+          <p className="font-ui text-muted-foreground mx-auto max-w-6xl px-4 pb-2 text-[11px]">
+            Dernier snapshot :{" "}
+            {new Date(data.generated_at).toLocaleTimeString("fr-FR")} · auto-refresh 30s
+          </p>
+        ) : null}
       </header>
 
       <main className="mx-auto max-w-6xl space-y-4 px-4 py-4">
@@ -134,6 +135,10 @@ function MonitoringPage() {
               </section>
             ) : null}
 
+            {/* ============ OKRs ============ */}
+            <OkrSection okrs={data.okrs} />
+
+            {/* ============ KPIs synthétiques ============ */}
             <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Kpi
                 icon={<Zap className="h-4 w-4" />}
@@ -141,6 +146,7 @@ function MonitoringPage() {
                 value={data.llm.total_calls}
                 sub={`${data.llm.error_rate_pct}% erreurs`}
                 status={data.llm.status}
+                tooltip="Nombre total d'appels au LLM (extract + describe). Source : table llm_extractions sur la fenêtre."
               />
               <Kpi
                 icon={<Activity className="h-4 w-4" />}
@@ -156,6 +162,7 @@ function MonitoringPage() {
                     : "Aucune donnée"
                 }
                 status={data.llm.status}
+                tooltip="Temps de réponse au-dessus duquel se situent 5 % des appels les plus lents. Cible <8 s. Warning ≥12 s, critique ≥20 s."
               />
               <Kpi
                 icon={<Sparkles className="h-4 w-4" />}
@@ -163,18 +170,31 @@ function MonitoringPage() {
                 value={`$${data.llm.estimated_cost_usd.toFixed(3)}`}
                 sub={`${formatTokens(data.llm.total_input_tokens + data.llm.total_output_tokens)} tokens`}
                 status="ok"
+                tooltip="Tokens × tarif Gemini Flash (0,075 $/M in, 0,30 $/M out). Approximatif. Warning ≥5 $/jour."
               />
               <Kpi
                 icon={<Users className="h-4 w-4" />}
                 label="Users actifs"
                 value={data.usage.unique_active_users}
-                sub={`${data.usage.visits_total} VTs`}
+                sub={`${data.usage.visits_total} VTs créées`}
                 status="ok"
+                tooltip="Utilisateurs distincts ayant créé une VT ou envoyé un message dans la fenêtre."
               />
             </section>
 
+            {/* ============ Fonctionnel (vrais KPIs métier) ============ */}
+            <FunctionalSection data={data} />
+
+            {/* ============ Sparkline 7j ============ */}
+            <TimeSeriesSection ts={data.time_series} />
+
+            {/* ============ Technique : LLM, Sync, Infra ============ */}
             <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Card title="Santé LLM" status={data.llm.status}>
+              <Card
+                title="Santé LLM"
+                status={data.llm.status}
+                tooltip="Métriques techniques du moteur d'IA : latences, statuts, codes d'erreur, tokens consommés. Source : llm_extractions."
+              >
                 <DefList
                   items={[
                     [
@@ -190,20 +210,11 @@ function MonitoringPage() {
                         : "—",
                     ],
                     ["Tokens entrée", formatTokens(data.llm.total_input_tokens)],
-                    [
-                      "Tokens sortie",
-                      formatTokens(data.llm.total_output_tokens),
-                    ],
+                    ["Tokens sortie", formatTokens(data.llm.total_output_tokens)],
                   ]}
                 />
-                <SubList
-                  title="Par mode"
-                  entries={Object.entries(data.llm.by_mode)}
-                />
-                <SubList
-                  title="Par statut"
-                  entries={Object.entries(data.llm.by_status)}
-                />
+                <SubList title="Par mode" entries={Object.entries(data.llm.by_mode)} />
+                <SubList title="Par statut" entries={Object.entries(data.llm.by_status)} />
                 {Object.keys(data.llm.by_error_code).length > 0 ? (
                   <SubList
                     title="Codes d'erreur"
@@ -213,19 +224,17 @@ function MonitoringPage() {
                 ) : null}
               </Card>
 
-              <Card title="Sync & Queue" status={data.sync_proxy.status}>
+              <Card
+                title="Sync & Queue"
+                status={data.sync_proxy.status}
+                tooltip="Vue serveur de la sync (la queue Dexie locale n'est pas visible). Le 'plus ancien message sans réponse' détecte un Edge Function bloqué."
+              >
                 <DefList
                   items={[
                     ["VTs créées", data.sync_proxy.visits_created],
                     ["Messages insérés", data.sync_proxy.messages_inserted],
-                    [
-                      "Attachments insérés",
-                      data.sync_proxy.attachments_inserted,
-                    ],
-                    [
-                      "Versions JSON state",
-                      data.sync_proxy.json_state_versions,
-                    ],
+                    ["Attachments insérés", data.sync_proxy.attachments_inserted],
+                    ["Versions JSON state", data.sync_proxy.json_state_versions],
                     [
                       "Plus ancien message sans réponse",
                       data.sync_proxy.oldest_pending_message_age_minutes != null
@@ -236,26 +245,11 @@ function MonitoringPage() {
                 />
               </Card>
 
-              <Card title="Usage fonctionnel" status="ok">
-                <DefList
-                  items={[
-                    ["Messages user", data.usage.messages_user],
-                    ["Messages assistant", data.usage.messages_assistant],
-                    ["Cards d'actions IA", data.usage.messages_actions_card],
-                    ["Patches IA proposés", data.usage.patches_proposed],
-                    [
-                      "Photos / PDF",
-                      `${data.usage.attachments_photo} / ${data.usage.attachments_pdf}`,
-                    ],
-                  ]}
-                />
-                <p className="font-ui text-muted-foreground mt-2 text-[11px]">
-                  Le taux de validation des patches IA est calculé côté client
-                  (le scan cross-tenant des Field&lt;T&gt; est différé Phase 3).
-                </p>
-              </Card>
-
-              <Card title="Infra Cloud" status="ok">
+              <Card
+                title="Infra Cloud"
+                status="ok"
+                tooltip="Tailles des tables critiques + dernière écriture. Permet de détecter une table 'figée' ou un débordement inattendu."
+              >
                 <div className="overflow-x-auto">
                   <table className="font-ui w-full text-[12px]">
                     <thead className="text-muted-foreground text-left">
@@ -268,9 +262,7 @@ function MonitoringPage() {
                     <tbody>
                       {data.infra.tables.map((t) => (
                         <tr key={t.name} className="border-border border-t">
-                          <td className="py-1 pr-2 font-mono text-[11px]">
-                            {t.name}
-                          </td>
+                          <td className="py-1 pr-2 font-mono text-[11px]">{t.name}</td>
                           <td className="py-1 pr-2 tabular-nums">
                             {t.row_count.toLocaleString("fr-FR")}
                           </td>
@@ -288,14 +280,34 @@ function MonitoringPage() {
                   Buckets storage : {data.infra.buckets.join(" · ")}
                 </p>
               </Card>
+
+              <Card
+                title="Volume messages"
+                status="ok"
+                tooltip="Décomposition des messages échangés. messages_actions_card = nombre de cartes de patches IA générées."
+              >
+                <DefList
+                  items={[
+                    ["Messages user", data.usage.messages_user],
+                    ["Messages assistant", data.usage.messages_assistant],
+                    ["Cards d'actions IA", data.usage.messages_actions_card],
+                    [
+                      "Photos / PDF",
+                      `${data.usage.attachments_photo} / ${data.usage.attachments_pdf}`,
+                    ],
+                  ]}
+                />
+              </Card>
             </section>
 
-            <Card title={`Timeline (${data.events.length})`} status="ok">
+            {/* ============ Timeline ============ */}
+            <Card
+              title={`Timeline (${data.events.length})`}
+              status="ok"
+              tooltip="Chronologie des événements : erreurs LLM, pics de latence, alertes fonctionnelles. Filtrable par niveau et source."
+            >
               <div className="mb-2 flex flex-wrap gap-1.5">
-                <FilterChip
-                  active={eventLevel === "all"}
-                  onClick={() => setEventLevel("all")}
-                >
+                <FilterChip active={eventLevel === "all"} onClick={() => setEventLevel("all")}>
                   Tous niveaux
                 </FilterChip>
                 <FilterChip
@@ -311,28 +323,20 @@ function MonitoringPage() {
                   Erreurs
                 </FilterChip>
                 <span className="bg-border mx-1 h-5 w-px" aria-hidden="true" />
-                {(["all", "llm", "sync", "usage", "infra"] as const).map((s) => (
-                  <FilterChip
-                    key={s}
-                    active={eventSource === s}
-                    onClick={() => setEventSource(s)}
-                  >
-                    {s === "all" ? "Toutes sources" : s}
-                  </FilterChip>
-                ))}
+                {(["all", "llm", "sync", "usage", "infra", "functional"] as const).map(
+                  (s) => (
+                    <FilterChip
+                      key={s}
+                      active={eventSource === s}
+                      onClick={() => setEventSource(s)}
+                    >
+                      {s === "all" ? "Toutes sources" : s}
+                    </FilterChip>
+                  ),
+                )}
               </div>
-              <Timeline
-                events={data.events}
-                level={eventLevel}
-                source={eventSource}
-              />
+              <Timeline events={data.events} level={eventLevel} source={eventSource} />
             </Card>
-
-            <p className="font-ui text-muted-foreground text-center text-[11px]">
-              Snapshot généré à{" "}
-              {new Date(data.generated_at).toLocaleTimeString("fr-FR")} ·
-              fenêtre {data.window_hours}h · refresh auto 30s
-            </p>
           </>
         )}
       </main>
@@ -341,16 +345,257 @@ function MonitoringPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Sous-composants
+// OKRs
 // ---------------------------------------------------------------------------
+
+function OkrSection({ okrs }: { okrs: MonitoringSnapshot["okrs"] }) {
+  return (
+    <section className="bg-card border-border rounded-lg border p-3 shadow-sm">
+      <header className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Target className="text-primary h-4 w-4" aria-hidden="true" />
+          <h2 className="font-heading text-sm font-semibold">OKRs — {okrs.period}</h2>
+          <InfoTooltip text="Objectives & Key Results : ce que le produit doit atteindre ce trimestre, mesuré sur la fenêtre temporelle sélectionnée. Édite les cibles dans supabase/functions/vtu-monitoring/index.ts (buildOkrs)." />
+        </div>
+      </header>
+      <div className="space-y-3">
+        {okrs.objectives.map((o) => (
+          <ObjectiveCard key={o.id} objective={o} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ObjectiveCard({ objective }: { objective: Objective }) {
+  const onTrackCount = objective.keyResults.filter((k) => k.on_track).length;
+  const total = objective.keyResults.length;
+  return (
+    <div className="border-border rounded-md border p-2.5">
+      <header className="mb-2 flex items-baseline justify-between gap-2">
+        <h3 className="font-heading text-sm font-semibold">{objective.title}</h3>
+        <span
+          className={`font-ui rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            onTrackCount === total
+              ? "bg-primary/15 text-primary"
+              : onTrackCount > 0
+                ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400"
+                : "bg-destructive/15 text-destructive"
+          }`}
+        >
+          {onTrackCount}/{total} on track
+        </span>
+      </header>
+      <p className="font-body text-muted-foreground mb-2 text-[12px]">
+        {objective.description}
+      </p>
+      <ul className="space-y-2">
+        {objective.keyResults.map((kr) => (
+          <KeyResultRow key={kr.id} kr={kr} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function KeyResultRow({ kr }: { kr: KeyResult }) {
+  const barColor = kr.on_track
+    ? "bg-primary"
+    : kr.progress_pct >= 50
+      ? "bg-yellow-500"
+      : "bg-destructive";
+  return (
+    <li>
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1">
+          <span className="font-ui truncate text-[12px]">{kr.label}</span>
+          <InfoTooltip text={`Source : ${kr.source}. Cible : ${kr.target} ${kr.unit} (${kr.higher_is_better ? "plus = mieux" : "moins = mieux"}).`} />
+        </div>
+        <span className="font-ui shrink-0 text-[11px] tabular-nums">
+          <span className="font-medium">
+            {formatNumber(kr.current)} {kr.unit}
+          </span>
+          <span className="text-muted-foreground"> / {kr.target}</span>
+        </span>
+      </div>
+      <div className="bg-muted mt-1 h-1.5 w-full overflow-hidden rounded-full">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${Math.max(2, kr.progress_pct)}%` }}
+          aria-label={`${kr.progress_pct} % vers la cible`}
+        />
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fonctionnel
+// ---------------------------------------------------------------------------
+
+function FunctionalSection({ data }: { data: MonitoringSnapshot }) {
+  const f = data.functional;
+  return (
+    <section className="bg-card border-border rounded-lg border p-3 shadow-sm">
+      <header className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="text-primary h-4 w-4" aria-hidden="true" />
+          <h2 className="font-heading text-sm font-semibold">Métriques fonctionnelles</h2>
+          <InfoTooltip text="Indicateurs métier (pas techniques). Calculés sur les VTs créées dans la fenêtre. Permet d'évaluer la qualité réelle perçue par les thermiciens." />
+          <GlobalStatusPill status={f.status} />
+        </div>
+      </header>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <MetricTile
+          icon={<Clock className="h-3.5 w-3.5" />}
+          label="Cycle time moyen"
+          value={f.cycle_time_minutes_avg !== null ? `${f.cycle_time_minutes_avg} min` : "—"}
+          sub={f.cycle_time_minutes_median !== null ? `médiane ${f.cycle_time_minutes_median} min` : undefined}
+          tooltip="Durée entre la création de la VT et son dernier événement (message ou attachment). Mesure le temps réellement passé sur une visite."
+        />
+        <MetricTile
+          icon={<Zap className="h-3.5 w-3.5" />}
+          label="Time-to-first-IA"
+          value={f.time_to_first_ai_seconds_avg !== null ? `${f.time_to_first_ai_seconds_avg.toFixed(1)} s` : "—"}
+          tooltip="Délai moyen entre le 1er message du thermicien et la 1ère réponse de l'IA. Mesure la réactivité perçue."
+        />
+        <MetricTile
+          icon={<Camera className="h-3.5 w-3.5" />}
+          label="Médias par VT"
+          value={f.media_per_visit_avg.toFixed(1)}
+          sub={`${f.media_capture_rate_pct}% VT avec ≥1 média`}
+          tooltip="count(attachments) / count(VTs). Mesure la richesse de la capture terrain. Cible : ≥3 médias/VT."
+        />
+        <MetricTile
+          icon={<Database className="h-3.5 w-3.5" />}
+          label="Complétude JSON"
+          value={f.json_state_completeness_pct !== null ? `${f.json_state_completeness_pct}%` : "—"}
+          tooltip="% de champs Field<T> avec une valeur non-nulle dans la dernière version du JSON state de chaque VT. Mesure si les VTs sont 'finies'."
+        />
+        <MetricTile
+          icon={<Sparkles className="h-3.5 w-3.5" />}
+          label="Patches IA proposés"
+          value={f.patches_proposed}
+          sub={`${f.patches_validated} ✓ · ${f.patches_rejected} ✗ · ${f.patches_unvalidated} en attente`}
+          tooltip="Champs où l'IA a fait une suggestion (source=ai_infer). Scan réel des Field<T> dans visit_json_state."
+        />
+        <MetricTile
+          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+          label="Acceptation IA"
+          value={`${f.patches_acceptance_rate_pct}%`}
+          sub={`Cible ≥80%`}
+          tooltip="validated / (validated + rejected). Mesure la qualité perçue des suggestions IA. <60% = signal qu'il faut améliorer le prompt."
+        />
+        <MetricTile
+          icon={<Activity className="h-3.5 w-3.5" />}
+          label="Patches traités"
+          value={`${f.patches_treatment_rate_pct}%`}
+          sub={`Reste ${f.patches_unvalidated} à trier`}
+          tooltip="(validated + rejected) / proposed. Si bas, les thermiciens laissent traîner les suggestions = friction UX."
+        />
+        <MetricTile
+          icon={<Users className="h-3.5 w-3.5" />}
+          label="VT avec IA"
+          value={`${f.visits_with_ai_pct}%`}
+          tooltip="% de VT créées dans la fenêtre ayant reçu ≥1 réponse de l'IA. Mesure l'adoption réelle de l'assistant."
+        />
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Time series 7j
+// ---------------------------------------------------------------------------
+
+function TimeSeriesSection({ ts }: { ts: TimeSeries }) {
+  return (
+    <section className="bg-card border-border rounded-lg border p-3 shadow-sm">
+      <header className="mb-2 flex items-center gap-2">
+        <h2 className="font-heading text-sm font-semibold">Tendance 7 jours</h2>
+        <InfoTooltip text="Évolution jour par jour sur les 7 derniers jours (indépendant de la fenêtre choisie en haut). Permet de repérer un drop ou un pic." />
+      </header>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Spark label="VT créées" days={ts.days} values={ts.visits_per_day} color="primary" />
+        <Spark label="Appels LLM" days={ts.days} values={ts.llm_calls_per_day} color="primary" />
+        <Spark label="Erreurs LLM" days={ts.days} values={ts.llm_errors_per_day} color="destructive" />
+        <Spark
+          label="Patches proposés"
+          days={ts.days}
+          values={ts.patches_proposed_per_day}
+          color="primary"
+        />
+      </div>
+    </section>
+  );
+}
+
+function Spark({
+  label,
+  days,
+  values,
+  color,
+}: {
+  label: string;
+  days: string[];
+  values: number[];
+  color: "primary" | "destructive";
+}) {
+  const max = Math.max(1, ...values);
+  const w = 120;
+  const h = 32;
+  const step = values.length > 1 ? w / (values.length - 1) : 0;
+  const points = values
+    .map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * h).toFixed(1)}`)
+    .join(" ");
+  const total = values.reduce((s, n) => s + n, 0);
+  const stroke = color === "destructive" ? "stroke-destructive" : "stroke-primary";
+  const today = values[values.length - 1] ?? 0;
+  return (
+    <div className="border-border rounded-md border p-2">
+      <p className="font-ui text-muted-foreground text-[11px]">{label}</p>
+      <p className="font-heading text-base font-semibold tabular-nums">
+        {today}
+        <span className="text-muted-foreground ml-1 text-[10px]">aujourd'hui</span>
+      </p>
+      <svg viewBox={`0 0 ${w} ${h}`} className="mt-1 w-full" preserveAspectRatio="none">
+        <polyline
+          points={points}
+          fill="none"
+          strokeWidth={1.5}
+          className={stroke}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <p className="font-ui text-muted-foreground text-[10px]">
+        Total 7j : {total} · {days[0].slice(5)} → {days[days.length - 1].slice(5)}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sous-composants génériques
+// ---------------------------------------------------------------------------
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span
+      className="text-muted-foreground hover:text-foreground inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full"
+      title={text}
+      aria-label={text}
+      role="tooltip"
+    >
+      <Info className="h-3 w-3" aria-hidden="true" />
+    </span>
+  );
+}
 
 function GlobalStatusPill({ status }: { status: Status }) {
   const cfg = {
-    ok: {
-      label: "OK",
-      icon: CheckCircle2,
-      className: "bg-primary/10 text-primary",
-    },
+    ok: { label: "OK", icon: CheckCircle2, className: "bg-primary/10 text-primary" },
     warning: {
       label: "Warning",
       icon: AlertTriangle,
@@ -379,12 +624,14 @@ function Kpi({
   value,
   sub,
   status,
+  tooltip,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number | string;
   sub?: string;
   status: Status;
+  tooltip?: string;
 }) {
   const ring = {
     ok: "border-border",
@@ -396,13 +643,36 @@ function Kpi({
       <div className="text-muted-foreground flex items-center gap-1.5 text-[11px]">
         {icon}
         <span className="font-ui">{label}</span>
+        {tooltip ? <InfoTooltip text={tooltip} /> : null}
       </div>
-      <p className="font-heading mt-1 text-xl font-semibold tabular-nums">
-        {value}
-      </p>
-      {sub ? (
-        <p className="font-ui text-muted-foreground text-[11px]">{sub}</p>
-      ) : null}
+      <p className="font-heading mt-1 text-xl font-semibold tabular-nums">{value}</p>
+      {sub ? <p className="font-ui text-muted-foreground text-[11px]">{sub}</p> : null}
+    </div>
+  );
+}
+
+function MetricTile({
+  icon,
+  label,
+  value,
+  sub,
+  tooltip,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  sub?: string;
+  tooltip: string;
+}) {
+  return (
+    <div className="border-border rounded-md border p-2">
+      <div className="text-muted-foreground flex items-center gap-1 text-[10px]">
+        {icon}
+        <span className="font-ui">{label}</span>
+        <InfoTooltip text={tooltip} />
+      </div>
+      <p className="font-heading mt-0.5 text-base font-semibold tabular-nums">{value}</p>
+      {sub ? <p className="font-ui text-muted-foreground text-[10px]">{sub}</p> : null}
     </div>
   );
 }
@@ -410,16 +680,21 @@ function Kpi({
 function Card({
   title,
   status,
+  tooltip,
   children,
 }: {
   title: string;
   status: Status;
+  tooltip?: string;
   children: React.ReactNode;
 }) {
   return (
     <section className="bg-card border-border rounded-lg border p-3 shadow-sm">
-      <header className="mb-2 flex items-center justify-between">
-        <h2 className="font-heading text-sm font-semibold">{title}</h2>
+      <header className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <h2 className="font-heading text-sm font-semibold">{title}</h2>
+          {tooltip ? <InfoTooltip text={tooltip} /> : null}
+        </div>
         <GlobalStatusPill status={status} />
       </header>
       <div className="space-y-2">{children}</div>
@@ -460,9 +735,7 @@ function SubList({
           <li
             key={k}
             className={`font-ui inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] ${
-              danger
-                ? "bg-destructive/10 text-destructive"
-                : "bg-muted text-foreground"
+              danger ? "bg-destructive/10 text-destructive" : "bg-muted text-foreground"
             }`}
           >
             <span className="font-mono text-[10px]">{k}</span>
@@ -495,9 +768,7 @@ function AlertBanner({ alert }: { alert: Alert }) {
         {alert.metric ? (
           <p className="font-ui text-[11px] opacity-80">
             {alert.metric} ={" "}
-            {typeof alert.value === "number"
-              ? alert.value.toFixed(1)
-              : alert.value}{" "}
+            {typeof alert.value === "number" ? alert.value.toFixed(1) : alert.value}{" "}
             (seuil {alert.threshold})
           </p>
         ) : null}
@@ -537,7 +808,7 @@ function Timeline({
 }: {
   events: MonitoringSnapshot["events"];
   level: "all" | "warning" | "error";
-  source: "all" | "llm" | "sync" | "usage" | "infra";
+  source: "all" | "llm" | "sync" | "usage" | "infra" | "functional";
 }) {
   const filtered = useMemo(
     () =>
@@ -598,20 +869,12 @@ function CenterSpinner({ label }: { label: string }) {
   );
 }
 
-function CenterMessage({
-  title,
-  message,
-}: {
-  title: string;
-  message: string;
-}) {
+function CenterMessage({ title, message }: { title: string; message: string }) {
   return (
     <div className="bg-background flex min-h-dvh flex-col items-center justify-center gap-2 px-4 text-center">
       <Database className="text-muted-foreground h-6 w-6" aria-hidden="true" />
       <h1 className="font-heading text-base font-semibold">{title}</h1>
-      <p className="font-body text-muted-foreground max-w-sm text-sm">
-        {message}
-      </p>
+      <p className="font-body text-muted-foreground max-w-sm text-sm">{message}</p>
       <Link
         to="/"
         className="bg-primary text-primary-foreground font-ui mt-3 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs"
@@ -627,4 +890,9 @@ function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
   return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+function formatNumber(n: number): string {
+  if (Number.isInteger(n)) return n.toLocaleString("fr-FR");
+  return n.toFixed(1);
 }
