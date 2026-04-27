@@ -4,8 +4,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowLeft,
-  Braces,
-  FileText,
+  LayoutDashboard,
   List,
   Menu,
   Sparkles,
@@ -16,7 +15,7 @@ import { appendLocalMessage, getDb, getLatestLocalJsonState, type LocalMessage }
 import { useAuth } from "@/features/auth";
 import { useVirtualKeyboard } from "@/shared/hooks";
 import { useConnectionStore, useMessagesSync } from "@/shared/sync";
-import { VisitsSidebar } from "@/features/visits";
+import { VisitsSidebar, UnifiedVisitDrawer, type DrawerTab } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -34,7 +33,6 @@ import {
   STATUS_LABEL,
 } from "@/features/visits/lib/icons";
 import { ChatInputBar, MessageList, useChatStore } from "@/features/chat";
-import { JsonViewerDrawer } from "@/features/json-state";
 import { countUnvalidatedAiFields } from "@/features/json-state/lib/inspect";
 import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
 
@@ -62,7 +60,8 @@ function VisitChatPage() {
   const setAiEnabled = useChatStore((s) => s.setAiEnabled);
   const isOnline = useConnectionStore((s) => s.isOnline);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [jsonOpen, setJsonOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerInitialTab, setDrawerInitialTab] = useState<DrawerTab | undefined>(undefined);
   const [jsonInitialMode, setJsonInitialMode] = useState<"tree" | "todo">("tree");
 
   // Met à jour la variable CSS --kb-height pour garder l'input bar au-dessus du clavier.
@@ -100,9 +99,10 @@ function VisitChatPage() {
     [latestState, visitMessages],
   );
 
-  const openJson = (mode: "tree" | "todo") => {
-    setJsonInitialMode(mode);
-    setJsonOpen(true);
+  const openDrawer = (tab?: DrawerTab, jsonMode: "tree" | "todo" = "tree") => {
+    setDrawerInitialTab(tab);
+    setJsonInitialMode(jsonMode);
+    setDrawerOpen(true);
   };
 
   if (visit === undefined) {
@@ -216,19 +216,9 @@ function VisitChatPage() {
                   <List className="mr-2 h-4 w-4" />
                   Liste des visites
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link
-                    to="/visits/$visitId/summary"
-                    params={{ visitId: visit.id }}
-                    data-testid="visit-menu-summary"
-                  >
-                    <FileText className="mr-2 h-4 w-4" />
-                    Synthèse de la VT
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => openJson("tree")}>
-                  <Braces className="mr-2 h-4 w-4" />
-                  Vue JSON brut
+                <DropdownMenuItem onSelect={() => openDrawer("summary")}>
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  Ouvrir le panneau VT
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="md:hidden" />
                 <DropdownMenuItem
@@ -270,12 +260,12 @@ function VisitChatPage() {
             </span>
             <button
               type="button"
-              onClick={() => openJson("tree")}
+              onClick={() => openDrawer()}
               className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
-              aria-label="Ouvrir l'état JSON"
+              aria-label="Ouvrir le panneau VT"
               data-testid="open-json-viewer"
             >
-              <Braces className="h-5 w-5" />
+              <LayoutDashboard className="h-5 w-5" />
             </button>
           </div>
 
@@ -300,8 +290,7 @@ function VisitChatPage() {
               {unvalidatedCount > 0 ? (
                 <button
                   type="button"
-                  onClick={() => openJson("todo")}
-                  className="font-ui inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition hover:bg-primary/15 active:bg-primary/20"
+                  onClick={() => openDrawer("json", "todo")}
                   aria-label={`${unvalidatedCount} champ${unvalidatedCount > 1 ? "s" : ""} à valider — ouvrir`}
                   data-testid="header-unvalidated-badge"
                 >
@@ -312,7 +301,7 @@ function VisitChatPage() {
               {conflictsCount > 0 ? (
                 <button
                   type="button"
-                  onClick={() => openJson("todo")}
+                  onClick={() => openDrawer("json", "todo")}
                   className="font-ui inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive transition hover:bg-destructive/15 active:bg-destructive/20"
                   aria-label={`${conflictsCount} conflit${conflictsCount > 1 ? "s" : ""} — ouvrir`}
                   data-testid="header-conflicts-badge"
@@ -364,11 +353,13 @@ function VisitChatPage() {
         <ChatInputBar visitId={visit.id} onSubmit={handleSubmit} />
       </main>
 
-      <JsonViewerDrawer
+      <UnifiedVisitDrawer
         visitId={visit.id}
-        open={jsonOpen}
-        onOpenChange={setJsonOpen}
-        initialMode={jsonInitialMode}
+        visitTitle={visit.title}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        initialTab={drawerInitialTab}
+        jsonInitialMode={jsonInitialMode}
       />
     </div>
   );

@@ -54,6 +54,12 @@ import { MediaLightbox } from "@/features/chat/components/MediaLightbox";
 interface VisitSummaryViewProps {
   visitId: string;
   visitTitle: string;
+  /**
+   * It. 13 — quand `true`, le composant n'affiche pas son propre header
+   * et n'impose pas `min-h-dvh` (il est embarqué dans un onglet du
+   * UnifiedVisitDrawer).
+   */
+  embedded?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +99,11 @@ const SECTIONS: SectionDef[] = [
 // Composant principal
 // ---------------------------------------------------------------------------
 
-export function VisitSummaryView({ visitId, visitTitle }: VisitSummaryViewProps) {
+export function VisitSummaryView({
+  visitId,
+  visitTitle,
+  embedded = false,
+}: VisitSummaryViewProps) {
   const latest = useLiveQuery(
     () => getLatestLocalJsonState(visitId),
     [visitId],
@@ -139,10 +149,17 @@ export function VisitSummaryView({ visitId, visitTitle }: VisitSummaryViewProps)
     index: number;
   } | null>(null);
 
+  const wrapperClass = embedded
+    ? "flex h-full flex-col bg-background"
+    : "flex min-h-dvh flex-col bg-background safe-x";
+  const mainClass = embedded
+    ? "mx-auto w-full max-w-3xl flex-1 px-3 py-4 md:px-6 md:py-6"
+    : "mx-auto w-full max-w-3xl flex-1 px-3 py-4 md:px-6 md:py-6";
+
   if (!state) {
     return (
-      <div className="flex min-h-dvh flex-col bg-background safe-x">
-        <SummaryHeader visitId={visitId} />
+      <div className={wrapperClass}>
+        {embedded ? null : <SummaryHeader visitId={visitId} />}
         <div className="flex flex-1 items-center justify-center px-6 py-12 text-center">
           <p className="font-body text-sm text-muted-foreground">
             Synthèse pas encore disponible — synchro en cours.
@@ -153,10 +170,12 @@ export function VisitSummaryView({ visitId, visitTitle }: VisitSummaryViewProps)
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background safe-x">
-      <SummaryHeader visitId={visitId} title={visitTitle} />
+    <div className={wrapperClass}>
+      {embedded ? null : (
+        <SummaryHeader visitId={visitId} title={visitTitle} />
+      )}
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-3 py-4 md:px-6 md:py-6">
+      <main className={mainClass}>
         {/* Bandeau global */}
         <GlobalCounters globals={globals} />
 
@@ -173,8 +192,6 @@ export function VisitSummaryView({ visitId, visitTitle }: VisitSummaryViewProps)
             const hasCritical = sectionHasCriticalEmpty(state, sec.key);
             const fullyEmpty = isSectionFullyEmpty(entries, sectionMedia.length);
 
-            // Cache les sections sans aucun Field<T> (rare — sections vides
-            // côté schéma, on n'a rien à montrer).
             if (entries.length === 0 && sectionMedia.length === 0 && !hasCritical) {
               return null;
             }

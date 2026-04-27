@@ -1,4 +1,5 @@
 export { JsonViewerDrawer } from "./components/JsonViewerDrawer";
+export { JsonStatePanel } from "./components/JsonStatePanel";
 export {
   findLowConfidenceFieldPaths,
   countLowConfidenceFields,
