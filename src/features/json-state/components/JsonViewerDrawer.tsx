@@ -135,6 +135,18 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
             </div>
           ) : null}
 
+          {/* It. 10 — Field<T> IA non encore validés par l'utilisateur */}
+          {unvalidatedAiCount > 0 ? (
+            <div
+              className="font-ui mt-2 inline-flex items-center gap-1.5 self-start rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary"
+              role="status"
+              data-testid="unvalidated-ai-badge"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              {unvalidatedAiCount} champ{unvalidatedAiCount > 1 ? "s" : ""} IA à valider
+            </div>
+          ) : null}
+
           {/* It. 9 — compteurs médias (stub : grille reportée It. 11+) */}
           <div
             className="mt-2 flex flex-wrap items-center gap-2"
