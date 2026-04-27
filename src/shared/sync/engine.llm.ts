@@ -126,37 +126,46 @@ export async function processDescribeMedia(
     return "ok";
   }
 
-  // 3. Dépendance : attachment doit être uploadé pour avoir une URL signée
-  if (attachment.sync_status !== "synced") {
+  // 3. Source image : blob local prioritaire (plus fiable que les URL signées
+  // pour l'AI Gateway), URL signée seulement en fallback cross-device.
+  const localBlob = await db.attachment_blobs.get(attachment.id);
+  let imageDataUrl: string | null = null;
+  if (localBlob?.compressed) {
+    imageDataUrl = await blobToDataUrl(localBlob.compressed);
+  }
+
+  if (!imageDataUrl && attachment.sync_status !== "synced") {
     return await helpers.scheduleDependencyWait(entry, "attachment_not_uploaded");
   }
-  if (!attachment.compressed_path) {
+  if (!imageDataUrl && !attachment.compressed_path) {
     await helpers.markLocalRowFailed(entry, "missing_compressed_path");
     if (entry.id != null) await db.sync_queue.delete(entry.id);
     return "failed";
   }
 
-  // 4. URL signée
-  let signedUrl: string;
+  // 4. URL signée fallback
+  let signedUrl: string | null = null;
   try {
-    const bucketApi = supabase.storage?.from(attachment.bucket);
-    if (!bucketApi?.createSignedUrl) {
+    const bucketApi = imageDataUrl ? null : supabase.storage?.from(attachment.bucket);
+    if (!imageDataUrl && !bucketApi?.createSignedUrl) {
       return await helpers.scheduleRetryOrFail(
         entry,
         new Error("storage.createSignedUrl unavailable"),
       );
     }
-    const { data, error } = await bucketApi.createSignedUrl(
-      attachment.compressed_path,
-      SIGNED_URL_TTL_S,
-    );
-    if (error || !data?.signedUrl) {
-      return await helpers.scheduleRetryOrFail(
-        entry,
-        new Error(error?.message ?? "no signed url"),
+    if (!imageDataUrl && bucketApi?.createSignedUrl && attachment.compressed_path) {
+      const { data, error } = await bucketApi.createSignedUrl(
+        attachment.compressed_path,
+        SIGNED_URL_TTL_S,
       );
+      if (error || !data?.signedUrl) {
+        return await helpers.scheduleRetryOrFail(
+          entry,
+          new Error(error?.message ?? "no signed url"),
+        );
+      }
+      signedUrl = data.signedUrl;
     }
-    signedUrl = data.signedUrl;
   } catch (err) {
     return await helpers.scheduleRetryOrFail(entry, err);
   }
@@ -170,7 +179,8 @@ export async function processDescribeMedia(
   try {
     resp = await describeMedia({
       data: {
-        imageUrl: signedUrl,
+        imageUrl: signedUrl ?? undefined,
+        imageDataUrl: imageDataUrl ?? undefined,
         mediaProfile: profile,
         mimeType: attachment.format,
       },
@@ -829,6 +839,15 @@ async function maybeEmitPhotoCaption(args: {
       // appendLocalMessage / messages.repo.ts).
       ai_enabled: false,
     },
+  });
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("blob_read_failed"));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
   });
 }
 

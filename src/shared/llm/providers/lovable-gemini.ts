@@ -33,8 +33,9 @@ export interface CallGeminiInput {
     description: string;
     parameters: Record<string, unknown>;
   };
-  /** Pour les modes multimodaux (describe_media). */
+  /** Pour les modes multimodaux (describe_media) : URL publique ou data URL. */
   imageUrl?: string;
+  imageMimeType?: string | null;
   /** Surcharge fetch pour tests. */
   fetchImpl?: typeof fetch;
 }
@@ -58,7 +59,7 @@ export async function callGemini(input: CallGeminiInput): Promise<CallGeminiResu
         role: "user",
         content: [
           { type: "text", text: input.userPrompt },
-          { type: "image_url", image_url: { url: input.imageUrl } },
+          buildImageContent(input.imageUrl, input.imageMimeType),
         ],
       }
     : { role: "user", content: input.userPrompt };
@@ -185,4 +186,11 @@ function mapHttpToCode(status: number): LlmErrorCode {
   if (status === 413) return "context_too_large";
   if (status >= 500) return "network";
   return "unknown";
+}
+
+function buildImageContent(
+  imageUrl: string,
+  _mimeType: string | null | undefined,
+): Record<string, unknown> {
+  return { type: "image_url", image_url: { url: imageUrl } };
 }
