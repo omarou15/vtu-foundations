@@ -6,12 +6,13 @@
  * Tap → MediaLightbox (réutilise le composant existant du chat).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Camera, FileText, ImageOff, Layers } from "lucide-react";
-import { getDb, type LocalAttachment } from "@/shared/db";
+import { type LocalAttachment } from "@/shared/db";
 import { listVisitMedia } from "@/shared/photo";
 import { MediaLightbox } from "@/features/chat/components/MediaLightbox";
+import { useAttachmentThumb } from "@/features/chat/lib/useAttachmentThumb";
 import { groupMediaBySection } from "../lib/summary";
 
 const SECTION_LABELS: Record<string, string> = {
