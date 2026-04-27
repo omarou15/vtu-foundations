@@ -581,14 +581,52 @@ function Spark({
 // ---------------------------------------------------------------------------
 
 function InfoTooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
-    <span
-      className="text-muted-foreground hover:text-foreground inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full"
-      title={text}
-      aria-label={text}
-      role="tooltip"
-    >
-      <Info className="h-3 w-3" aria-hidden="true" />
+    <span ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          setOpen((v) => !v);
+        }}
+        className="text-muted-foreground hover:text-foreground inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full"
+        aria-label={open ? "Masquer l'info" : "Afficher l'info"}
+        aria-expanded={open}
+      >
+        <Info className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="bg-popover text-popover-foreground border-border absolute left-1/2 top-full z-50 mt-1 w-64 max-w-[80vw] -translate-x-1/2 rounded-md border p-2 text-[11px] leading-snug shadow-lg"
+        >
+          {text}
+        </span>
+      ) : null}
     </span>
   );
 }
