@@ -579,8 +579,9 @@ function ImportView({
           <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center">
             <ImageIcon className="h-10 w-10 text-muted-foreground" />
             <p className="font-body text-sm text-muted-foreground">
-              Sélectionne plusieurs fichiers depuis la galerie ou les
-              documents.
+              {isPhotos
+                ? "Choisis plusieurs photos depuis ta pellicule iOS."
+                : "Sélectionne plusieurs fichiers depuis la galerie ou les documents."}
             </p>
           </div>
         ) : (
