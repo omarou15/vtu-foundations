@@ -24,7 +24,7 @@ import {
   STATUS_BADGE_CLASS,
   STATUS_LABEL,
 } from "@/features/visits/lib/icons";
-import { ChatInputBar, MessageList, useChatStore } from "@/features/chat";
+import { ChatInputBar, MessageList, VisitAttachmentSyncStatus, useChatStore } from "@/features/chat";
 import { countUnvalidatedAiFields } from "@/features/json-state/lib/inspect";
 import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
 
@@ -316,6 +316,9 @@ function VisitChatPage() {
             <MessageList visitId={visit.id} userId={userId} />
           ) : null}
         </section>
+
+        {/* Statut sync/analyse des pièces jointes (It. 14.1) */}
+        <VisitAttachmentSyncStatus visitId={visit.id} />
 
         {/* BAS : input bar — fixée au-dessus du clavier via .input-bar-safe-bottom */}
         <ChatInputBar visitId={visit.id} onSubmit={handleSubmit} />
