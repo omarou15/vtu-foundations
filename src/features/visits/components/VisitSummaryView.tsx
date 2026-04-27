@@ -88,8 +88,6 @@ const SECTIONS: SectionDef[] = [
   { key: "custom_observations", label: "Observations libres", Icon: StickyNote },
 ];
 
-// Suppress unused-import warning for the placeholder
-void Brick;
 
 // ---------------------------------------------------------------------------
 // Composant principal
