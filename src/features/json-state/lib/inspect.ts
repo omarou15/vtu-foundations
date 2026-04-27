@@ -65,9 +65,17 @@ export function countLowConfidenceFields(state: VisitJsonState): number {
  * restant (doctrine "LLM propose / user valide" — KNOWLEDGE §15).
  */
 export function countUnvalidatedAiFields(state: VisitJsonState): number {
-  let count = 0;
+  return findUnvalidatedAiFieldPaths(state).length;
+}
 
-  function walk(value: unknown) {
+/**
+ * It. 11 — version "liste" du compteur, pour scroll-to / arbitrage par
+ * section.
+ */
+export function findUnvalidatedAiFieldPaths(state: VisitJsonState): string[] {
+  const out: string[] = [];
+
+  function walk(value: unknown, path: string) {
     if (isField(value)) {
       const v = value as unknown as Record<string, unknown>;
       if (
@@ -76,19 +84,21 @@ export function countUnvalidatedAiFields(state: VisitJsonState): number {
         v.value !== null &&
         v.value !== undefined
       ) {
-        count++;
+        out.push(path);
       }
       return;
     }
     if (Array.isArray(value)) {
-      value.forEach(walk);
+      value.forEach((item, i) => walk(item, `${path}[${i}]`));
       return;
     }
     if (value && typeof value === "object") {
-      for (const v of Object.values(value as Record<string, unknown>)) walk(v);
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        walk(v, path ? `${path}.${k}` : k);
+      }
     }
   }
 
-  walk(state);
-  return count;
+  walk(state, "");
+  return out;
 }
