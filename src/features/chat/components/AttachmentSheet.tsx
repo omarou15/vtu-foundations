@@ -196,7 +196,11 @@ export function AttachmentSheet({
   }
 
   function requestClose(next: boolean) {
-    if (!next && draftCount > 0 && (mode === "burst" || mode === "import")) {
+    if (
+      !next &&
+      draftCount > 0 &&
+      (mode === "burst" || mode === "import-photos" || mode === "import-docs")
+    ) {
       setConfirmCloseOpen(true);
       return;
     }
@@ -205,13 +209,17 @@ export function AttachmentSheet({
 
   function openCameraNative() {
     setMode("burst");
-    // Tick suivant pour s'assurer que l'input est monté
     requestAnimationFrame(() => cameraRef.current?.click());
   }
 
   function openGalleryNative() {
-    setMode("import");
-    requestAnimationFrame(() => fileRef.current?.click());
+    setMode("import-photos");
+    requestAnimationFrame(() => galleryRef.current?.click());
+  }
+
+  function openDocsNative() {
+    setMode("import-docs");
+    requestAnimationFrame(() => docsRef.current?.click());
   }
 
   return (
