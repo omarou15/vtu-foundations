@@ -204,16 +204,17 @@ export const describeMedia = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     // PDFs : skipped en amont du sync engine (cf. Q2). Sécurité ici aussi.
     if (data.mediaProfile === "pdf") {
+      const skippedResult = {
+        short_caption: "PDF non analysé (Phase 2)",
+        detailed_description: null,
+        structured_observations: [],
+        ocr_text: null,
+        confidence_overall: 0,
+        warnings: ["pdf_no_render_phase2"],
+      };
       return {
         ok: true as const,
-        result: {
-          short_caption: "PDF non analysé (Phase 2)",
-          detailed_description: null,
-          structured_observations: [],
-          ocr_text: null,
-          confidence_overall: 0,
-          warnings: ["pdf_no_render_phase2"],
-        },
+        result_json: JSON.stringify(skippedResult),
         meta: {
           provider: "lovable_gemini",
           model_version: "skipped",

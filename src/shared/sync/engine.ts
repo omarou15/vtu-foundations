@@ -20,6 +20,12 @@
 
 import { getDb } from "@/shared/db/schema";
 import type { SyncQueueEntry } from "@/shared/types";
+import {
+  processDescribeMedia,
+  processLlmRouteAndDispatch,
+  type EngineHelpers,
+  type SyncSupabaseLikeForLlm,
+} from "./engine.llm";
 
 /**
  * Type structurel minimal du sous-ensemble de l'API Supabase utilisé
@@ -66,6 +72,18 @@ export interface SyncSupabaseLike {
         file: Blob,
         options?: { upsert?: boolean; contentType?: string },
       ): PromiseLike<{
+        error: { message: string } | null;
+      }>;
+      /**
+       * URL signée temporaire pour accès cross-origin (notamment Lovable
+       * AI Gateway côté describe_media). TTL court (60s) suffit.
+       * Optionnelle pour rétro-compat des mocks existants.
+       */
+      createSignedUrl?(
+        path: string,
+        expiresIn: number,
+      ): PromiseLike<{
+        data: { signedUrl: string } | null;
         error: { message: string } | null;
       }>;
     };
@@ -169,6 +187,20 @@ async function processEntry(
   try {
     if (entry.op === "attachment_upload") {
       return await processAttachmentUpload(supabase, entry);
+    }
+
+    if (entry.op === "describe_media" || entry.op === "llm_route_and_dispatch") {
+      const helpers: EngineHelpers = {
+        markLocalRowSynced,
+        markLocalRowFailed,
+        scheduleDependencyWait: (e, reason) => scheduleDependencyWait(e, reason),
+        scheduleRetryOrFail: (e, err) => scheduleRetryOrFail(e, err),
+      };
+      const supaForLlm = supabase as unknown as SyncSupabaseLikeForLlm;
+      if (entry.op === "describe_media") {
+        return await processDescribeMedia(supaForLlm, entry, helpers);
+      }
+      return await processLlmRouteAndDispatch(supaForLlm, entry, helpers);
     }
 
     if (entry.op === "insert") {
