@@ -235,6 +235,16 @@ function DraftThumb({ draft }: { draft: LocalAttachment }) {
           <AlertTriangle className="h-3 w-3" />
           Dup
         </div>
+      ) : isHeavyPhoto(draft) ? (
+        <div
+          className="font-ui pointer-events-none absolute bottom-1 left-1 inline-flex items-center gap-0.5 rounded bg-warning/90 px-1 py-0.5 text-[9px] font-medium text-warning-foreground"
+          aria-label="Photo lourde après compression"
+          title="Photo lourde — connexion lente probable"
+          data-testid={`heavy-photo-${draft.id}`}
+        >
+          <Weight className="h-3 w-3" />
+          Lourde
+        </div>
       ) : null}
 
       {/* It. 10 — Badge ✨ description IA disponible */}
