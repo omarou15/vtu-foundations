@@ -117,6 +117,9 @@ export function MessageList({ visitId, userId }: MessageListProps) {
             }
             return <MessageBubble key={m.id} message={m} />;
           })}
+        {isBatchPhotoPending && lastUserId ? (
+          <PhotoBatchProgressCard messageId={lastUserId} />
+        ) : null}
         {llmPending ? <ThinkingSkeletonCard /> : null}
       </ul>
       <div ref={bottomRef} aria-hidden="true" />
