@@ -32,10 +32,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Braces,
-  Camera,
   ChevronDown,
+  FileInput,
+  FileOutput,
   FileText,
   FolderOpen,
+  Images,
   Layers,
   Mail,
   MapPin,
@@ -59,7 +61,8 @@ import { countSummaryGlobals } from "../lib/summary";
 import { VisitSummaryView } from "./VisitSummaryView";
 import { AiActionsTab } from "./AiActionsTab";
 import { MapboxTab } from "./MapboxTab";
-import { DocumentsTab } from "./DocumentsTab";
+import { PhotosTab } from "./PhotosTab";
+import { ComingSoonPanel } from "./ComingSoonPanel";
 import { ExportMondayTab } from "./ExportMondayTab";
 import { ExportEmailTab } from "./ExportEmailTab";
 
@@ -68,7 +71,9 @@ export type DrawerTab =
   | "json"
   | "mapbox"
   | "ai_actions"
-  | "documents"
+  | "photos"
+  | "input_docs"
+  | "output_docs"
   | "export_monday"
   | "export_email";
 
