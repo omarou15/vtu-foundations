@@ -111,7 +111,7 @@ function MonitoringPage() {
         {data ? (
           <p className="font-ui text-muted-foreground mx-auto max-w-6xl px-4 pb-2 text-[11px]">
             Dernier snapshot :{" "}
-            {new Date(data.generated_at).toLocaleTimeString("fr-FR")} · auto-refresh 30s
+            {new Date(data.generated_at).toLocaleTimeString("fr-FR")} · refresh manuel
           </p>
         ) : null}
       </header>
