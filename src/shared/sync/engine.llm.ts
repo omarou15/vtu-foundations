@@ -832,6 +832,7 @@ async function maybeEmitPhotoCaption(args: {
   });
 }
 
+function buildExtractSummary(
   patchCount: number,
   customCount: number,
   ignoredCount: number,
