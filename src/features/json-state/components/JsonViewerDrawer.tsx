@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { JsonView, defaultStyles } from "react-json-view-lite";
 import "react-json-view-lite/dist/index.css";
-import { Copy, Check, AlertTriangle, X, Camera, Layers, FileText } from "lucide-react";
+import { Copy, Check, AlertTriangle, X, Camera, Layers, FileText, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { getLatestLocalJsonState } from "@/shared/db";
 import { listVisitMedia } from "@/shared/photo";
-import { countLowConfidenceFields } from "../lib/inspect";
+import { countLowConfidenceFields, countUnvalidatedAiFields } from "../lib/inspect";
 
 interface JsonViewerDrawerProps {
   visitId: string;
