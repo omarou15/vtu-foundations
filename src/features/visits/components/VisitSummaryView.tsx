@@ -54,6 +54,12 @@ import { MediaLightbox } from "@/features/chat/components/MediaLightbox";
 interface VisitSummaryViewProps {
   visitId: string;
   visitTitle: string;
+  /**
+   * It. 13 — quand `true`, le composant n'affiche pas son propre header
+   * et n'impose pas `min-h-dvh` (il est embarqué dans un onglet du
+   * UnifiedVisitDrawer).
+   */
+  embedded?: boolean;
 }
 
 // ---------------------------------------------------------------------------
