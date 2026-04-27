@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { createPortal } from "react-dom";
 import { X, ChevronLeft, ChevronRight, Sparkles, FileText } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { getDb, type LocalAttachment } from "@/shared/db";
 import { getAttachmentBlob } from "@/shared/photo";
 import { supabase } from "@/integrations/supabase/client";
