@@ -1,20 +1,25 @@
 import { useEffect, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { Sparkles } from "lucide-react";
 import { getDb, listLocalMessagesByVisit, type LocalMessage } from "@/shared/db";
 import { formatRelative } from "../lib/relativeTime";
+import { PendingActionsCard } from "./PendingActionsCard";
 
 interface MessageListProps {
   visitId: string;
+  userId: string;
 }
 
 /**
  * Liste de messages — feed réactif depuis Dexie via useLiveQuery.
  *
  * Doctrine append-only (KNOWLEDGE §2) : aucun tri manuel, aucune édition.
- * Affiche uniquement `kind === "text"` à ce stade. Audio/photo arrivent
- * en Phase 2.
+ *
+ * It. 10.5 — affiche `text` (bulle classique) et `actions_card`
+ * (PendingActionsCard inline) ; pendant qu'un job LLM est en attente,
+ * affiche un loader card-shaped (skeleton premium plutôt que 3 dots).
  */
-export function MessageList({ visitId }: MessageListProps) {
+export function MessageList({ visitId, userId }: MessageListProps) {
   const messages = useLiveQuery(
     () => listLocalMessagesByVisit(visitId),
     [visitId],
@@ -22,8 +27,6 @@ export function MessageList({ visitId }: MessageListProps) {
   );
 
   // It. 10 — détection job LLM en attente sur le dernier message user de la VT.
-  // Affiche 3 dots animés sous le dernier message user pendant que le cerveau
-  // route/extract/répond.
   const lastUserId =
     [...messages].reverse().find((m) => m.role === "user")?.id ?? null;
   const llmPending = useLiveQuery(
@@ -67,33 +70,73 @@ export function MessageList({ visitId }: MessageListProps) {
     <div className="px-3 py-4" role="log" aria-label="Conversation de la visite">
       <ul className="flex flex-col gap-3">
         {messages
-          .filter((m) => m.kind === "text")
-          .map((m) => (
-            <MessageBubble key={m.id} message={m} />
-          ))}
-        {llmPending ? <ThinkingDots /> : null}
+          .filter((m) => m.kind === "text" || m.kind === "actions_card")
+          .map((m) => {
+            if (m.kind === "actions_card" && m.role === "assistant") {
+              return (
+                <PendingActionsCard
+                  key={m.id}
+                  message={m}
+                  userId={userId}
+                  visitId={visitId}
+                />
+              );
+            }
+            return <MessageBubble key={m.id} message={m} />;
+          })}
+        {llmPending ? <ThinkingSkeletonCard /> : null}
       </ul>
       <div ref={bottomRef} aria-hidden="true" />
     </div>
   );
 }
 
-function ThinkingDots() {
+/**
+ * Skeleton card-shaped : préfigure visuellement la PendingActionsCard à
+ * venir. Réduit la latence perçue : l'utilisateur voit immédiatement
+ * "il se passe quelque chose" et la forme finale.
+ */
+function ThinkingSkeletonCard() {
   return (
     <li
       className="flex justify-start"
       role="status"
       aria-label="Assistant en train d'analyser"
-      data-testid="llm-thinking-dots"
+      data-testid="llm-thinking-skeleton"
     >
-      <div className="bg-card text-card-foreground border border-border max-w-[85%] rounded-2xl rounded-bl-sm px-3.5 py-2.5 shadow-sm">
-        <span className="flex items-center gap-1">
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" />
-        </span>
+      <div className="bg-card text-card-foreground border-border max-w-[92%] rounded-2xl rounded-bl-sm border shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-3.5 py-2.5">
+          <span className="bg-primary/10 text-primary inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+            <Sparkles
+              className="h-3.5 w-3.5 animate-pulse"
+              aria-hidden="true"
+            />
+          </span>
+          <span className="font-body text-muted-foreground text-sm">
+            J'analyse vos observations
+            <AnimatedDots />
+          </span>
+        </div>
+        <div className="border-border space-y-2 border-t px-3 py-2.5">
+          <div className="bg-muted h-3 w-3/4 animate-pulse rounded" />
+          <div className="bg-muted h-3 w-1/2 animate-pulse rounded [animation-delay:120ms]" />
+        </div>
       </div>
     </li>
+  );
+}
+
+function AnimatedDots() {
+  return (
+    <span aria-hidden="true">
+      <span className="inline-block animate-pulse">.</span>
+      <span className="inline-block animate-pulse [animation-delay:150ms]">
+        .
+      </span>
+      <span className="inline-block animate-pulse [animation-delay:300ms]">
+        .
+      </span>
+    </span>
   );
 }
 
