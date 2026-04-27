@@ -193,8 +193,9 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 9 — Pipeline médias photos / plans / PDFs (intention-first)
 - [x] Itération 10 — Cerveau LLM (router hybride + extract + describe + conversational)
 - [x] Itération 10.5 — Refonte UX IA (Edge Function `vtu-llm-agent`, validation inline, skeleton card, dual output `assistant_message` + patches)
+- [x] Itération 10.6 — Capture médias terrain : rafale caméra, multi-import galerie, lightbox swipable
 
-**✅ Phase 1 + It. 7 + It. 9 + It. 10 + It. 10.5 (Phase 2) COMPLÈTES.** Prochaine
+**✅ Phase 1 + It. 7 + It. 9 + It. 10 + It. 10.5 + It. 10.6 (Phase 2) COMPLÈTES.** Prochaine
 étape : audio (it. 8 reportée), rapport Word.
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
@@ -284,6 +285,13 @@ multi-user, partage, push, édition message, export.
   `conversational`. C'est l'arbitrage doctrinal documenté §15 (hint
   prime sur terrain_pattern). Si le user attendait une saisie, il
   écrira sans le « ? ».
+- **It. 10.6 — Dictée audio native = transcription clavier iOS suffit.**
+  Whisper reporté Phase 4+ si jargon thermique mal transcrit en
+  pratique terrain.
+- **It. 10.6 — Limite batch import = 10 fichiers** (`MAX_BATCH` dans
+  `AttachmentSheet`). Au-delà, toast warning et seuls les N premiers
+  sont ajoutés. Volumétrie suffisante pour une visite type ; à
+  réévaluer si retours terrain demandent plus.
 
 ### §14 — Pipeline médias (Phase 2 It. 9)
 
@@ -326,6 +334,66 @@ est toujours renseigné avant l'upload.
 - `drafts.length === 0` → `text`
 - tous les drafts ont `media_profile === "pdf"` → `document`
 - sinon (≥1 image photo OU plan) → `photo`
+
+### §17 — Capture médias terrain (It. 10.6)
+
+Architecture **client-side pure** : aucun changement Dexie / Supabase
+/ sync_queue. Tout repose sur le pipeline §14 existant.
+
+**3 chantiers UX** :
+
+1. **Rafale caméra** (`AttachmentSheet` mode `burst`) :
+   - Bouton « Prendre des photos » → input camera natif (`capture="environment"`).
+   - Après chaque shot, retour dans la sheet avec **grille 3 colonnes**
+     des photos déjà prises dans la session courante (réactif via
+     `useLiveQuery(listDraftMedia)`).
+   - 2 CTA : « Prendre une autre » (rouvre la caméra) | « Envoyer (N) »
+     (crée 1 message `kind="photo"` + `attachPendingMediaToMessage`
+     pour rattacher les N drafts en bloc).
+   - Compteur visible `N / 10` (badge primary tabular-nums).
+   - Retrait individuel via bouton ✕ sur chaque thumbnail.
+
+2. **Multi-import galerie** (`AttachmentSheet` mode `import`) :
+   - Bouton « Importer plans / documents » → input
+     `<input type="file" multiple accept="image/*,application/pdf">`
+     (sélection multiple iOS native).
+   - Liste verticale des fichiers (thumbnail + nom + taille +
+     bouton retirer). Mix images + PDFs autorisé.
+   - Limite `MAX_BATCH = 10` : si dépassement, toast warning et
+     seuls les N premiers sont ajoutés.
+
+3. **Lightbox plein écran** (`MediaLightbox`, montée via portail) :
+   - Tap sur n'importe quelle thumbnail dans le chat
+     (`MessageAttachments`) → ouvre le portail bg-black/95.
+   - **Swipe horizontal** entre médias d'un même message
+     (touch start/move/end + threshold 60px), flèches clavier
+     (←/→) et boutons desktop (md+).
+   - Indicateur `N / total`, fermeture via ✕ / Escape / tap fond noir.
+   - Source image : **blob local Dexie en priorité** (instantané,
+     offline) → fallback URL signée Supabase Storage (TTL 600s).
+   - Footer : description IA (`short_caption`) si dispo via
+     `attachment_ai_descriptions`, en gradient bottom.
+   - PDF → icône + bouton « Ouvrir le PDF » (URL signée).
+
+**Confirmation fermeture** : si l'utilisateur ferme la sheet alors qu'il
+a ≥1 draft en cours, un `AlertDialog` propose « Garder pour plus tard »
+(les drafts restent attachés à la prochaine soumission via le ChatInputBar)
+ou « Tout supprimer ». Garantit qu'**aucune photo n'est perdue par
+fermeture accidentelle**.
+
+**Multi-photos & LLM** : `processLlmRouteAndDispatch` (engine.llm.ts)
+itère sur TOUS les attachments du message et `scheduleDependencyWait`
+si UN SEUL `describe_media` n'est pas terminé. Le dernier
+`describe_media` qui aboutit appelle `wakeUpPendingDispatchJobs(message_id)`
+qui réveille le dispatch via l'index composé `[op+row_id]`. Pour 5
+photos d'un même message, **les 5 descriptions IA arrivent en parallèle
+dans le contexte avant l'extract** — comportement déjà fonctionnel,
+hérité d'It. 10 sans modification.
+
+**Affichage chat** : `MessageList` rend désormais les messages
+`kind="photo"` ou `kind="document"` via `MessageAttachments` (grille
+1/2/3 colonnes selon N). Badge ✨ par thumbnail si description IA dispo.
+
 
 ### §13 — JSON dynamique : architecture & gouvernance (Phase 2 It. 7)
 
