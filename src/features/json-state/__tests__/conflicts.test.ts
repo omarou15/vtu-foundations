@@ -68,10 +68,7 @@ describe("listUnvalidatedAiFieldsInSection", () => {
 
   it("ignore les Field humains et les Field IA déjà validés", () => {
     const s = withAiField(createInitialVisitJsonState(BASE), (n) => {
-      (n.heating as Record<string, unknown>).fuel_value = userField({
-        value: "fioul",
-        userId: "u",
-      });
+      (n.heating as Record<string, unknown>).fuel_value = userStringField("fioul");
       const ai = aiInferField({
         value: "elec",
         confidence: "high",
@@ -113,10 +110,7 @@ describe("listSectionsWithUnvalidatedAi", () => {
 describe("findActiveConflicts", () => {
   it("détecte un conflit humain ↔ IA via metadata.ignored_paths", () => {
     const s = withAiField(createInitialVisitJsonState(BASE), (n) => {
-      (n.heating as Record<string, unknown>).fuel_value = userField({
-        value: "fioul",
-        userId: "u",
-      });
+      (n.heating as Record<string, unknown>).fuel_value = userStringField("fioul");
     });
     const messages: LocalMessage[] = [
       {
@@ -156,10 +150,7 @@ describe("findActiveConflicts", () => {
 
   it("filtre les conflits déjà arbitrés via conflict_resolutions", () => {
     const s = withAiField(createInitialVisitJsonState(BASE), (n) => {
-      (n.heating as Record<string, unknown>).fuel_value = userField({
-        value: "fioul",
-        userId: "u",
-      });
+      (n.heating as Record<string, unknown>).fuel_value = userStringField("fioul");
     });
     const messages: LocalMessage[] = [
       {
