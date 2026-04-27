@@ -179,10 +179,15 @@ async function processEntry(
   supabase: SyncSupabaseLike,
   entry: SyncQueueEntry,
 ): Promise<ProcessResult> {
-  const db = getDb();
+  const isLlmOp =
+    entry.op === "describe_media" || entry.op === "llm_route_and_dispatch";
 
   // Marquer la ligne locale en "syncing" (lecture optimiste).
-  await markLocalRowSyncing(entry);
+  // Exception It. 10 : les ops LLM (describe_media, llm_route_and_dispatch)
+  // ne doivent PAS contaminer le sync_status de la row sous-jacente
+  // (l'attachment ou le message reste "synced" — l'audit LLM est
+  // tracké séparément dans llm_extractions / attachment_ai_descriptions).
+  if (!isLlmOp) await markLocalRowSyncing(entry);
 
   try {
     if (entry.op === "attachment_upload") {
