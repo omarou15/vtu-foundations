@@ -1,18 +1,17 @@
 /**
  * VTU — Store de chat per-visit (Zustand).
  *
- * Phase 1 : porte uniquement le toggle "IA active / désactivée" par
- * visit_id. Le toggle est INERTE côté backend (KNOWLEDGE §8) : il sera
- * lu par l'Edge Function `update-json-state` à l'Itération 6+ pour
- * décider de muter (ou non) le JSON state à chaque message.
+ * Phase 2.6 : le toggle IA n'est PLUS inerte. Sa valeur est lue par
+ * `appendLocalMessage` via `metadata.ai_enabled` pour décider d'enqueue
+ * (ou pas) un job `llm_route_and_dispatch`.
  *
- * Persistance : volontairement en mémoire seulement pour cette itération.
- * On évite localStorage pour ne pas créer de divergence avec Dexie.
- * Si Omar valide en review, on persistera dans une table Dexie dédiée
- * `visit_settings` à l'Itération 6.
+ * Persistance localStorage pour que le choix utilisateur survive au refresh
+ * par visite. On évite Dexie ici car ce sont des préférences UI pures
+ * (pas de domaine métier syncable cross-device).
  */
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 interface ChatState {
   /** Map visit_id → IA activée/désactivée. Défaut implicite : false. */
@@ -24,18 +23,29 @@ interface ChatState {
   reset: () => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  aiEnabled: {},
+export const useChatStore = create<ChatState>()(
+  persist(
+    (set, get) => ({
+      aiEnabled: {},
 
-  isAiEnabled: (visitId) => Boolean(get().aiEnabled[visitId]),
+      isAiEnabled: (visitId) => Boolean(get().aiEnabled[visitId]),
 
-  setAiEnabled: (visitId, enabled) =>
-    set((s) => ({ aiEnabled: { ...s.aiEnabled, [visitId]: enabled } })),
+      setAiEnabled: (visitId, enabled) =>
+        set((s) => ({ aiEnabled: { ...s.aiEnabled, [visitId]: enabled } })),
 
-  toggleAi: (visitId) =>
-    set((s) => ({
-      aiEnabled: { ...s.aiEnabled, [visitId]: !s.aiEnabled[visitId] },
-    })),
+      toggleAi: (visitId) =>
+        set((s) => ({
+          aiEnabled: { ...s.aiEnabled, [visitId]: !s.aiEnabled[visitId] },
+        })),
 
-  reset: () => set({ aiEnabled: {} }),
-}));
+      reset: () => set({ aiEnabled: {} }),
+    }),
+    {
+      name: "vtu-chat-prefs",
+      storage: createJSONStorage(() =>
+        typeof window !== "undefined" ? window.localStorage : (undefined as never),
+      ),
+      partialize: (s) => ({ aiEnabled: s.aiEnabled }),
+    },
+  ),
+);

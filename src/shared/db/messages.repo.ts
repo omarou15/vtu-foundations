@@ -60,14 +60,20 @@ export async function appendLocalMessage(
 
   // It. 10 — Trigger LLM route_and_dispatch pour les messages user
   // « substantiels » (≥10 chars OU au moins 1 attachment annoncé via metadata).
+  // It. 10.7 — Gate supplémentaire : le toggle IA de la visite (passé via
+  //   metadata.ai_enabled). Si explicitement false → aucun dispatch.
+  //   Default true pour rétrocompat tests/sync legacy.
   // Anti-boucle : assistant/system jamais déclenchés ici.
   const attachmentCount =
     typeof input.metadata?.attachment_count === "number"
       ? (input.metadata.attachment_count as number)
       : 0;
+  const aiEnabled = input.metadata?.ai_enabled !== false;
   const contentLen = (input.content ?? "").length;
   const shouldDispatchLlm =
-    input.role === "user" && (contentLen >= 10 || attachmentCount > 0);
+    aiEnabled &&
+    input.role === "user" &&
+    (contentLen >= 10 || attachmentCount > 0);
 
   const llmDispatchEntry: SyncQueueEntry | null = shouldDispatchLlm
     ? {

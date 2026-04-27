@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Mic, Plus, Send } from "lucide-react";
+import { Mic, Plus, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AttachmentSheet } from "./AttachmentSheet";
@@ -14,6 +14,7 @@ import { PhotoPreviewPanel } from "./PhotoPreviewPanel";
 import { listDraftMedia, attachPendingMediaToMessage } from "@/shared/photo";
 import type { LocalAttachment } from "@/shared/db/schema";
 import type { MessageKind } from "@/shared/types";
+import { useChatStore } from "../store";
 
 interface ChatInputBarProps {
   visitId: string;
@@ -25,6 +26,8 @@ interface ChatInputBarProps {
   onSubmit: (input: {
     content: string;
     kind: MessageKind;
+    attachmentCount: number;
+    aiEnabled: boolean;
   }) => Promise<{ id: string } | void> | { id: string } | void;
 }
 
@@ -46,6 +49,7 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
   const [sending, setSending] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
 
   // Auto-resize : on ajuste la hauteur en fonction du scrollHeight, plafonné.
   useEffect(() => {
@@ -94,7 +98,12 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
           currentDrafts.every((d) => d.media_profile === "pdf"),
       );
 
-      const result = await onSubmit({ content: trimmed, kind });
+      const result = await onSubmit({
+        content: trimmed,
+        kind,
+        attachmentCount: currentDrafts.length,
+        aiEnabled,
+      });
       // Si onSubmit a renvoyé { id }, on rattache les drafts.
       if (
         currentDrafts.length > 0 &&
@@ -181,17 +190,36 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
           </Button>
 
           {/* Bouton submit — toujours en bas droite (loi de Fitts) */}
-          <Button
-            type="button"
-            size="icon"
-            className="touch-target shrink-0 rounded-full"
-            onClick={() => void handleSubmit()}
-            disabled={!canSubmit}
-            aria-label="Envoyer le message"
-            data-testid="chat-submit"
-          >
-            <Send className="h-5 w-5" />
-          </Button>
+          <div className="relative shrink-0">
+            <Button
+              type="button"
+              size="icon"
+              className="touch-target rounded-full"
+              onClick={() => void handleSubmit()}
+              disabled={!canSubmit}
+              aria-label={
+                aiEnabled
+                  ? "Envoyer le message"
+                  : "Envoyer le message (IA désactivée — capture seule)"
+              }
+              data-testid="chat-submit"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+            {!aiEnabled ? (
+              <span
+                className="pointer-events-none absolute -right-0.5 -top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-muted text-muted-foreground border border-card shadow-sm"
+                aria-hidden="true"
+                title="IA désactivée"
+                data-testid="ai-off-badge"
+              >
+                <Sparkles className="h-2.5 w-2.5 opacity-50" />
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <span className="h-[1px] w-3 rotate-45 bg-muted-foreground" />
+                </span>
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
 

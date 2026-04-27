@@ -175,4 +175,54 @@ describe("It. 10.6 — Rafale & multi-import flow", () => {
     const result = await attachPendingMediaToMessage(visit.visit.id, msg.id);
     expect(result.attached_count).toBe(2);
   });
+
+  it("photo-only avec ai_enabled=true → enqueue llm_route_and_dispatch", async () => {
+    const visit = await createLocalVisit({ userId: USER, title: "Test" });
+    await addMediaToVisit({
+      visitId: visit.visit.id,
+      userId: USER,
+      file: makeFile("p.jpg"),
+      profile: "photo",
+    });
+
+    const msg = await appendLocalMessage({
+      userId: USER,
+      visitId: visit.visit.id,
+      role: "user",
+      kind: "photo",
+      content: null,
+      metadata: { attachment_count: 1, ai_enabled: true },
+    });
+
+    const jobs = await getDb()
+      .sync_queue.where("[op+row_id]")
+      .equals(["llm_route_and_dispatch", msg.id])
+      .toArray();
+    expect(jobs).toHaveLength(1);
+  });
+
+  it("photo-only avec ai_enabled=false → AUCUN dispatch enqueué", async () => {
+    const visit = await createLocalVisit({ userId: USER, title: "Test" });
+    await addMediaToVisit({
+      visitId: visit.visit.id,
+      userId: USER,
+      file: makeFile("p.jpg"),
+      profile: "photo",
+    });
+
+    const msg = await appendLocalMessage({
+      userId: USER,
+      visitId: visit.visit.id,
+      role: "user",
+      kind: "photo",
+      content: null,
+      metadata: { attachment_count: 1, ai_enabled: false },
+    });
+
+    const jobs = await getDb()
+      .sync_queue.where("[op+row_id]")
+      .equals(["llm_route_and_dispatch", msg.id])
+      .toArray();
+    expect(jobs).toHaveLength(0);
+  });
 });
