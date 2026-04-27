@@ -256,7 +256,7 @@ export const describeMedia = createServerFn({ method: "POST" })
       const validated = DescribeMediaOutputSchema.parse(out.content);
       return {
         ok: true as const,
-        result: validated,
+        result_json: JSON.stringify(validated),
         meta: out.meta,
         stable_prompt_hash: stable,
         raw_response_json: JSON.stringify(out.rawResponse),
@@ -303,7 +303,7 @@ export const extractFromMessage = createServerFn({ method: "POST" })
       const validated = ExtractOutputSchema.parse(out.content);
       return {
         ok: true as const,
-        result: validated,
+        result_json: JSON.stringify(validated),
         meta: out.meta,
         stable_prompt_hash: stable,
         raw_response_json: JSON.stringify(out.rawResponse),
@@ -353,7 +353,7 @@ export const conversationalQuery = createServerFn({ method: "POST" })
       const validated = ConversationalOutputSchema.parse(out.content);
       return {
         ok: true as const,
-        result: validated,
+        result_json: JSON.stringify(validated),
         meta: out.meta,
         stable_prompt_hash: stable,
         raw_response_json: JSON.stringify(out.rawResponse),
@@ -388,7 +388,7 @@ export const routeMessageLlm = createServerFn({ method: "POST" })
       const validated = RouterOutputSchema.parse(out.content);
       return {
         ok: true as const,
-        result: validated,
+        result_json: JSON.stringify(validated),
         meta: out.meta,
         stable_prompt_hash: stable,
         raw_response_json: JSON.stringify(out.rawResponse),
