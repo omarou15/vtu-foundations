@@ -30,8 +30,9 @@ export function MessageList({ visitId, userId }: MessageListProps) {
   );
 
   // It. 10 — détection job LLM en attente sur le dernier message user de la VT.
-  const lastUserId =
-    [...messages].reverse().find((m) => m.role === "user")?.id ?? null;
+  const lastUserMessage =
+    [...messages].reverse().find((m) => m.role === "user") ?? null;
+  const lastUserId = lastUserMessage?.id ?? null;
   const llmPending = useLiveQuery(
     async () => {
       if (!lastUserId) return false;
@@ -48,6 +49,19 @@ export function MessageList({ visitId, userId }: MessageListProps) {
     [lastUserId],
     false,
   );
+
+  // It. 14 — Batch photo (≥ 2 attachments) → afficher progress card + skeleton.
+  const lastUserMeta =
+    (lastUserMessage?.metadata as Record<string, unknown> | undefined) ?? {};
+  const lastUserAttachmentCount =
+    typeof lastUserMeta.attachment_count === "number"
+      ? (lastUserMeta.attachment_count as number)
+      : 0;
+  const isBatchPhotoPending =
+    llmPending &&
+    lastUserMessage !== null &&
+    (lastUserMessage.kind === "photo" || lastUserMessage.kind === "document") &&
+    lastUserAttachmentCount >= 2;
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
