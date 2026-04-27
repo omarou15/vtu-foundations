@@ -102,3 +102,35 @@ describe("compressMedia — profil pdf", () => {
     expect(result.metadata.size_bytes).toBe(10000);
   });
 });
+
+// ===========================================================================
+// It. 10.6.2 — vérifier que maxSizeMB est forcé sur le profil photo
+// ===========================================================================
+
+describe("compressMedia — cible de taille (It. 10.6.2)", () => {
+  it("profil photo → maxSizeMB: 0.5 transmis à imageCompression", async () => {
+    const file = makeFile("photo.jpg", "image/jpeg", 4096);
+    await compressMedia(file, "photo");
+
+    // 1er appel = compression principale (le 2e = thumbnail)
+    const calls = vi.mocked(imageCompression).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const [, mainOpts] = calls[0];
+    expect(mainOpts).toMatchObject({
+      maxWidthOrHeight: 1600,
+      maxSizeMB: 0.5,
+    });
+  });
+
+  it("profil plan → maxSizeMB NON transmis (lisibilité prioritaire)", async () => {
+    vi.mocked(imageCompression).mockClear();
+    const file = makeFile("plan.png", "image/png", 8192);
+    await compressMedia(file, "plan");
+
+    const calls = vi.mocked(imageCompression).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const [, mainOpts] = calls[0];
+    expect(mainOpts).toMatchObject({ maxWidthOrHeight: 3000 });
+    expect((mainOpts as { maxSizeMB?: number }).maxSizeMB).toBeUndefined();
+  });
+});
