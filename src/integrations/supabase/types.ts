@@ -14,6 +14,56 @@ export type Database = {
   }
   public: {
     Tables: {
+      attachment_ai_descriptions: {
+        Row: {
+          attachment_id: string
+          confidence_overall: number | null
+          created_at: string
+          description: Json
+          id: string
+          mode: string
+          model_version: string
+          organization_id: string | null
+          provider: string
+          user_id: string
+          visit_id: string
+        }
+        Insert: {
+          attachment_id: string
+          confidence_overall?: number | null
+          created_at?: string
+          description: Json
+          id?: string
+          mode?: string
+          model_version: string
+          organization_id?: string | null
+          provider: string
+          user_id: string
+          visit_id: string
+        }
+        Update: {
+          attachment_id?: string
+          confidence_overall?: number | null
+          created_at?: string
+          description?: Json
+          id?: string
+          mode?: string
+          model_version?: string
+          organization_id?: string | null
+          provider?: string
+          user_id?: string
+          visit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachment_ai_descriptions_attachment_id_fkey"
+            columns: ["attachment_id"]
+            isOneToOne: false
+            referencedRelation: "attachments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attachments: {
         Row: {
           bucket: string
@@ -91,6 +141,101 @@ export type Database = {
           },
           {
             foreignKeyName: "attachments_visit_id_fkey"
+            columns: ["visit_id"]
+            isOneToOne: false
+            referencedRelation: "visits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      llm_extractions: {
+        Row: {
+          attachment_id: string | null
+          cached_input_tokens: number | null
+          confidence_overall: number | null
+          context_bundle: Json
+          cost_usd: number | null
+          created_at: string
+          custom_fields_count: number
+          error_message: string | null
+          id: string
+          input_tokens: number | null
+          latency_ms: number | null
+          message_id: string | null
+          mode: string
+          model_version: string
+          organization_id: string | null
+          output_tokens: number | null
+          patches_count: number
+          provider: string
+          provider_request_id: string | null
+          raw_request_summary: Json
+          raw_response: Json
+          stable_prompt_hash: string | null
+          status: string
+          user_id: string
+          visit_id: string
+          warnings: Json
+        }
+        Insert: {
+          attachment_id?: string | null
+          cached_input_tokens?: number | null
+          confidence_overall?: number | null
+          context_bundle?: Json
+          cost_usd?: number | null
+          created_at?: string
+          custom_fields_count?: number
+          error_message?: string | null
+          id?: string
+          input_tokens?: number | null
+          latency_ms?: number | null
+          message_id?: string | null
+          mode: string
+          model_version: string
+          organization_id?: string | null
+          output_tokens?: number | null
+          patches_count?: number
+          provider?: string
+          provider_request_id?: string | null
+          raw_request_summary?: Json
+          raw_response?: Json
+          stable_prompt_hash?: string | null
+          status?: string
+          user_id: string
+          visit_id: string
+          warnings?: Json
+        }
+        Update: {
+          attachment_id?: string | null
+          cached_input_tokens?: number | null
+          confidence_overall?: number | null
+          context_bundle?: Json
+          cost_usd?: number | null
+          created_at?: string
+          custom_fields_count?: number
+          error_message?: string | null
+          id?: string
+          input_tokens?: number | null
+          latency_ms?: number | null
+          message_id?: string | null
+          mode?: string
+          model_version?: string
+          organization_id?: string | null
+          output_tokens?: number | null
+          patches_count?: number
+          provider?: string
+          provider_request_id?: string | null
+          raw_request_summary?: Json
+          raw_response?: Json
+          stable_prompt_hash?: string | null
+          status?: string
+          user_id?: string
+          visit_id?: string
+          warnings?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "llm_extractions_visit_id_fkey"
             columns: ["visit_id"]
             isOneToOne: false
             referencedRelation: "visits"
@@ -219,6 +364,7 @@ export type Database = {
           created_at: string
           created_by_message_id: string | null
           id: string
+          source_extraction_id: string | null
           state: Json
           user_id: string
           version: number
@@ -228,6 +374,7 @@ export type Database = {
           created_at?: string
           created_by_message_id?: string | null
           id?: string
+          source_extraction_id?: string | null
           state: Json
           user_id: string
           version: number
@@ -237,6 +384,7 @@ export type Database = {
           created_at?: string
           created_by_message_id?: string | null
           id?: string
+          source_extraction_id?: string | null
           state?: Json
           user_id?: string
           version?: number
