@@ -80,29 +80,29 @@ describe("It. 10.6 — Rafale & multi-import flow", () => {
     // 5 photos prises en rafale
     for (let i = 0; i < 5; i++) {
       await addMediaToVisit({
-        visitId: visit.id,
+        visitId: visit.visit.id,
         userId: USER,
         file: makeFile(`photo-${"x".repeat(i)}.jpg`),
         profile: "photo",
       });
     }
 
-    expect(await listDraftMedia(visit.id)).toHaveLength(5);
+    expect(await listDraftMedia(visit.visit.id)).toHaveLength(5);
 
     // Envoi : crée le message + rattache TOUS les drafts
     const msg = await appendLocalMessage({
       userId: USER,
-      visitId: visit.id,
+      visitId: visit.visit.id,
       role: "user",
       kind: "photo",
       content: null,
     });
-    const result = await attachPendingMediaToMessage(visit.id, msg.id);
+    const result = await attachPendingMediaToMessage(visit.visit.id, msg.id);
 
     expect(result.attached_count).toBe(5);
-    expect(await listDraftMedia(visit.id)).toHaveLength(0);
+    expect(await listDraftMedia(visit.visit.id)).toHaveLength(0);
 
-    const allMedia = await listVisitMedia(visit.id);
+    const allMedia = await listVisitMedia(visit.visit.id);
     expect(allMedia).toHaveLength(5);
     expect(allMedia.every((a) => a.message_id === msg.id)).toBe(true);
     expect(allMedia.every((a) => a.sync_status === "pending")).toBe(true);
@@ -112,20 +112,20 @@ describe("It. 10.6 — Rafale & multi-import flow", () => {
     const visit = await createLocalVisit({ userId: USER, title: "Test" });
 
     await addMediaToVisit({
-      visitId: visit.id,
+      visitId: visit.visit.id,
       userId: USER,
       file: makeFile("plan-1.png", "image/png"),
       profile: "plan",
     });
     await addMediaToVisit({
-      visitId: visit.id,
+      visitId: visit.visit.id,
       userId: USER,
       file: makeFile("plan-22.png", "image/png"),
       profile: "plan",
     });
     for (const name of ["a.pdf", "bb.pdf", "ccc.pdf"]) {
       await addMediaToVisit({
-        visitId: visit.id,
+        visitId: visit.visit.id,
         userId: USER,
         file: makeFile(name, "application/pdf"),
         profile: "pdf",
@@ -134,15 +134,15 @@ describe("It. 10.6 — Rafale & multi-import flow", () => {
 
     const msg = await appendLocalMessage({
       userId: USER,
-      visitId: visit.id,
+      visitId: visit.visit.id,
       role: "user",
       kind: "document",
       content: null,
     });
-    const result = await attachPendingMediaToMessage(visit.id, msg.id);
+    const result = await attachPendingMediaToMessage(visit.visit.id, msg.id);
 
     expect(result.attached_count).toBe(5);
-    const all = await listVisitMedia(visit.id);
+    const all = await listVisitMedia(visit.visit.id);
     expect(all.filter((a) => a.media_profile === "pdf")).toHaveLength(3);
     expect(all.filter((a) => a.media_profile === "plan")).toHaveLength(2);
   });
@@ -153,7 +153,7 @@ describe("It. 10.6 — Rafale & multi-import flow", () => {
     const drafts = [];
     for (let i = 0; i < 3; i++) {
       const r = await addMediaToVisit({
-        visitId: visit.id,
+        visitId: visit.visit.id,
         userId: USER,
         file: makeFile(`p-${"y".repeat(i)}.jpg`),
         profile: "photo",
@@ -163,16 +163,16 @@ describe("It. 10.6 — Rafale & multi-import flow", () => {
 
     // L'utilisateur retire la 2e photo
     await discardDraftMedia(drafts[1]!.id);
-    expect(await listDraftMedia(visit.id)).toHaveLength(2);
+    expect(await listDraftMedia(visit.visit.id)).toHaveLength(2);
 
     const msg = await appendLocalMessage({
       userId: USER,
-      visitId: visit.id,
+      visitId: visit.visit.id,
       role: "user",
       kind: "photo",
       content: null,
     });
-    const result = await attachPendingMediaToMessage(visit.id, msg.id);
+    const result = await attachPendingMediaToMessage(visit.visit.id, msg.id);
     expect(result.attached_count).toBe(2);
   });
 });
