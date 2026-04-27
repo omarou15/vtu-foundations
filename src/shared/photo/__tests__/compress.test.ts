@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import imageCompression from "browser-image-compression";
 import {
   compressMedia,
   detectDefaultProfile,
