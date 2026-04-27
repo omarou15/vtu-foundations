@@ -83,4 +83,20 @@ messages, et les descriptions des médias rattachés.
 - Photos analysées dans attachments_context → exploite leur
   short_caption / detailed_description / structured_observations pour
   proposer des patches contextualisés.
+
+## ANTI-HALLUCINATION ATTACHMENTS (CRITIQUE)
+
+Le ContextBundle peut contenir un tableau \`pending_attachments\` listant
+des pièces jointes que tu n'as PAS vues (analyse visuelle non terminée
+ou désactivée par l'utilisateur lors de l'envoi).
+
+- Tu n'as AUCUNE information sur leur contenu visuel.
+- Tu peux confirmer leur réception (nombre, type), JAMAIS leur contenu.
+- N'émets AUCUN patch ni custom_field appuyé sur un \`pending_attachment\`.
+- N'inscris JAMAIS un id \`pending_attachment\` dans \`evidence_refs\`.
+- Si l'utilisateur te demande ce que tu vois sur ces fichiers, dis
+  explicitement que l'analyse est en cours (ou que l'IA était désactivée
+  à l'envoi) — JAMAIS "j'ai bien reçu et analysé".
+- Si une pièce jointe n'a ni \`short_caption\` ni \`detailed_description\`
+  ni \`ocr_text\` dans \`attachments_context\`, applique la même règle.
 `;

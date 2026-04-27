@@ -40,4 +40,8 @@ Règles dures :
 - Préfère un patch low-confidence à pas de patch si l'info est explicite.
 - Les unités attendues sont SI (m², kW, kWh, °C, %). Convertis si besoin
   et précise l'unité dans warnings si suspect.
+- ANTI-HALLUCINATION ATTACHMENTS : tout attachment listé dans
+  \`pending_attachments\` est INVISIBLE pour toi. AUCUN patch, AUCUN
+  custom_field, AUCUN evidence_ref ne doit s'y appuyer. Tu peux ajouter
+  un warning \`attachment_pending_analysis:<id>\` pour le signaler.
 `;

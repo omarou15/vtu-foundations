@@ -37,6 +37,10 @@ import {
 } from "@/shared/llm/prompts";
 import { hashContext } from "@/shared/llm/context/hash";
 import { LlmError } from "@/shared/llm/types";
+import {
+  buildUserPromptConversational as _buildConv,
+  buildUserPromptExtract as _buildExt,
+} from "./llm.prompt-builders";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,6 +81,15 @@ const ContextBundleSchema = z.object({
       ocr_text: z.string().nullable(),
     }),
   ),
+  pending_attachments: z
+    .array(
+      z.object({
+        id: z.string(),
+        media_profile: z.string().nullable(),
+        reason: z.enum(["no_description_yet", "ai_disabled_when_sent"]),
+      }),
+    )
+    .default([]),
   nomenclature_hints: z.record(z.string(), z.unknown()),
 });
 
@@ -402,41 +415,22 @@ export const routeMessageLlm = createServerFn({ method: "POST" })
   });
 
 // ---------------------------------------------------------------------------
-// Helpers prompt building
+// Helpers prompt building — délégués à `llm.prompt-builders.ts`
+// (importés en haut de fichier).
 // ---------------------------------------------------------------------------
 
 function buildUserPromptExtract(
   messageText: string,
   bundle: z.infer<typeof ContextBundleSchema>,
 ): string {
-  return [
-    "## CONTEXT BUNDLE",
-    "```json",
-    JSON.stringify(bundle, null, 2),
-    "```",
-    "",
-    "## MESSAGE UTILISATEUR",
-    messageText,
-    "",
-    "Produis le JSON tool-call.",
-  ].join("\n");
+  return _buildExt(messageText, bundle as unknown as Record<string, unknown>);
 }
 
 function buildUserPromptConversational(
   messageText: string,
   bundle: z.infer<typeof ContextBundleSchema>,
 ): string {
-  return [
-    "## CONTEXT BUNDLE",
-    "```json",
-    JSON.stringify(bundle, null, 2),
-    "```",
-    "",
-    "## QUESTION DU THERMICIEN",
-    messageText,
-    "",
-    "Produis le JSON tool-call.",
-  ].join("\n");
+  return _buildConv(messageText, bundle as unknown as Record<string, unknown>);
 }
 
 function hashSystem(prompt: string): string {
