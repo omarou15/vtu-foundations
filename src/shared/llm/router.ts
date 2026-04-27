@@ -24,7 +24,7 @@ import type { RouterDecision } from "./types";
 
 export interface DeterministicRouterInput {
   role: "user" | "assistant" | "system";
-  kind: "text" | "audio" | "photo" | "document" | "system_event" | "actions_card";
+  kind: "text" | "audio" | "photo" | "document" | "system_event" | "actions_card" | "conflict_card";
   content: string | null;
 }
 

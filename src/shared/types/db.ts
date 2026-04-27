@@ -70,7 +70,8 @@ export type MessageKind =
   | "photo"
   | "document"
   | "system_event"
-  | "actions_card";
+  | "actions_card"
+  | "conflict_card";
 
 export interface MessageRow {
   id: string;
