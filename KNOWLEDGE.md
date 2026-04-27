@@ -193,8 +193,9 @@ Avant CHAQUE prompt utilisateur, l'agent doit :
 - [x] Itération 9 — Pipeline médias photos / plans / PDFs (intention-first)
 - [x] Itération 10 — Cerveau LLM (router hybride + extract + describe + conversational)
 - [x] Itération 10.5 — Refonte UX IA (Edge Function `vtu-llm-agent`, validation inline, skeleton card, dual output `assistant_message` + patches)
+- [x] Itération 10.6 — Capture médias terrain : rafale caméra, multi-import galerie, lightbox swipable
 
-**✅ Phase 1 + It. 7 + It. 9 + It. 10 + It. 10.5 (Phase 2) COMPLÈTES.** Prochaine
+**✅ Phase 1 + It. 7 + It. 9 + It. 10 + It. 10.5 + It. 10.6 (Phase 2) COMPLÈTES.** Prochaine
 étape : audio (it. 8 reportée), rapport Word.
 
 **HORS scope Phase 1** : audio, photos, IA mutation JSON, rapport
