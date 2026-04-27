@@ -3,11 +3,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
-  ArrowLeft,
   LayoutDashboard,
   List,
-  Menu,
-  Send,
   Sparkles,
   WifiOff,
 } from "lucide-react";
@@ -20,13 +17,7 @@ import { VisitsSidebar, UnifiedVisitDrawer, type DrawerTab } from "@/features/vi
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+// (dropdown menu retiré : le hamburger ouvre directement la liste des visites)
 import {
   BUILDING_ICON,
   BUILDING_LABEL,
@@ -198,50 +189,22 @@ function VisitChatPage() {
         {/* HAUT : header VT + toggle IA + bouton JSON */}
         <header className="safe-top safe-x shrink-0 border-b border-border bg-card">
           <div className="flex h-14 items-center gap-2 px-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
-                  aria-label="Menu visite"
-                  data-testid="visit-menu-trigger"
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuItem
-                  onSelect={() => setSidebarOpen(true)}
-                  className="md:hidden"
-                >
-                  <List className="mr-2 h-4 w-4" />
-                  Liste des visites
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => openDrawer("summary")}>
-                  <LayoutDashboard className="mr-2 h-4 w-4" />
-                  Ouvrir le panneau VT
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => openDrawer("export_monday")}>
-                  <Send className="mr-2 h-4 w-4" />
-                  Exporter la VT
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="md:hidden" />
-                <DropdownMenuItem
-                  onSelect={() => navigate({ to: "/" })}
-                  className="hidden md:flex"
-                >
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Retour à la liste
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* Hamburger : ouvre directement la liste des visites
+                (sidebar mobile, ou retour à la liste sur desktop). */}
             <button
               type="button"
-              onClick={() => navigate({ to: "/" })}
-              className="touch-target hidden items-center justify-center rounded-md text-foreground hover:bg-accent md:inline-flex"
-              aria-label="Retour"
+              onClick={() => {
+                if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
+                  navigate({ to: "/" });
+                } else {
+                  setSidebarOpen(true);
+                }
+              }}
+              className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
+              aria-label="Liste des visites"
+              data-testid="visit-menu-trigger"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <List className="h-5 w-5" />
             </button>
 
             <div

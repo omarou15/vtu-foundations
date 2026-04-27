@@ -32,10 +32,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Braces,
-  Camera,
   ChevronDown,
+  FileInput,
+  FileOutput,
   FileText,
   FolderOpen,
+  Images,
   Layers,
   Mail,
   MapPin,
@@ -59,7 +61,8 @@ import { countSummaryGlobals } from "../lib/summary";
 import { VisitSummaryView } from "./VisitSummaryView";
 import { AiActionsTab } from "./AiActionsTab";
 import { MapboxTab } from "./MapboxTab";
-import { DocumentsTab } from "./DocumentsTab";
+import { PhotosTab } from "./PhotosTab";
+import { ComingSoonPanel } from "./ComingSoonPanel";
 import { ExportMondayTab } from "./ExportMondayTab";
 import { ExportEmailTab } from "./ExportEmailTab";
 
@@ -68,7 +71,9 @@ export type DrawerTab =
   | "json"
   | "mapbox"
   | "ai_actions"
-  | "documents"
+  | "photos"
+  | "input_docs"
+  | "output_docs"
   | "export_monday"
   | "export_email";
 
@@ -104,7 +109,11 @@ const FAMILIES: FamilyDef[] = [
     key: "artifacts",
     label: "Artifacts",
     Icon: FolderOpen,
-    tabs: [{ key: "documents", label: "Documents", Icon: Camera }],
+    tabs: [
+      { key: "photos", label: "Photos", Icon: Images },
+      { key: "input_docs", label: "Input docs", Icon: FileInput, comingSoon: true },
+      { key: "output_docs", label: "Output docs", Icon: FileOutput, comingSoon: true },
+    ],
   },
   {
     key: "exporter",
@@ -241,7 +250,7 @@ export function UnifiedVisitDrawer({
 
   const badgeFor = (key: DrawerTab): number => {
     if (key === "ai_actions") return globals.aiUnvalidated + conflictsCount;
-    if (key === "documents") return media.length;
+    if (key === "photos") return media.length;
     return 0;
   };
 
@@ -412,7 +421,32 @@ export function UnifiedVisitDrawer({
               onCloseDrawer={() => onOpenChange(false)}
             />
           ) : null}
-          {tab === "documents" ? <DocumentsTab visitId={visitId} /> : null}
+          {tab === "photos" ? <PhotosTab visitId={visitId} /> : null}
+          {tab === "input_docs" ? (
+            <ComingSoonPanel
+              Icon={FileInput}
+              title="Documents importés"
+              description="Importez les pièces fournies par le client : plans, DPE existant, factures énergie, devis fournisseurs."
+              bullets={[
+                "Drop PDF / images / plans",
+                "Indexation automatique du contenu",
+                "Lien direct vers les sections concernées",
+              ]}
+            />
+          ) : null}
+          {tab === "output_docs" ? (
+            <ComingSoonPanel
+              Icon={FileOutput}
+              title="Rapports générés"
+              description="Tous les livrables produits depuis la VT : rapport d'audit Word, DPE, PPPT, export JSON."
+              bullets={[
+                "Rapport audit énergétique (.docx)",
+                "DPE projeté (.pdf)",
+                "Plan Pluriannuel de Travaux (.docx)",
+                "Export JSON technique",
+              ]}
+            />
+          ) : null}
           {tab === "export_monday" ? <ExportMondayTab /> : null}
           {tab === "export_email" ? <ExportEmailTab /> : null}
         </div>
