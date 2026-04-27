@@ -93,3 +93,77 @@ export async function upsertJsonStateFromRemote(
   };
   await db.visit_json_state.put(local);
 }
+
+// ---------------------------------------------------------------------------
+// It. 10 — appendJsonStateVersion (local pur, enqueue sync)
+// ---------------------------------------------------------------------------
+
+export interface AppendJsonStateVersionInput {
+  userId: string;
+  visitId: string;
+  state: VisitJsonState;
+  createdByMessageId?: string | null;
+  /** Lien vers l'extraction LLM à l'origine (audit trail). */
+  sourceExtractionId?: string | null;
+}
+
+/**
+ * Crée une nouvelle version (version=last+1) localement et enqueue
+ * pour sync vers Supabase. ATOMIQUE.
+ *
+ * Si aucune version locale n'existe encore, démarre à version=1.
+ */
+export async function appendJsonStateVersion(
+  input: AppendJsonStateVersionInput,
+): Promise<LocalVisitJsonState> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const last = await getLatestLocalJsonState(input.visitId);
+  const nextVersion = (last?.version ?? 0) + 1;
+
+  const row: LocalVisitJsonState = {
+    id: uuidv4(),
+    visit_id: input.visitId,
+    user_id: input.userId,
+    version: nextVersion,
+    state: input.state,
+    created_by_message_id: input.createdByMessageId ?? null,
+    source_extraction_id: input.sourceExtractionId ?? null,
+    created_at: now,
+    sync_status: "pending",
+    sync_attempts: 0,
+    sync_last_error: null,
+    local_updated_at: now,
+  };
+
+  const queueEntry: SyncQueueEntry = {
+    table: "visit_json_state",
+    op: "insert",
+    row_id: row.id,
+    payload: {
+      id: row.id,
+      visit_id: row.visit_id,
+      user_id: row.user_id,
+      version: row.version,
+      state: row.state,
+      created_by_message_id: row.created_by_message_id,
+      source_extraction_id: row.source_extraction_id,
+      created_at: row.created_at,
+    },
+    attempts: 0,
+    last_error: null,
+    created_at: now,
+    next_attempt_at: now,
+  };
+
+  await db.transaction(
+    "rw",
+    db.visit_json_state,
+    db.sync_queue,
+    async () => {
+      await db.visit_json_state.add(row);
+      await db.sync_queue.add(queueEntry);
+    },
+  );
+  return row;
+}
