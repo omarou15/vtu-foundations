@@ -195,7 +195,8 @@ const ROUTER_TOOL_PARAMS = {
 export const describeMedia = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
-      imageUrl: string;
+      imageUrl?: string;
+      imageDataUrl?: string;
       mediaProfile: "photo" | "plan" | "pdf";
       mimeType: string | null;
       model?: GeminiModel;
@@ -247,7 +248,8 @@ export const describeMedia = createServerFn({ method: "POST" })
         model,
         systemPrompt: SYSTEM_DESCRIBE_MEDIA,
         userPrompt,
-        imageUrl: data.imageUrl,
+        imageUrl: data.imageDataUrl ?? data.imageUrl,
+        imageMimeType: data.mimeType,
         toolSchema: {
           name: "describe_media",
           description: "Output structured description for the image",
