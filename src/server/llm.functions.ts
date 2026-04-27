@@ -411,76 +411,27 @@ export const routeMessageLlm = createServerFn({ method: "POST" })
   });
 
 // ---------------------------------------------------------------------------
-// Helpers prompt building (exportés pour tests — It. 14.1)
+// Helpers prompt building — délégués à `llm.prompt-builders.ts`
+// (pour rester testables sans charger @tanstack/react-start).
 // ---------------------------------------------------------------------------
 
-/** It. 14.1 — Bloc anti-hallucination injecté quand des attachments
- * mentionnés dans le contexte n'ont pas encore été analysés. */
-export function buildPendingAttachmentsGuard(
-  bundle: { pending_attachments?: Array<{ id: string; media_profile: string | null; reason: "no_description_yet" | "ai_disabled_when_sent" }> },
-  intent: "extract" | "conversational",
-): string {
-  const pending = bundle.pending_attachments ?? [];
-  if (pending.length === 0) return "";
-  const lines = [
-    "",
-    "## ATTACHMENTS NON ENCORE ANALYSÉS",
-    "Les pièces jointes suivantes ont été reçues mais leur analyse",
-    "visuelle n'est PAS disponible dans ce contexte :",
-    ...pending.map(
-      (p) => `  - ${p.id} (${p.media_profile ?? "?"}) — ${p.reason}`,
-    ),
-    "RÈGLE STRICTE : tu NE DOIS PAS prétendre avoir vu, lu ou analysé",
-    "ces fichiers. Confirme leur réception (nombre, type), jamais leur",
-    "contenu.",
-  ];
-  if (intent === "extract") {
-    lines.push(
-      "[extract] N'émets AUCUN patch ni custom_field appuyé sur ces",
-      "attachments. N'inscris JAMAIS leurs ids dans evidence_refs.",
-    );
-  } else {
-    lines.push(
-      "[conversational] Si l'utilisateur te demande ce que tu vois sur",
-      "ces fichiers, dis explicitement que l'analyse est en cours.",
-    );
-  }
-  lines.push("");
-  return lines.join("\n");
-}
+import {
+  buildUserPromptConversational as _buildConv,
+  buildUserPromptExtract as _buildExt,
+} from "./llm.prompt-builders";
 
-export function buildUserPromptExtract(
+function buildUserPromptExtract(
   messageText: string,
   bundle: z.infer<typeof ContextBundleSchema>,
 ): string {
-  return [
-    "## CONTEXT BUNDLE",
-    "```json",
-    JSON.stringify(bundle, null, 2),
-    "```",
-    buildPendingAttachmentsGuard(bundle, "extract"),
-    "## MESSAGE UTILISATEUR",
-    messageText,
-    "",
-    "Produis le JSON tool-call.",
-  ].join("\n");
+  return _buildExt(messageText, bundle as unknown as Record<string, unknown>);
 }
 
-export function buildUserPromptConversational(
+function buildUserPromptConversational(
   messageText: string,
   bundle: z.infer<typeof ContextBundleSchema>,
 ): string {
-  return [
-    "## CONTEXT BUNDLE",
-    "```json",
-    JSON.stringify(bundle, null, 2),
-    "```",
-    buildPendingAttachmentsGuard(bundle, "conversational"),
-    "## QUESTION DU THERMICIEN",
-    messageText,
-    "",
-    "Produis le JSON tool-call.",
-  ].join("\n");
+  return _buildConv(messageText, bundle as unknown as Record<string, unknown>);
 }
 
 function hashSystem(prompt: string): string {
