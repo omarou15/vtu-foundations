@@ -1,91 +1,95 @@
-## Itération 11 — Validation IA en masse + conflits + filtre "À traiter"
+## Itération 12 — Vue Synthèse (lecture humaine de la VT)
 
-### Constats de l'audit
+Une nouvelle vue **lecture seule** accessible depuis le menu hamburger en haut de la VT, qui rend l'état du JSON de façon lisible (pas de JSON brut) — pensée pour relire en fin de visite ou montrer au client.
 
-1. **Validation 1-par-1 uniquement** : `PendingActionsCard` valide patch par patch sur le message porteur ; pas d'agrégation transverse. Le bouton "Tout valider" existe mais reste **scopé au message courant**, pas à une section.
-2. **Compteur "X champs IA non validés"** : déjà calculé par `countUnvalidatedAiFields` et affiché **dans le drawer JSON** uniquement. Pas en haut de la VT (dans le sous-header), donc invisible quand le user est en train de discuter.
-3. **Conflits silencieusement ignorés** : `applyPatches` rejette tout patch IA qui écraserait une valeur humaine (`reason: "human_source_prime"`). Ces patches ignorés sont déjà sérialisés dans `metadata.ignored_paths` du message assistant — mais **rien ne les rend visibles** dans la UI. C'est la racine du problème "conflit".
-4. **Filtre drawer JSON** : `JsonViewerDrawer` rend l'arbre brut sans filtre — pas de mode "À traiter".
+### 1. Route & navigation
 
-### Plan d'implémentation
+- **Nouvelle route** : `src/routes/_authenticated/visits.$visitId.summary.tsx` → `/visits/:visitId/summary`.
+- Route plate (pas de layout partagé) : page plein écran avec son propre header (bouton retour vers `/visits/:visitId`).
+- **Entrée** : transformer le bouton hamburger (`Menu`) en `DropdownMenu` dans `visits.$visitId.tsx` :
+  - "Liste des visites" (ouvre le sidebar mobile, comportement actuel)
+  - "Synthèse de la VT" (`<Link to="/visits/$visitId/summary">`)
+  - "Vue JSON brut" (ouvre le drawer existant)
 
-#### 1. Header VT — compteur "X champs IA à valider" cliquable
+### 2. Composant `VisitSummaryView`
 
-- Dans `src/routes/_authenticated/visits.$visitId.tsx`, ajouter dans le sous-header (ligne du toggle IA) un badge compact `{N} à valider` + `{C} conflit(s)` — visible en permanence, click ouvre directement le **drawer JSON en mode "À traiter"**.
-- Live counts via Dexie : `countUnvalidatedAiFields(state)` (existe) + nouveau `countActiveConflicts(state, messages)`.
+Fichier `src/features/visits/components/VisitSummaryView.tsx`. Lit via `useLiveQuery` :
+- `visit` (Dexie)
+- `latestJsonState` (`getLatestLocalJsonState`)
+- `messages` (pour `findActiveConflicts`)
+- `media` (`listVisitMedia`) regroupés par `linked_sections[0]`
 
-#### 2. Détection des conflits — nouveau helper
+#### Layout (style fiche bâtiment Notion / dashboard Linear)
 
-`src/features/json-state/lib/conflicts.ts` :
-- Type `Conflict { path, label, humanValue, aiValue, aiConfidence, aiMessageId, aiPatch }`.
-- Fonction `findActiveConflicts(state, messages)` : pour chaque message `actions_card` non-archivé, parcourt `metadata.ignored_paths` filtrés par `reason === "human_source_prime"`, va lire le `Field<T>` actuel (la valeur humaine) et croise avec `metadata.proposed_patches[path]` (la valeur IA proposée). Ne garde que les conflits "vivants" (la valeur humaine n'a pas changé depuis).
-- Idempotent et pur (testable unitaire).
+```text
+┌─────────────────────────────────────────┐
+│  ← Retour     Synthèse VT     ⋯         │  header sticky
+├─────────────────────────────────────────┤
+│  [Compteur global : 18 ✓ · 4 IA · 2 ⚠] │  carte récap
+├─────────────────────────────────────────┤
+│  🏠 Identification du bâtiment          │  carte
+│   Adresse · Type · Surface · Année…     │
+├─────────────────────────────────────────┤
+│  🧱 Enveloppe          [4 champs · 2 📷]│  carte par section
+│   Murs : Béton · Isolation 12cm        │
+│   Toiture : ⚠ vide  → Compléter →      │
+│   [photos miniatures de la section]     │
+├─────────────────────────────────────────┤
+│  🔥 Chauffage          [3 champs · 1 📷]│
+│  💧 ECS                [2 champs]       │
+│  🌬 Ventilation         [vide]          │
+│  ❄️ Climatisation       [vide]          │
+│  🔧 Procédés / 💡 Tertiaire / …         │
+└─────────────────────────────────────────┘
+```
 
-#### 3. Carte "Conflit" inline dans le chat
+#### Compteur global (en haut)
+Trois badges côte à côte : **N validés** / **N IA non validés** / **N champs vides critiques**. Le 3e ne compte que les champs "critiques" listés ci-dessous.
 
-`src/features/chat/components/ConflictCard.tsx` (nouveau) :
-- Rendu côte à côte des 2 valeurs (Apple/Linear style : 2 cartes mini, pastilles "Saisie manuelle" / "Proposition IA + confidence").
-- 3 actions : `Garder la mienne` / `Prendre celle de l'IA` / `Garder les deux dans une note` (3e = ajoute un `observations.notes` libre, optionnel — décider plus tard si trop coûteux, bouton primaire reste les 2 premiers).
-- Backend :
-  - `Garder la mienne` → marque le `Field<T>` humain comme `validation_status="validated"` (acte explicite) + log dans metadata du message conflit que le user a tranché → la carte disparait.
-  - `Prendre IA` → bypass le gate `human_source_prime` : on overwrite le Field via un nouveau helper `overrideWithAiPatch({path, patch, sourceMessageId})` qui pose un `aiInferField` puis le valide automatiquement (puisque l'utilisateur vient d'arbitrer en sa faveur).
-- Affichage : un message `kind="conflict_card"` est créé par l'engine LLM s'il y a au moins un patch ignoré pour `human_source_prime`. Le `MessageList` rend `ConflictCard` dans ce cas.
+#### Carte par section
+- Icône thématique + libellé FR (réutiliser `SECTION_LABELS` de `path-labels.ts`).
+- Compteur "N champs · M photos".
+- **Liste des champs renseignés** : libellé (via `labelForPath`) → valeur formatée (via `formatPatchValue`). Les `*_value` + `*_other === "autre"` sont fusionnés ("Autre : précision").
+- **Champs IA non validés** : pastille `Sparkles` discrète + valeur en italique.
+- **Champs en conflit** : badge ⚠ destructif "Conflit non résolu".
+- **Champs vides critiques** : ligne grisée "— vide —" avec lien "Compléter →" qui retourne au chat (`/visits/$visitId`) — pas d'édition inline.
+- **Photos de la section** : strip horizontal de miniatures (3-4 visibles, scroll horizontal). Tap = ouvre la `MediaLightbox` existante.
+- Section entièrement vide ET non critique → repliée par défaut (juste l'en-tête grisé).
 
-> Alternative plus simple si on veut éviter un nouveau kind : exposer les conflits **uniquement dans le drawer JSON** (section "Conflits à arbitrer") + un badge dans le header. Le brief demande "voir une carte" donc on choisit la carte inline. Limiter à 1 carte par patch (pas de doublons), avec collapsing si plus de 5.
+#### Champs critiques (vide = warning)
+Liste durcie dans un nouveau `src/features/visits/lib/critical-fields.ts` :
+- `meta.address`, `meta.building_typology`, `meta.calculation_method`
+- `building.construction_year`, `building.surface_habitable_m2`, `building.nb_niveaux`
+- Au moins 1 installation dans `heating.installations`
+- Au moins 1 installation dans `ecs.installations` (sauf si typologie = tertiaire pur)
 
-#### 4. Validation par section ("Tout valider l'enveloppe")
+### 3. Helpers nouveaux
 
-Dans le **drawer JSON** (le seul endroit où on a une vue arborescente) :
-- Au-dessus de chaque section (`envelope`, `heating`, etc.), si elle contient des Field IA non-validés, afficher un mini bandeau sticky : `Enveloppe — 8 champs IA à valider` + 2 boutons `Tout valider` / `Tout rejeter`.
-- Backend : nouveau helper `validateSectionPatches({userId, visitId, sectionPath})` et `rejectSectionPatches(...)` qui collectent tous les paths sous la section avec `source==="ai_infer" && validation_status==="unvalidated"`, puis appliquent en **une seule** nouvelle version JSON state (transaction atomique = 1 version, pas N versions).
-- Existant `validateFieldPatch` est par-champ ; on factorise via une fonction interne `applyValidationOps(state, ops[])` réutilisée par les 2 entry points.
+`src/features/visits/lib/summary.ts` (pure, testé) :
+- `buildSectionSummary(state, sectionKey)` → `{ entries: SummaryEntry[], filled, total }` où `SummaryEntry = { path, label, value, status: "ok" | "ai_unvalidated" | "conflict" | "empty_critical" }`.
+- `groupMediaBySection(media)` → `Record<string, LocalAttachment[]>` basé sur `linked_sections[0]` (fallback `"other"`).
+- `countSummaryGlobals(state, messages)` → `{ validated, aiUnvalidated, emptyCritical, conflicts }`.
 
-#### 5. Drawer JSON — mode "À traiter" / "Tout"
+Réutilise : `findUnvalidatedAiFieldPaths`, `findActiveConflicts`, `listFieldsInSection`, `labelForPath`, `formatPatchValue`.
 
-- Ajouter un toggle segmenté en haut du drawer : `Tout` | `À traiter` (default `Tout` pour pas dépayser, switch persistant via store).
-- Mode "À traiter" :
-  - Filtre l'arbre pour ne montrer **que** les sections qui contiennent au moins un Field `ai_infer + unvalidated` ou un conflit actif.
-  - À l'intérieur d'une section, masque les Field déjà validés. Si un conflit actif existe sur le path, badge orange "Conflit" cliquable qui scrolle/ouvre la ConflictCard correspondante.
-  - Affiche en haut un récap : `12 champs · 3 conflits · 4 sections`.
-  - Quand vide → empty state "Tout est traité ✓".
-- Implémentation : on remplace `<JsonView>` par un viewer custom **uniquement en mode "À traiter"** (la lib externe ne permet pas le filter par node). En mode "Tout", on garde la lib actuelle.
+### 4. Style & responsive
 
-#### 6. Doctrine "audit < 60s"
+- Mobile-first (430px viewport) : cartes pleine largeur, padding 16px, séparateur fin entre cartes.
+- Desktop (>=md) : conteneur `max-w-3xl mx-auto`, espacement aéré.
+- Animations : `framer-motion` n'est pas dispo → simples transitions Tailwind (`transition-colors`, `animate-in fade-in`).
+- Tokens existants : `bg-card`, `border-border`, `text-muted-foreground`, badges `bg-primary/10`, `bg-warning/15`, `bg-destructive/10` (déjà utilisés dans le drawer).
 
-- Garantir que depuis le badge header, en 2 clicks max, on est sur la section problématique. Validation par section = 1 click pour 8 champs.
-- Animations : `framer-motion` déjà disponible ? Vérifier — sinon micro-transitions Tailwind (`transition-all duration-150`) pour les disparitions de cards (Linear-like).
+### 5. Tests
 
-### Fichiers touchés / créés
+- `src/features/visits/__tests__/summary.test.ts` :
+  - `buildSectionSummary` retourne les bons statuts (ok / ai_unvalidated / conflict / empty_critical).
+  - `groupMediaBySection` regroupe correctement et fallback `"other"`.
+  - `countSummaryGlobals` agrège correctement les compteurs.
+- Smoke RTL : `VisitSummaryView` rend les cartes et le badge "Compléter →" pour un champ critique vide.
 
-**Créés** :
-- `src/features/json-state/lib/conflicts.ts` — détection conflits actifs.
-- `src/features/json-state/lib/section-paths.ts` — collecte récursive des paths sous une section.
-- `src/shared/db/json-state.validate.repo.ts` (déjà existant) — ajout `validateSectionPatches`, `rejectSectionPatches`, `overrideWithAiPatch`.
-- `src/features/chat/components/ConflictCard.tsx` — UI carte conflit.
-- `src/features/json-state/components/JsonViewerFiltered.tsx` — vue custom filtrée mode "À traiter".
-- Tests : `conflicts.test.ts`, `validate-section.test.ts`, `conflict-card.test.tsx`.
+### 6. Hors scope (volontairement)
 
-**Édités** :
-- `src/routes/_authenticated/visits.$visitId.tsx` — badges header + handler ouverture drawer en mode "À traiter".
-- `src/features/json-state/components/JsonViewerDrawer.tsx` — toggle Tout/À traiter, bandeaux section + boutons "Tout valider/rejeter" par section.
-- `src/features/json-state/lib/inspect.ts` — export d'un helper `findUnvalidatedAiFieldPaths` (liste, pas seulement count).
-- `src/features/json-state/index.ts` — exports.
-- `src/features/chat/components/MessageList.tsx` — render `ConflictCard` quand `kind === "conflict_card"`.
-- `src/shared/sync/engine.llm.ts` — après `applyPatches`, si conflits `human_source_prime` ≥ 1 → créer un message `kind="conflict_card"` séparé du `actions_card` (ou attaché à lui via metadata, à arbitrer côté implémentation pour éviter la pollution du fil).
-- `src/shared/db/messages.repo.ts` / `MessageKind` type — ajouter `"conflict_card"`.
-- `src/features/chat/store.ts` — ajout slice `jsonViewerMode: "all" | "todo"` persisté.
-- `KNOWLEDGE.md` — section §15 / changelog It. 11.
-
-### Choix UX assumés (style Linear/Notion)
-
-- **Badge header** : pill compacte fond `bg-primary/10` text `text-primary` + chiffre tabular-nums. Click = scale-up subtil.
-- **Bandeau section dans drawer** : sticky en haut de chaque section repliable, fond `bg-card/95 backdrop-blur`, séparateur `border-b border-border`.
-- **ConflictCard** : 2 colonnes égales sur desktop, stack vertical mobile. La colonne IA a un liseré gauche `border-l-2 border-primary` et icône `Sparkles`. La colonne humaine a `border-l-2 border-muted-foreground/40` et icône `User`. Bouton primaire = celui qui n'a pas la valeur la plus récente (heuristique : on met en avant l'action la plus probable, sans la pré-sélectionner).
-- **Animations** : `transition-all duration-200 ease-out` + `animate-in fade-in slide-in-from-bottom-1` sur apparition, `animate-out fade-out` sur disparition après validation.
-- **Pas de modal** : tout reste en flux (chat ou drawer). Cohérent avec la doctrine 20/60/20.
-
-### Ce qu'on ne fait PAS dans cette itération
-
-- Pas d'undo bulk (un "Annuler" toast suffit pour l'unitaire ; trop coûteux à implémenter sans changer le modèle de versions).
-- Pas de raccourcis clavier (visite = mobile-first ; à voir Phase 4 desktop).
-- Pas de batch validate cross-sections ("Tout valider la VT") — risque de catastrophe en 1 click. Section reste le bon grain.
+- Pas d'édition (lecture seule, doctrine respectée).
+- Pas d'export Word — c'est le précurseur, pas le rapport final.
+- Pas d'impression/PDF (réservé Phase 2 final).
+- Pas de drag-drop des photos entre sections.
