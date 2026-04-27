@@ -13,11 +13,61 @@ export type Status = "ok" | "warning" | "critical";
 
 export interface Alert {
   level: AlertLevel;
-  category: "llm" | "sync" | "usage" | "infra";
+  category: "llm" | "sync" | "usage" | "infra" | "functional";
   message: string;
   metric?: string;
   value?: number;
   threshold?: number;
+}
+
+export interface FunctionalKpis {
+  cycle_time_minutes_avg: number | null;
+  cycle_time_minutes_median: number | null;
+  media_per_visit_avg: number;
+  time_to_first_ai_seconds_avg: number | null;
+  patches_proposed: number;
+  patches_validated: number;
+  patches_rejected: number;
+  patches_unvalidated: number;
+  patches_acceptance_rate_pct: number;
+  patches_treatment_rate_pct: number;
+  json_state_completeness_pct: number | null;
+  visits_with_ai_pct: number;
+  media_capture_rate_pct: number;
+  status: Status;
+  alerts: Alert[];
+}
+
+export interface KeyResult {
+  id: string;
+  label: string;
+  current: number;
+  target: number;
+  unit: string;
+  higher_is_better: boolean;
+  progress_pct: number;
+  on_track: boolean;
+  source: string;
+}
+
+export interface Objective {
+  id: string;
+  title: string;
+  description: string;
+  keyResults: KeyResult[];
+}
+
+export interface OkrTracking {
+  period: string;
+  objectives: Objective[];
+}
+
+export interface TimeSeries {
+  days: string[];
+  visits_per_day: number[];
+  llm_calls_per_day: number[];
+  llm_errors_per_day: number[];
+  patches_proposed_per_day: number[];
 }
 
 export interface MonitoringSnapshot {
@@ -57,11 +107,10 @@ export interface MonitoringSnapshot {
     attachments_count: number;
     attachments_pdf: number;
     attachments_photo: number;
-    patches_proposed: number;
-    patches_validated: number;
-    patches_rejected: number;
-    ai_adoption_pct: number;
   };
+  functional: FunctionalKpis;
+  okrs: OkrTracking;
+  time_series: TimeSeries;
   infra: {
     tables: Array<{ name: string; row_count: number; last_write: string | null }>;
     buckets: string[];
@@ -69,7 +118,7 @@ export interface MonitoringSnapshot {
   events: Array<{
     ts: string;
     level: "info" | "warning" | "error";
-    source: "llm" | "sync" | "usage" | "infra";
+    source: "llm" | "sync" | "usage" | "infra" | "functional";
     message: string;
     meta?: Record<string, unknown>;
   }>;
