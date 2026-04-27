@@ -96,6 +96,8 @@ function VisitChatPage() {
   async function handleSubmit(input: {
     content: string;
     kind: import("@/shared/types").MessageKind;
+    attachmentCount?: number;
+    aiEnabled?: boolean;
   }): Promise<{ id: string } | void> {
     if (!userId) {
       toast.error("Session expirée — veuillez vous reconnecter.");
@@ -110,6 +112,10 @@ function VisitChatPage() {
         role: "user",
         kind: input.kind,
         content: input.content,
+        metadata: {
+          attachment_count: input.attachmentCount ?? 0,
+          ai_enabled: input.aiEnabled ?? aiEnabled,
+        },
       });
       return { id: message.id };
     } catch (err) {
