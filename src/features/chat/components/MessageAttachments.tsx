@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FileText, ImageOff, Sparkles } from "lucide-react";
 import { getDb, type LocalAttachment } from "@/shared/db";
+import { useAttachmentThumb } from "../lib/useAttachmentThumb";
 import { MediaLightbox } from "./MediaLightbox";
 
 interface MessageAttachmentsProps {
@@ -13,10 +14,12 @@ interface MessageAttachmentsProps {
  * Affiche les attachments d'un message dans le chat (grille thumbnails).
  * Tap → ouvre la lightbox swipable.
  *
- * It. 10.7 — Lecture du blob via `useLiveQuery` réactif sur
- *   `attachment_blobs` : si le blob est commit après le mount du composant
- *   (race add → render), le hook se réveille tout seul. Plus jamais de
- *   thumbnail bloqué en skeleton infini.
+ * It. 14 — Lecture via `useAttachmentThumb` :
+ *   1) blob local Dexie (instantané, offline)
+ *   2) URL signée Supabase Storage (TTL 1h, fetched once par session)
+ *   3) back-fill du blob local en arrière-plan
+ *   Plus de timeout 5 s qui bascule à tort sur "indispo" : on attend la
+ *   résolution distante et on n'affiche `failed` que si Storage 404.
  */
 export function MessageAttachments({ messageId, isUser }: MessageAttachmentsProps) {
   const attachments = useLiveQuery(
@@ -78,41 +81,8 @@ function AttachmentThumb({
   single: boolean;
 }) {
   const isPdf = attachment.media_profile === "pdf";
-
-  // Réactif : si le blob arrive après le mount, le composant se met à jour.
-  const blob = useLiveQuery(
-    async () => {
-      if (isPdf) return null;
-      const row = await getDb().attachment_blobs.get(attachment.id);
-      return row?.thumbnail ?? row?.compressed ?? null;
-    },
-    [attachment.id, isPdf],
-    null as Blob | null,
-  );
-
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!blob) {
-      setUrl(null);
-      return;
-    }
-    const objectUrl = URL.createObjectURL(blob);
-    setUrl(objectUrl);
-    setFailed(false);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [blob]);
-
-  // Fallback : timeout de 5s sans blob ET attachment synced → on considère
-  // le blob local perdu (cas device 2). On marque "failed" pour proposer
-  // un placeholder explicite plutôt qu'un skeleton infini.
-  useEffect(() => {
-    if (isPdf || blob) return;
-    if (attachment.sync_status !== "synced") return;
-    const t = setTimeout(() => setFailed(true), 5000);
-    return () => clearTimeout(t);
-  }, [blob, isPdf, attachment.sync_status]);
+  const { localUrl, remoteUrl, failed } = useAttachmentThumb(attachment);
+  const url = localUrl ?? remoteUrl;
 
   // Badge ✨ si description IA dispo
   const hasAi = useLiveQuery(
