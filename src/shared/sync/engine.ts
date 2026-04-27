@@ -189,6 +189,20 @@ async function processEntry(
       return await processAttachmentUpload(supabase, entry);
     }
 
+    if (entry.op === "describe_media" || entry.op === "llm_route_and_dispatch") {
+      const helpers: EngineHelpers = {
+        markLocalRowSynced,
+        markLocalRowFailed,
+        scheduleDependencyWait: (e, reason) => scheduleDependencyWait(e, reason),
+        scheduleRetryOrFail: (e, err) => scheduleRetryOrFail(e, err),
+      };
+      const supaForLlm = supabase as unknown as SyncSupabaseLikeForLlm;
+      if (entry.op === "describe_media") {
+        return await processDescribeMedia(supaForLlm, entry, helpers);
+      }
+      return await processLlmRouteAndDispatch(supaForLlm, entry, helpers);
+    }
+
     if (entry.op === "insert") {
       const { error } = await supabase
         .from(entry.table)
