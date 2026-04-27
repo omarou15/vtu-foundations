@@ -48,7 +48,7 @@ interface AttachmentSheetProps {
   visitId: string;
 }
 
-type Mode = "menu" | "burst" | "import";
+type Mode = "menu" | "burst" | "import-photos" | "import-docs";
 
 const MAX_BATCH = 10;
 
