@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FileText, Loader2, X, AlertTriangle, Camera, Layers, Sparkles } from "lucide-react";
+import { FileText, Loader2, X, AlertTriangle, Camera, Layers, Sparkles, Weight } from "lucide-react";
 import { toast } from "sonner";
 import { getDb } from "@/shared/db";
 import {
@@ -8,6 +8,7 @@ import {
   discardDraftMedia,
   listDraftMedia,
   getAttachmentBlob,
+  isHeavyPhoto,
 } from "@/shared/photo";
 import type { LocalAttachment } from "@/shared/db/schema";
 import type { MediaProfile } from "@/shared/types";
