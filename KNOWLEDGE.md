@@ -533,3 +533,49 @@ le drawer JSON.
 - **Cohérence drawer JSON** : la card lit le `Field<T>` réel via
   `useLiveQuery`, donc reflète aussi les changements faits dans le drawer.
 
+
+---
+
+## §16 — Monitoring & Observabilité production (it. 10.5+)
+
+**Objectif** : zéro surprise sur l'usage fonctionnel et la santé technique
+de l'app déployée. Page `/admin/monitoring` réservée au rôle `admin`.
+
+### Accès & sécurité
+- Table `public.user_roles` (enum `app_role`: admin/moderator/user) +
+  fonction `has_role(uuid, app_role)` `SECURITY DEFINER` (anti-récursion RLS).
+- Hook `useIsAdmin()` côté client → redirige les non-admins vers `/visits`.
+- L'Edge Function `vtu-monitoring` exige un JWT valide ; la vérification
+  fine du rôle admin se fait côté front avant l'appel.
+
+### Signaux suivis
+1. **LLM** : volume d'extractions, latence p50/p95/p99, taux d'erreur,
+   tokens in/out, coût USD estimé (via `llm_extractions`).
+2. **Sync & Queue** : âge max des messages user sans réponse assistant
+   (proxy de backlog) → détecte un Edge Function bloqué.
+3. **Usage fonctionnel** : utilisateurs actifs, visites créées, messages,
+   rythme par jour.
+4. **Infra Cloud** : row counts + `last_write` par table critique
+   (visits, messages, attachments, llm_extractions, visit_json_state).
+
+### Seuils conservateurs (par défaut)
+- LLM p95 : warning >12s, critical >20s.
+- LLM error rate : warning >5%, critical >15%.
+- Sync backlog (age max) : warning >30s, critical >2min.
+- Coût USD/24h : warning >$5, critical >$20.
+
+### Logs 24h
+- Timeline filtrable (toutes / erreurs LLM / extractions lentes >10s).
+- Fenêtres : 1h, 6h, 24h (par défaut), 3j, 7j.
+- Auto-refresh 30s côté front via `useMonitoring()`.
+
+### Fichiers
+- `supabase/functions/vtu-monitoring/index.ts` (agrégation serveur).
+- `src/features/admin/{useIsAdmin,useMonitoring}.ts`.
+- `src/routes/_authenticated/admin.monitoring.tsx`.
+
+### Promotion d'un compte admin
+```sql
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('<uid>', 'admin') ON CONFLICT DO NOTHING;
+```
