@@ -4,8 +4,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowLeft,
-  Braces,
-  FileText,
+  LayoutDashboard,
   List,
   Menu,
   Sparkles,
@@ -16,7 +15,7 @@ import { appendLocalMessage, getDb, getLatestLocalJsonState, type LocalMessage }
 import { useAuth } from "@/features/auth";
 import { useVirtualKeyboard } from "@/shared/hooks";
 import { useConnectionStore, useMessagesSync } from "@/shared/sync";
-import { VisitsSidebar } from "@/features/visits";
+import { VisitsSidebar, UnifiedVisitDrawer, type DrawerTab } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -34,7 +33,6 @@ import {
   STATUS_LABEL,
 } from "@/features/visits/lib/icons";
 import { ChatInputBar, MessageList, useChatStore } from "@/features/chat";
-import { JsonViewerDrawer } from "@/features/json-state";
 import { countUnvalidatedAiFields } from "@/features/json-state/lib/inspect";
 import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
 
