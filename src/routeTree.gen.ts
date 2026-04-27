@@ -15,6 +15,7 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthenticatedVisitsVisitIdRouteImport } from './routes/_authenticated/visits.$visitId'
 import { Route as AuthenticatedAdminMonitoringRouteImport } from './routes/_authenticated/admin.monitoring'
+import { Route as AuthenticatedVisitsVisitIdSummaryRouteImport } from './routes/_authenticated/visits.$visitId.summary'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -47,20 +48,28 @@ const AuthenticatedAdminMonitoringRoute =
     path: '/admin/monitoring',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedVisitsVisitIdSummaryRoute =
+  AuthenticatedVisitsVisitIdSummaryRouteImport.update({
+    id: '/summary',
+    path: '/summary',
+    getParentRoute: () => AuthenticatedVisitsVisitIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/login': typeof LoginRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/admin/monitoring': typeof AuthenticatedAdminMonitoringRoute
-  '/visits/$visitId': typeof AuthenticatedVisitsVisitIdRoute
+  '/visits/$visitId': typeof AuthenticatedVisitsVisitIdRouteWithChildren
+  '/visits/$visitId/summary': typeof AuthenticatedVisitsVisitIdSummaryRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/': typeof AuthenticatedIndexRoute
   '/admin/monitoring': typeof AuthenticatedAdminMonitoringRoute
-  '/visits/$visitId': typeof AuthenticatedVisitsVisitIdRoute
+  '/visits/$visitId': typeof AuthenticatedVisitsVisitIdRouteWithChildren
+  '/visits/$visitId/summary': typeof AuthenticatedVisitsVisitIdSummaryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -69,7 +78,8 @@ export interface FileRoutesById {
   '/auth/callback': typeof AuthCallbackRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/admin/monitoring': typeof AuthenticatedAdminMonitoringRoute
-  '/_authenticated/visits/$visitId': typeof AuthenticatedVisitsVisitIdRoute
+  '/_authenticated/visits/$visitId': typeof AuthenticatedVisitsVisitIdRouteWithChildren
+  '/_authenticated/visits/$visitId/summary': typeof AuthenticatedVisitsVisitIdSummaryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -79,6 +89,7 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/admin/monitoring'
     | '/visits/$visitId'
+    | '/visits/$visitId/summary'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -86,6 +97,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin/monitoring'
     | '/visits/$visitId'
+    | '/visits/$visitId/summary'
   id:
     | '__root__'
     | '/_authenticated'
@@ -94,6 +106,7 @@ export interface FileRouteTypes {
     | '/_authenticated/'
     | '/_authenticated/admin/monitoring'
     | '/_authenticated/visits/$visitId'
+    | '/_authenticated/visits/$visitId/summary'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -146,19 +159,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminMonitoringRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/visits/$visitId/summary': {
+      id: '/_authenticated/visits/$visitId/summary'
+      path: '/summary'
+      fullPath: '/visits/$visitId/summary'
+      preLoaderRoute: typeof AuthenticatedVisitsVisitIdSummaryRouteImport
+      parentRoute: typeof AuthenticatedVisitsVisitIdRoute
+    }
   }
 }
+
+interface AuthenticatedVisitsVisitIdRouteChildren {
+  AuthenticatedVisitsVisitIdSummaryRoute: typeof AuthenticatedVisitsVisitIdSummaryRoute
+}
+
+const AuthenticatedVisitsVisitIdRouteChildren: AuthenticatedVisitsVisitIdRouteChildren =
+  {
+    AuthenticatedVisitsVisitIdSummaryRoute:
+      AuthenticatedVisitsVisitIdSummaryRoute,
+  }
+
+const AuthenticatedVisitsVisitIdRouteWithChildren =
+  AuthenticatedVisitsVisitIdRoute._addFileChildren(
+    AuthenticatedVisitsVisitIdRouteChildren,
+  )
 
 interface AuthenticatedRouteChildren {
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAdminMonitoringRoute: typeof AuthenticatedAdminMonitoringRoute
-  AuthenticatedVisitsVisitIdRoute: typeof AuthenticatedVisitsVisitIdRoute
+  AuthenticatedVisitsVisitIdRoute: typeof AuthenticatedVisitsVisitIdRouteWithChildren
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAdminMonitoringRoute: AuthenticatedAdminMonitoringRoute,
-  AuthenticatedVisitsVisitIdRoute: AuthenticatedVisitsVisitIdRoute,
+  AuthenticatedVisitsVisitIdRoute: AuthenticatedVisitsVisitIdRouteWithChildren,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, ArrowLeft, Braces, Menu, Sparkles, WifiOff } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Braces,
+  FileText,
+  List,
+  Menu,
+  Sparkles,
+  WifiOff,
+} from "lucide-react";
 import { toast } from "sonner";
 import { appendLocalMessage, getDb, getLatestLocalJsonState, type LocalMessage } from "@/shared/db";
 import { useAuth } from "@/features/auth";
@@ -11,6 +20,13 @@ import { VisitsSidebar } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   BUILDING_ICON,
   BUILDING_LABEL,
@@ -181,14 +197,49 @@ function VisitChatPage() {
         {/* HAUT : header VT + toggle IA + bouton JSON */}
         <header className="safe-top safe-x shrink-0 border-b border-border bg-card">
           <div className="flex h-14 items-center gap-2 px-3">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent md:hidden"
-              aria-label="Ouvrir la liste des visites"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
+                  aria-label="Menu visite"
+                  data-testid="visit-menu-trigger"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem
+                  onSelect={() => setSidebarOpen(true)}
+                  className="md:hidden"
+                >
+                  <List className="mr-2 h-4 w-4" />
+                  Liste des visites
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link
+                    to="/visits/$visitId/summary"
+                    params={{ visitId: visit.id }}
+                    data-testid="visit-menu-summary"
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    Synthèse de la VT
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openJson("tree")}>
+                  <Braces className="mr-2 h-4 w-4" />
+                  Vue JSON brut
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="md:hidden" />
+                <DropdownMenuItem
+                  onSelect={() => navigate({ to: "/" })}
+                  className="hidden md:flex"
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Retour à la liste
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button
               type="button"
               onClick={() => navigate({ to: "/" })}
