@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, ArrowLeft, Braces, Menu, Sparkles, WifiOff } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Braces,
+  FileText,
+  List,
+  Menu,
+  Sparkles,
+  WifiOff,
+} from "lucide-react";
 import { toast } from "sonner";
 import { appendLocalMessage, getDb, getLatestLocalJsonState, type LocalMessage } from "@/shared/db";
 import { useAuth } from "@/features/auth";
@@ -11,6 +20,13 @@ import { VisitsSidebar } from "@/features/visits";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   BUILDING_ICON,
   BUILDING_LABEL,
