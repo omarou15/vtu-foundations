@@ -233,6 +233,7 @@ export function AttachmentSheet({
             <MenuView
               onPickPhoto={openCameraNative}
               onPickGallery={openGalleryNative}
+              onPickDocs={openDocsNative}
             />
           ) : null}
 
@@ -246,11 +247,23 @@ export function AttachmentSheet({
             />
           ) : null}
 
-          {mode === "import" ? (
+          {mode === "import-photos" ? (
             <ImportView
+              kind="photos"
               drafts={drafts}
               busy={busy}
-              onPickMore={() => fileRef.current?.click()}
+              onPickMore={() => galleryRef.current?.click()}
+              onSend={() => void handleSend()}
+              onBack={() => requestClose(false)}
+            />
+          ) : null}
+
+          {mode === "import-docs" ? (
+            <ImportView
+              kind="docs"
+              drafts={drafts}
+              busy={busy}
+              onPickMore={() => docsRef.current?.click()}
               onSend={() => void handleSend()}
               onBack={() => requestClose(false)}
             />
@@ -266,12 +279,20 @@ export function AttachmentSheet({
             onChange={(e) => void handleCameraFiles(e.target.files)}
           />
           <input
-            ref={fileRef}
+            ref={galleryRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => void handleImportFiles(e.target.files, "photo", galleryRef)}
+          />
+          <input
+            ref={docsRef}
             type="file"
             accept="image/*,application/pdf"
             multiple
             className="hidden"
-            onChange={(e) => void handleImportFiles(e.target.files)}
+            onChange={(e) => void handleImportFiles(e.target.files, null, docsRef)}
           />
         </SheetContent>
       </Sheet>
