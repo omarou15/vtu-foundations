@@ -1,10 +1,15 @@
 /**
  * apply-patches : applique les patches IA sur un VisitJsonState (clone).
  *
- * Gates (corrections 1-7 + A) :
+ * Gates (corrections 1-7 + A v2.2) :
  *  - validation_status === "validated" → IGNORÉ (humain prime, garde-fou).
  *  - source ∈ {user, voice, photo_ocr, import} ET value !== null → IGNORÉ.
- *  - source === "ai_infer" OU source === "init" avec value === null → patch OK.
+ *  - source === "ai_infer" + validation_status === "unvalidated" :
+ *      - si score(cur.confidence) >= score(patch.confidence) - 0.1
+ *        → IGNORÉ (lower_or_equal_confidence_than_current).
+ *      - sinon overwrite OK (un patch high peut écraser un low/medium plus
+ *        ancien ; égalité bloque pour préserver la 1re extraction).
+ *  - source === "init" / "ai_infer" avec value === null → patch OK.
  *
  * Sortie : nouveau state (immutable) + liste des patches effectivement
  * appliqués + raisons d'ignorance pour audit/UI.
@@ -13,6 +18,7 @@
 import {
   aiInferField,
   type Field,
+  type FieldConfidence,
 } from "@/shared/types/json-state.field";
 import type { VisitJsonState } from "@/shared/types";
 import type { AiFieldPatch } from "../types";
@@ -31,6 +37,13 @@ export interface ApplyPatchesResult {
 }
 
 const HUMAN_SOURCES = new Set(["user", "voice", "photo_ocr", "import"]);
+
+function confidenceScore(c: FieldConfidence | null | undefined): number {
+  if (c === "high") return 0.9;
+  if (c === "medium") return 0.7;
+  if (c === "low") return 0.4;
+  return 0;
+}
 
 export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
   const next = clone(input.state);
@@ -66,6 +79,22 @@ export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
     ) {
       ignored.push({ path: patch.path, reason: "human_source_prime" });
       continue;
+    }
+
+    // Correction A v2.2 : gate confidence sur ai_infer + unvalidated.
+    if (
+      cur.source === "ai_infer" &&
+      cur.validation_status === "unvalidated" &&
+      cur.value !== null &&
+      cur.value !== undefined
+    ) {
+      if (confidenceScore(cur.confidence) >= confidenceScore(patch.confidence) - 0.1) {
+        ignored.push({
+          path: patch.path,
+          reason: "lower_or_equal_confidence_than_current",
+        });
+        continue;
+      }
     }
 
     target.parent[target.key] = aiInferField({

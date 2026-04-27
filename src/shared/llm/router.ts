@@ -1,18 +1,23 @@
 /**
- * Router hybride (Q7) : déterministe d'abord, fallback Flash-Lite pour
- * les ambigus courts.
+ * Router hybride (Q7 + Correction B v2.2) : déterministe d'abord,
+ * fallback Flash-Lite pour les ambigus courts.
  *
  * Doctrine (KNOWLEDGE §15) :
  *  - Toute photo/audio/document → "extract" (pas de question via média).
- *  - Texte avec marqueur conversationnel ("?", "comment", "résume") →
- *    "conversational".
- *  - Texte court bruit ("ok", "merci", emojis seuls) → "ignore".
- *  - Texte court ambigu (≤ 4 mots, sans marqueur explicite) → "needs_llm".
- *  - Tout le reste → "extract".
+ *  - Texte avec marqueur conversationnel ("?", "comment", "résume", …) →
+ *    "conversational" (PRIME sur terrain_pattern : un thermicien qui
+ *    écrit "résume cette VT, surface 145 m²" attend une réponse texte
+ *    incluant le 145 m², pas une saisie automatique).
+ *  - Texte avec pattern terrain (chiffres+unités, codes RT/RE/R+n/HSP,
+ *    acronymes métier) → "extract" via terrain_pattern.
+ *  - Texte court bruit ("ok", "merci", emojis) → "ignore".
+ *  - Texte court ambigu (≤4 mots, sans marqueur) → "extract" via
+ *    short_capture (capture > conversation).
+ *  - Tout le reste → "extract" via default_extract.
  *
- * La décision LLM-fallback est déclenchée uniquement quand
- * `routeMessage` renvoie `needs_llm`. Le call site appelle alors la
- * server function (qui invoque Flash-Lite avec `RouterOutputSchema`).
+ * `routeMessage` retourne `needsLlm` à true uniquement quand on souhaite
+ * déférer la décision à Flash-Lite. Aucun cas actuel ne le fait, mais le
+ * type est conservé pour permettre une réintroduction Phase 2.5.
  */
 
 import type { RouterDecision } from "./types";
@@ -45,6 +50,23 @@ const CONVERSATIONAL_HINTS = [
   /^(donne|donne-moi|liste|listes)\b/i,
 ];
 
+/**
+ * Patterns terrain métier (Correction B v2.2).
+ *  - Chiffres + unités physiques fréquentes (m², kW, kWh, kVA, cm, mm,
+ *    °C, hPa, m).
+ *  - Codes réglementaires (RT/RE 4 chiffres, R+n, HSP n).
+ *  - Acronymes métier thermique/bâtiment.
+ *
+ * Application : appliqué APRÈS CONVERSATIONAL_HINTS et AVANT
+ * `short_capture (≤4 mots)`. Doctrine arbitrée : un hint conversationnel
+ * prime sur un terrain_pattern (cf. dette §10).
+ */
+const TERRAIN_PATTERNS = [
+  /\d+\s*(m²|m2|kw|kwh|kva|cm|mm|°c|hpa|°|m\b)/i,
+  /R\+\d|HSP\s*\d|RE\s*\d{4}|RT\s*\d{4}/i,
+  /\b(VMC|ECS|ITI|ITE|PAC|AEP|EU|EP|EVRT|GTB|CTA|UTA|FCU|BAES)\b/i,
+];
+
 export function routeMessage(input: DeterministicRouterInput): DeterministicResult {
   // Médias (photo/audio/document) → toujours extract.
   if (input.kind === "photo" || input.kind === "audio" || input.kind === "document") {
@@ -71,22 +93,22 @@ export function routeMessage(input: DeterministicRouterInput): DeterministicResu
   }
 
   if (CONVERSATIONAL_HINTS.some((re) => re.test(text))) {
-    // Si le texte se termine par "?" mais contient une donnée chiffrée,
-    // on le route quand même conversational (le doute des thermicien
-    // commence souvent par "X est-il OK ?" — voir dette §10).
+    // Doctrine arbitrée : conversational_hint PRIME sur terrain_pattern.
     return {
       decision: { route: "conversational", reason: "conversational_hint" },
       needsLlm: false,
     };
   }
 
+  if (TERRAIN_PATTERNS.some((re) => re.test(text))) {
+    return {
+      decision: { route: "extract", reason: "terrain_pattern" },
+      needsLlm: false,
+    };
+  }
+
   const wordCount = text.split(/\s+/).filter(Boolean).length;
   if (wordCount <= 4) {
-    // Ambigu court ("VMC ok ?" déjà capturé par "?", mais "R+2", "HSP 2.7",
-    // "VMC ok" sans "?" tombent ici). Plan v2.1 : capture > conversation,
-    // donc on route extract direct sans LLM.
-    // Dette §10 router : "VMC ok ?" sera traité par fallback LLM dans une
-    // future itération si on observe trop de faux positifs.
     return {
       decision: { route: "extract", reason: "short_capture" },
       needsLlm: false,
