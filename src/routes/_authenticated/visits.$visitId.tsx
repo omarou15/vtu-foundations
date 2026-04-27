@@ -3,7 +3,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
-  ArrowLeft,
   LayoutDashboard,
   List,
   Sparkles,
