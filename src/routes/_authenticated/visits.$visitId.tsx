@@ -301,7 +301,7 @@ function VisitChatPage() {
               {conflictsCount > 0 ? (
                 <button
                   type="button"
-                  onClick={() => openJson("todo")}
+                  onClick={() => openDrawer("json", "todo")}
                   className="font-ui inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive transition hover:bg-destructive/15 active:bg-destructive/20"
                   aria-label={`${conflictsCount} conflit${conflictsCount > 1 ? "s" : ""} — ouvrir`}
                   data-testid="header-conflicts-badge"
@@ -353,11 +353,13 @@ function VisitChatPage() {
         <ChatInputBar visitId={visit.id} onSubmit={handleSubmit} />
       </main>
 
-      <JsonViewerDrawer
+      <UnifiedVisitDrawer
         visitId={visit.id}
-        open={jsonOpen}
-        onOpenChange={setJsonOpen}
-        initialMode={jsonInitialMode}
+        visitTitle={visit.title}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        initialTab={drawerInitialTab}
+        jsonInitialMode={jsonInitialMode}
       />
     </div>
   );
