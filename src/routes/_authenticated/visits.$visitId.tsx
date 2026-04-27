@@ -60,7 +60,8 @@ function VisitChatPage() {
   const setAiEnabled = useChatStore((s) => s.setAiEnabled);
   const isOnline = useConnectionStore((s) => s.isOnline);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [jsonOpen, setJsonOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerInitialTab, setDrawerInitialTab] = useState<DrawerTab | undefined>(undefined);
   const [jsonInitialMode, setJsonInitialMode] = useState<"tree" | "todo">("tree");
 
   // Met à jour la variable CSS --kb-height pour garder l'input bar au-dessus du clavier.
