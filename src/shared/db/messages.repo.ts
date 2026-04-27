@@ -58,9 +58,36 @@ export async function appendLocalMessage(
     next_attempt_at: now,
   };
 
+  // It. 10 — Trigger LLM route_and_dispatch pour les messages user
+  // « substantiels » (≥10 chars OU au moins 1 attachment annoncé via metadata).
+  // Anti-boucle : assistant/system jamais déclenchés ici.
+  const attachmentCount =
+    typeof input.metadata?.attachment_count === "number"
+      ? (input.metadata.attachment_count as number)
+      : 0;
+  const contentLen = (input.content ?? "").length;
+  const shouldDispatchLlm =
+    input.role === "user" && (contentLen >= 10 || attachmentCount > 0);
+
+  const llmDispatchEntry: SyncQueueEntry | null = shouldDispatchLlm
+    ? {
+        table: "messages",
+        op: "llm_route_and_dispatch",
+        row_id: message.id,
+        payload: { message_id: message.id, visit_id: input.visitId },
+        attempts: 0,
+        last_error: null,
+        created_at: now,
+        next_attempt_at: now,
+      }
+    : null;
+
   await db.transaction("rw", db.messages, db.sync_queue, async () => {
     await db.messages.add(message);
     await db.sync_queue.add(queueEntry);
+    if (llmDispatchEntry) {
+      await db.sync_queue.add(llmDispatchEntry);
+    }
   });
 
   return message;
