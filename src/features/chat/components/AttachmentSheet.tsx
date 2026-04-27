@@ -40,6 +40,7 @@ import {
 } from "@/shared/photo";
 import { attachPendingMediaToMessage } from "@/shared/photo";
 import { appendLocalMessage } from "@/shared/db";
+import { useChatStore } from "@/features/chat/store";
 import type { LocalAttachment } from "@/shared/db/schema";
 
 interface AttachmentSheetProps {
@@ -164,12 +165,11 @@ export function AttachmentSheet({
 
   async function handleSend() {
     if (!userId || drafts.length === 0) return;
-    setSending();
     setBusy(true);
     try {
       const allPdf = drafts.every((d) => d.media_profile === "pdf");
       // Lecture toggle IA pour gate dispatch côté repo (it. 10.7)
-      const aiEnabled = useChatStoreApi.getState().isAiEnabled(visitId);
+      const aiEnabled = useChatStore.getState().isAiEnabled(visitId);
       const message = await appendLocalMessage({
         userId,
         visitId,
