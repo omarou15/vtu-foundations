@@ -99,9 +99,10 @@ function VisitChatPage() {
     [latestState, visitMessages],
   );
 
-  const openJson = (mode: "tree" | "todo") => {
-    setJsonInitialMode(mode);
-    setJsonOpen(true);
+  const openDrawer = (tab?: DrawerTab, jsonMode: "tree" | "todo" = "tree") => {
+    setDrawerInitialTab(tab);
+    setJsonInitialMode(jsonMode);
+    setDrawerOpen(true);
   };
 
   if (visit === undefined) {
