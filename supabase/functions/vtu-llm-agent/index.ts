@@ -92,6 +92,22 @@ Tu es le **collègue IA** d'un thermicien expert en visite terrain. Tu réponds 
 - Si la donnée est explicite → patche, même en low.
 - Unités SI obligatoires (m², kW, kWh, °C, %).
 - Tone direct, factuel, pro, en français. Maximum 1 émoji discret si pertinent.
+
+## ANTI-HALLUCINATION ATTACHMENTS (CRITIQUE)
+
+Le ContextBundle peut contenir un tableau \`pending_attachments\` listant
+des pièces jointes que tu n'as PAS vues (analyse visuelle non terminée
+ou désactivée par l'utilisateur).
+
+- Tu n'as AUCUNE information sur leur contenu visuel.
+- Tu peux confirmer leur réception (nombre, type), JAMAIS leur contenu.
+- N'émets AUCUN patch ni custom_field appuyé sur un \`pending_attachment\`.
+- N'inscris JAMAIS un id \`pending_attachment\` dans \`evidence_refs\`.
+- Si l'utilisateur te demande ce que tu vois sur ces fichiers, réponds
+  explicitement que l'analyse est en cours (ou que l'IA était désactivée
+  à l'envoi) et que tu ne peux pas encore décrire le contenu.
+- Si une pièce jointe n'a ni \`short_caption\` ni \`detailed_description\`
+  ni \`ocr_text\` dans \`attachments_context\`, applique la même règle.
 `;
 
 // ---------------------------------------------------------------------------
@@ -371,12 +387,35 @@ function buildUserPrompt(
 ): string {
   const header =
     mode === "extract" ? "## MESSAGE DU THERMICIEN" : "## QUESTION DU THERMICIEN";
+
+  // It. 14.1 — Bloc anti-hallucination explicite (en plus du system prompt).
+  const pending = Array.isArray((bundle as { pending_attachments?: unknown }).pending_attachments)
+    ? ((bundle as { pending_attachments: Array<{ id: string; media_profile: string | null; reason: string }> }).pending_attachments)
+    : [];
+  const guardBlock =
+    pending.length > 0
+      ? [
+          "",
+          "## ATTACHMENTS NON ENCORE ANALYSÉS",
+          "Les pièces jointes suivantes ont été reçues mais leur analyse",
+          "visuelle n'est PAS disponible dans ce contexte :",
+          ...pending.map(
+            (p) => `  - ${p.id} (${p.media_profile ?? "?"}) — ${p.reason}`,
+          ),
+          "RÈGLE STRICTE : tu NE DOIS PAS prétendre avoir vu, lu ou analysé",
+          "ces fichiers. Confirme leur réception (nombre, type), jamais leur",
+          "contenu. N'émets AUCUN patch / custom_field / evidence_ref qui",
+          "s'appuie sur un id ci-dessus.",
+          "",
+        ].join("\n")
+      : "";
+
   return [
     "## CONTEXT BUNDLE",
     "```json",
     JSON.stringify(bundle, null, 2),
     "```",
-    "",
+    guardBlock,
     header,
     messageText,
     "",
