@@ -2,8 +2,9 @@
  * VTU — It. 14 : résolution d'une thumbnail d'attachment.
  *
  * Stratégie :
- *  1. Si un blob local existe (compressed_path / thumbnail_path stocké dans
- *     `attachment_blobs`), on l'utilise → instantané, offline-friendly.
+ *  1. Si un blob local existe (`compressed` puis `thumbnail`), on l'utilise
+ *     → instantané, offline-friendly. Le full compressed est préféré car les
+ *     miniatures historiques peuvent être absentes ou invalides.
  *  2. Sinon, si l'attachment est `synced` côté serveur, on demande une URL
  *     signée à Supabase Storage (TTL 1h) et on l'affiche.
  *  3. En arrière-plan, on fetch le blob distant et on le ré-écrit dans
@@ -58,7 +59,7 @@ export function useAttachmentThumb(
     async () => {
       if (isPdf) return null;
       const row = await getDb().attachment_blobs.get(attachment.id);
-      return row?.thumbnail ?? row?.compressed ?? null;
+      return row?.compressed ?? row?.thumbnail ?? null;
     },
     [attachment.id, isPdf],
     null as Blob | null,
@@ -129,7 +130,7 @@ export function useAttachmentThumb(
 async function resolveSignedUrl(
   attachment: LocalAttachment,
 ): Promise<string | null> {
-  const path = attachment.thumbnail_path ?? attachment.compressed_path;
+  const path = attachment.compressed_path ?? attachment.thumbnail_path;
   if (!path) return null;
 
   const cacheKey = `${attachment.bucket}::${path}`;
