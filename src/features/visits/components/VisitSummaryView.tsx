@@ -17,7 +17,6 @@ import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
   Home,
-  Brick,
   Layers,
   Flame,
   Droplets,
@@ -69,9 +68,9 @@ interface SectionDef {
   isMeta?: boolean;
 }
 
-// `Brick` n'existe pas dans lucide → on utilise Layers comme repli pour
-// l'enveloppe et on garde un emoji 🧱 dans le label ne casse rien (mais
-// on évite les emojis en titre — on garde l'icône claire).
+// On utilise Layers pour "Enveloppe" — pas d'icône brique dispo dans
+// lucide-react. Icônes thématiques choisies pour rester reconnaissables
+// (Flame=chauffage, Droplets=ECS, Wind=ventilation, Snowflake=clim, Sun=PV).
 const SECTIONS: SectionDef[] = [
   { key: "meta", label: "Identification", Icon: Home, isMeta: true },
   { key: "building", label: "Bâtiment", Icon: Home },
