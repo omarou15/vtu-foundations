@@ -43,6 +43,11 @@ export function JsonViewerDrawer({ visitId, open, onOpenChange }: JsonViewerDraw
     () => (latest ? countLowConfidenceFields(latest.state) : 0),
     [latest],
   );
+  // It. 10 — compteur Field<T> issus IA non encore validés
+  const unvalidatedAiCount = useMemo(
+    () => (latest ? countUnvalidatedAiFields(latest.state) : 0),
+    [latest],
+  );
 
   // It. 9 — compteur médias (stub : juste les totaux par profil)
   const media = useLiveQuery(
