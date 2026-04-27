@@ -165,9 +165,14 @@ function MessageBubble({ message }: { message: LocalMessage }) {
             : "bg-card text-card-foreground border border-border rounded-bl-sm",
         ].join(" ")}
       >
-        <p className="font-body whitespace-pre-wrap break-words">
-          {message.content}
-        </p>
+        {(message.kind === "photo" || message.kind === "document") ? (
+          <MessageAttachments messageId={message.id} isUser={isUser} />
+        ) : null}
+        {message.content ? (
+          <p className="font-body whitespace-pre-wrap break-words">
+            {message.content}
+          </p>
+        ) : null}
         <p
           className={[
             "font-ui mt-1 text-[10px]",
