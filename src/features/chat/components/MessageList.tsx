@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { getDb, listLocalMessagesByVisit, type LocalMessage } from "@/shared/db";
 import { formatRelative } from "../lib/relativeTime";
 import { PendingActionsCard } from "./PendingActionsCard";
+import { MessageAttachments } from "./MessageAttachments";
 
 interface MessageListProps {
   visitId: string;
