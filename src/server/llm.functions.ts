@@ -77,6 +77,15 @@ const ContextBundleSchema = z.object({
       ocr_text: z.string().nullable(),
     }),
   ),
+  pending_attachments: z
+    .array(
+      z.object({
+        id: z.string(),
+        media_profile: z.string().nullable(),
+        reason: z.enum(["no_description_yet", "ai_disabled_when_sent"]),
+      }),
+    )
+    .default([]),
   nomenclature_hints: z.record(z.string(), z.unknown()),
 });
 
