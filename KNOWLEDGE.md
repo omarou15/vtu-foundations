@@ -285,6 +285,13 @@ multi-user, partage, push, édition message, export.
   `conversational`. C'est l'arbitrage doctrinal documenté §15 (hint
   prime sur terrain_pattern). Si le user attendait une saisie, il
   écrira sans le « ? ».
+- **It. 10.6 — Dictée audio native = transcription clavier iOS suffit.**
+  Whisper reporté Phase 4+ si jargon thermique mal transcrit en
+  pratique terrain.
+- **It. 10.6 — Limite batch import = 10 fichiers** (`MAX_BATCH` dans
+  `AttachmentSheet`). Au-delà, toast warning et seuls les N premiers
+  sont ajoutés. Volumétrie suffisante pour une visite type ; à
+  réévaluer si retours terrain demandent plus.
 
 ### §14 — Pipeline médias (Phase 2 It. 9)
 
