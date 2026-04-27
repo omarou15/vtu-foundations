@@ -18,13 +18,7 @@ import { VisitsSidebar, UnifiedVisitDrawer, type DrawerTab } from "@/features/vi
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+// (dropdown menu retiré : le hamburger ouvre directement la liste des visites)
 import {
   BUILDING_ICON,
   BUILDING_LABEL,
