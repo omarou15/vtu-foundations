@@ -467,17 +467,51 @@ async function processAttachmentUpload(
     return await scheduleRetryOrFail(entry, err);
   }
 
-  // g) Mark synced
+  // g) Mark synced + enqueue describe_media (It. 10)
   await db.transaction(
     "rw",
     [db.sync_queue, db.attachments],
     async () => {
       await markLocalRowSynced(entry);
       if (entry.id != null) await db.sync_queue.delete(entry.id);
+      await enqueueDescribeMediaIfNeeded(attachment.id);
     },
   );
   // h) Cleanup blob → DIFFÉRÉ (cf. pruneOldBlobs, KNOWLEDGE §14)
   return "ok";
+}
+
+/**
+ * It. 10 — Enqueue un job describe_media pour cet attachment si aucun job
+ * n'existe déjà (idempotent). Le handler PDF skip lui-même.
+ * Appelé dans une transaction rw incluant db.sync_queue.
+ */
+async function enqueueDescribeMediaIfNeeded(
+  attachmentId: string,
+): Promise<void> {
+  const db = getDb();
+  let existing: SyncQueueEntry[] = [];
+  try {
+    existing = await db.sync_queue
+      .where("[op+row_id]")
+      .equals(["describe_media", attachmentId])
+      .toArray();
+  } catch {
+    return;
+  }
+  if (existing.length > 0) return;
+  const now = new Date().toISOString();
+  const job: SyncQueueEntry = {
+    table: "attachments",
+    op: "describe_media",
+    row_id: attachmentId,
+    payload: { attachment_id: attachmentId },
+    attempts: 0,
+    last_error: null,
+    created_at: now,
+    next_attempt_at: now,
+  };
+  await db.sync_queue.add(job);
 }
 
 function serializeAttachmentForSync(
