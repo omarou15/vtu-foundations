@@ -235,6 +235,17 @@ function DraftThumb({ draft }: { draft: LocalAttachment }) {
           Dup
         </div>
       ) : null}
+
+      {/* It. 10 — Badge ✨ description IA disponible */}
+      {hasAiDescription ? (
+        <div
+          className="pointer-events-none absolute right-1 bottom-8 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/90 text-primary-foreground shadow-sm"
+          aria-label="Analysé par l'IA"
+          data-testid={`ai-described-${draft.id}`}
+        >
+          <Sparkles className="h-3 w-3" />
+        </div>
+      ) : null}
     </div>
   );
 }
