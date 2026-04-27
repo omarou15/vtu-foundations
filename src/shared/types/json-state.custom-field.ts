@@ -94,12 +94,22 @@ function makeField<T>(
   confidence: FieldConfidence | null,
   sourceMessageId: string | null = null,
 ): Field<T> {
+  const now = new Date().toISOString();
+  // It. 10 : tout Field non-IA avec une valeur posée est considéré "validated".
+  // Si source=ai_infer ou si value est null, status="unvalidated".
+  const isAiInfer = source === "ai_infer";
+  const validated = !isAiInfer && value !== null;
   return {
     value,
     source,
     confidence,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
     source_message_id: sourceMessageId,
+    validation_status: validated ? "validated" : "unvalidated",
+    validated_at: validated ? now : null,
+    validated_by: null,
+    source_extraction_id: null,
+    evidence_refs: [],
   };
 }
 

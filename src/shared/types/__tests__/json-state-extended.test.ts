@@ -98,6 +98,11 @@ describe("*_other — convention libre (pas de validation Zod bloquante)", () =>
       confidence: "high",
       updated_at: new Date().toISOString(),
       source_message_id: null,
+      validation_status: "validated",
+      validated_at: new Date().toISOString(),
+      validated_by: null,
+      source_extraction_id: null,
+      evidence_refs: [],
     };
     // wall_material_other reste null → on n'attend PAS d'erreur Zod (UI-only)
     expect(() => VisitJsonStateSchema.parse(s)).not.toThrow();
