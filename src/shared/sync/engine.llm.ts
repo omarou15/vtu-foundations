@@ -248,6 +248,15 @@ export async function processDescribeMedia(
     warnings: result.warnings,
   });
 
+  // It. 14 — Streaming photo-par-photo : si la photo appartient à un batch
+  // (≥ 2 attachments sur le même message), on émet immédiatement une bulle
+  // assistant `photo_caption` pour donner un signal visible de progression.
+  // Idempotent via metadata.attachment_id (anti-doublon).
+  await maybeEmitPhotoCaption({
+    attachment,
+    shortCaption: result.short_caption,
+  });
+
   await helpers.markLocalRowSynced(entry);
   if (entry.id != null) await db.sync_queue.delete(entry.id);
 
