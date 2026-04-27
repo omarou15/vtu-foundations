@@ -180,9 +180,15 @@ async function processEntry(
   entry: SyncQueueEntry,
 ): Promise<ProcessResult> {
   const db = getDb();
+  const isLlmOp =
+    entry.op === "describe_media" || entry.op === "llm_route_and_dispatch";
 
   // Marquer la ligne locale en "syncing" (lecture optimiste).
-  await markLocalRowSyncing(entry);
+  // Exception It. 10 : les ops LLM (describe_media, llm_route_and_dispatch)
+  // ne doivent PAS contaminer le sync_status de la row sous-jacente
+  // (l'attachment ou le message reste "synced" — l'audit LLM est
+  // tracké séparément dans llm_extractions / attachment_ai_descriptions).
+  if (!isLlmOp) await markLocalRowSyncing(entry);
 
   try {
     if (entry.op === "attachment_upload") {
@@ -190,11 +196,15 @@ async function processEntry(
     }
 
     if (entry.op === "describe_media" || entry.op === "llm_route_and_dispatch") {
+      // Helpers wrappés : les ops LLM ne doivent pas modifier le sync_status
+      // de la row sous-jacente (attachment / message). On no-op les marks de
+      // ligne locale ; seule la queue est gérée. L'audit LLM est tracké
+      // dans llm_extractions / attachment_ai_descriptions.
       const helpers: EngineHelpers = {
-        markLocalRowSynced,
-        markLocalRowFailed,
-        scheduleDependencyWait: (e, reason) => scheduleDependencyWait(e, reason),
-        scheduleRetryOrFail: (e, err) => scheduleRetryOrFail(e, err),
+        markLocalRowSynced: async () => undefined,
+        markLocalRowFailed: async () => undefined,
+        scheduleDependencyWait: (e, reason) => scheduleDependencyWaitLlm(e, reason),
+        scheduleRetryOrFail: (e, err) => scheduleRetryOrFailLlm(e, err),
       };
       const supaForLlm = supabase as unknown as SyncSupabaseLikeForLlm;
       if (entry.op === "describe_media") {
@@ -311,6 +321,47 @@ async function scheduleDependencyWait(
   return "retry-later";
 }
 
+// ---------------------------------------------------------------------------
+// Variantes LLM (queue-only) — ne touchent PAS la row sous-jacente
+// ---------------------------------------------------------------------------
+
+async function scheduleRetryOrFailLlm(
+  entry: SyncQueueEntry,
+  err: unknown,
+): Promise<ProcessResult> {
+  const db = getDb();
+  const message = extractErrorMessage(err);
+  const nextAttempts = entry.attempts + 1;
+  if (nextAttempts >= MAX_ATTEMPTS) {
+    if (entry.id != null) await db.sync_queue.delete(entry.id);
+    return "failed";
+  }
+  const backoff = computeBackoffMs(nextAttempts);
+  const next = new Date(Date.now() + backoff).toISOString();
+  if (entry.id != null) {
+    await db.sync_queue.update(entry.id, {
+      attempts: nextAttempts,
+      last_error: message,
+      next_attempt_at: next,
+    });
+  }
+  return "retry-later";
+}
+
+async function scheduleDependencyWaitLlm(
+  entry: SyncQueueEntry,
+  reason: string,
+): Promise<ProcessResult> {
+  const db = getDb();
+  const next = new Date(Date.now() + WAIT_DEPENDENCY_BACKOFF_MS).toISOString();
+  if (entry.id != null) {
+    await db.sync_queue.update(entry.id, {
+      last_error: reason,
+      next_attempt_at: next,
+    });
+  }
+  return "retry-later";
+}
 // ---------------------------------------------------------------------------
 // attachment_upload handler (It. 9)
 //
@@ -467,17 +518,51 @@ async function processAttachmentUpload(
     return await scheduleRetryOrFail(entry, err);
   }
 
-  // g) Mark synced
+  // g) Mark synced + enqueue describe_media (It. 10)
   await db.transaction(
     "rw",
     [db.sync_queue, db.attachments],
     async () => {
       await markLocalRowSynced(entry);
       if (entry.id != null) await db.sync_queue.delete(entry.id);
+      await enqueueDescribeMediaIfNeeded(attachment.id);
     },
   );
   // h) Cleanup blob → DIFFÉRÉ (cf. pruneOldBlobs, KNOWLEDGE §14)
   return "ok";
+}
+
+/**
+ * It. 10 — Enqueue un job describe_media pour cet attachment si aucun job
+ * n'existe déjà (idempotent). Le handler PDF skip lui-même.
+ * Appelé dans une transaction rw incluant db.sync_queue.
+ */
+async function enqueueDescribeMediaIfNeeded(
+  attachmentId: string,
+): Promise<void> {
+  const db = getDb();
+  let existing: SyncQueueEntry[] = [];
+  try {
+    existing = await db.sync_queue
+      .where("[op+row_id]")
+      .equals(["describe_media", attachmentId])
+      .toArray();
+  } catch {
+    return;
+  }
+  if (existing.length > 0) return;
+  const now = new Date().toISOString();
+  const job: SyncQueueEntry = {
+    table: "attachments",
+    op: "describe_media",
+    row_id: attachmentId,
+    payload: { attachment_id: attachmentId },
+    attempts: 0,
+    last_error: null,
+    created_at: now,
+    next_attempt_at: now,
+  };
+  await db.sync_queue.add(job);
 }
 
 function serializeAttachmentForSync(
