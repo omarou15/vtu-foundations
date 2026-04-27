@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   List,
   Menu,
+  Send,
   Sparkles,
   WifiOff,
 } from "lucide-react";
@@ -219,6 +220,10 @@ function VisitChatPage() {
                 <DropdownMenuItem onSelect={() => openDrawer("summary")}>
                   <LayoutDashboard className="mr-2 h-4 w-4" />
                   Ouvrir le panneau VT
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openDrawer("export_monday")}>
+                  <Send className="mr-2 h-4 w-4" />
+                  Exporter la VT
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="md:hidden" />
                 <DropdownMenuItem
