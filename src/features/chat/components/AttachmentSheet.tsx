@@ -131,7 +131,11 @@ export function AttachmentSheet({
     }
   }
 
-  async function handleImportFiles(files: FileList | null) {
+  async function handleImportFiles(
+    files: FileList | null,
+    forcedProfile: "photo" | null,
+    inputRef: React.MutableRefObject<HTMLInputElement | null>,
+  ) {
     if (!files || files.length === 0) return;
     if (!userId) {
       toast.error("Session expirée");
@@ -145,22 +149,17 @@ export function AttachmentSheet({
       });
     }
     setBusy(true);
-    let added = 0;
     for (const file of arr.slice(0, Math.max(0, room))) {
-      const profile = detectDefaultProfile(file);
+      const profile = forcedProfile ?? detectDefaultProfile(file);
       try {
         await addMediaToVisit({ visitId, userId, file, profile });
-        added++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Erreur inconnue";
         toast.error(`Échec import ${file.name}`, { description: msg });
       }
     }
     setBusy(false);
-    if (fileRef.current) fileRef.current.value = "";
-    if (added === 0 && arr.length > 0) {
-      // On reste en mode import pour que l'user puisse réessayer
-    }
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   async function handleSend() {
