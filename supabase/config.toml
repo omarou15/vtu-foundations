@@ -2,3 +2,6 @@ project_id = "pbrxotiadmubghuyictp"
 
 [functions.vtu-llm-agent]
 verify_jwt = true
+
+[functions.vtu-monitoring]
+verify_jwt = true
