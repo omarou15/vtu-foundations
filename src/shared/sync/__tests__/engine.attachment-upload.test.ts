@@ -193,13 +193,17 @@ describe("engine — processAttachmentUpload", () => {
 
     const result = await runSyncOnce(supabase);
 
-    expect(result.processed).toBe(1);
+    // attachment_upload processed (au moins 1). describe_media est aussi
+    // enqueué (It. 10) puis traité (échec attendu sans createSignedUrl mocké).
+    expect(result.processed).toBeGreaterThanOrEqual(1);
     expect(state.uploads).toHaveLength(2); // compressed + thumbnail
-    expect(state.inserts).toHaveLength(1);
-    expect(state.inserts[0]!.table).toBe("attachments");
+    const attachInserts = state.inserts.filter((i) => i.table === "attachments");
+    expect(attachInserts).toHaveLength(1);
 
+    // Queue ne contient plus l'attachment_upload (peut contenir un
+    // describe_media en retry à cause du mock incomplet — c'est OK).
     const queue = await getDb().sync_queue.toArray();
-    expect(queue).toHaveLength(0);
+    expect(queue.filter((q) => q.op === "attachment_upload")).toHaveLength(0);
 
     const reloaded = await getDb().attachments.get(att.id);
     expect(reloaded?.sync_status).toBe("synced");
