@@ -124,6 +124,19 @@ const ROUTER_RULES: ReadonlyArray<{ order: number; name: string; route: string; 
 // Le routeur déterministe ci-dessus est gardé en référence pour les modes
 // hérités (médias) et pour préparer l'option Auto du Lot 2.
 
+const COMPRESSION_PASSES: ReadonlyArray<{ id: string; name: string; doc: string }> = [
+  { id: "0", name: "no_op", doc: "Bundle déjà sous le budget tokens → envoyé tel quel, historique illimité." },
+  { id: "1", name: "trim_ocr_500c", doc: "OCR > 500 caractères tronqué (… ajouté). Le moins destructif." },
+  { id: "2a", name: "trim_assistant_800c", doc: "Messages assistant > 800 caractères tronqués." },
+  { id: "2b", name: "trim_user_1500c", doc: "Messages user > 1500 caractères tronqués." },
+  { id: "2c", name: "keep_last_50", doc: "Garde les 50 derniers messages." },
+  { id: "2d", name: "keep_last_20", doc: "Garde les 20 derniers messages." },
+  { id: "2e", name: "keep_last_8", doc: "Filet final messages : garde les 8 derniers." },
+  { id: "3", name: "drop_ocr", doc: "Supprime totalement ocr_text de tous les attachments." },
+  { id: "4", name: "strip_details", doc: "Supprime detailed_description + sections non essentielles du state_summary." },
+  { id: "5", name: "failed", doc: "Toujours hors budget après toutes les passes → status=failed, l'appel IA est rejeté." },
+];
+
 // ---------------------------------------------------------------------------
 // Composant racine
 // ---------------------------------------------------------------------------
@@ -245,7 +258,7 @@ function CallInspector({ call }: { call: LocalLlmExtraction }) {
       <div className="mt-3 flex flex-col gap-2">
         <JsonAccordion label="Context bundle complet" data={bundle} defaultOpen />
         <JsonAccordion
-          label={`Historique réellement envoyé (${recent?.length ?? 0} messages — limite actuelle : 8)`}
+          label={`Historique réellement envoyé (${recent?.length ?? 0} messages — illimité par défaut, compression progressive si dépassement budget)`}
           data={recent ?? "Non disponible dans ce dump"}
         />
         <JsonAccordion
@@ -348,6 +361,35 @@ function Block2Hardcoded() {
             </li>
           ))}
         </ul>
+      </CardShell>
+
+      {/* Compression progressive du context bundle */}
+      <CardShell>
+        <h4 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
+          <FileWarning className="h-4 w-4 text-muted-foreground" />
+          Compression progressive du context bundle
+        </h4>
+        <p className="font-body mt-1 text-xs text-muted-foreground">
+          L'historique est <strong>illimité par défaut</strong>. Si le bundle
+          dépasse le budget tokens (~12 000), <code className="font-ui">compress.ts</code> applique
+          ces passes dans l'ordre, en sortant dès qu'on repasse sous le budget.
+        </p>
+        <ol className="mt-3 flex flex-col gap-1.5">
+          {COMPRESSION_PASSES.map((p) => (
+            <li
+              key={p.id}
+              className="grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5"
+            >
+              <span className="font-ui text-[11px] font-semibold text-muted-foreground">
+                {p.id}
+              </span>
+              <code className="font-ui text-[11px] font-medium text-primary">
+                {p.name}
+              </code>
+              <span className="font-body text-xs text-muted-foreground">{p.doc}</span>
+            </li>
+          ))}
+        </ol>
       </CardShell>
 
       {/* Routeur déterministe */}

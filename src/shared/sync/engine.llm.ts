@@ -325,14 +325,16 @@ export async function processLlmRouteAndDispatch(
     }
   }
 
-  // Charger les 8 derniers messages de la visite
+  // Historique complet de la visite (cap dur retiré).
+  // La compression progressive (compress.ts, passes 2a→2e) reste le filet
+  // de sécurité si le bundle dépasse le budget tokens.
   const recentRaw = await db.messages
     .where("[visit_id+created_at]")
     .between([visit.id, ""], [visit.id, "\uffff"])
     .toArray();
-  const recent = recentRaw
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    .slice(-8);
+  const recent = recentRaw.sort((a, b) =>
+    a.created_at.localeCompare(b.created_at),
+  );
 
   const attachmentDescriptions = await Promise.all(
     attachments.map(async (a) => {

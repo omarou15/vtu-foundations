@@ -41,11 +41,16 @@ export interface BuildContextInput {
   }>;
   /** Hints de nomenclature filtrés par mission_type. */
   nomenclatureHints?: Record<string, unknown>;
-  /** Limite par défaut de messages récents inclus. */
+  /**
+   * Limite optionnelle de messages récents inclus.
+   * Par défaut : illimité (Number.POSITIVE_INFINITY) — la compression
+   * progressive de `compress.ts` se charge de réduire si le bundle
+   * dépasse le budget tokens.
+   */
   maxRecentMessages?: number;
 }
 
-const DEFAULT_MAX_RECENT_MESSAGES = 20;
+const DEFAULT_MAX_RECENT_MESSAGES = Number.POSITIVE_INFINITY;
 
 export function buildContextBundle(input: BuildContextInput): ContextBundle {
   const state = input.latestState.state as VisitJsonState;
