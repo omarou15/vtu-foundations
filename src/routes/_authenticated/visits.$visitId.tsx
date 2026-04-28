@@ -262,6 +262,47 @@ function VisitChatPage() {
               >
                 IA{!aiGlobalEnabled ? " (désactivée globalement)" : ""}
               </Label>
+
+              {/* Toggle manuel Conv / JSON — remplace le router automatique.
+                  Visible uniquement quand l'IA est active. Les médias
+                  ignorent ce mode (toujours Phase 1 extract). */}
+              {aiEnabled ? (
+                <div
+                  role="radiogroup"
+                  aria-label="Mode IA pour le prochain message"
+                  className="ml-1 inline-flex overflow-hidden rounded-full border border-border bg-background"
+                  data-testid="ai-route-mode-switch"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={aiRouteMode === "conv"}
+                    onClick={() => setRouteMode(visit.id, "conv" as AiRouteMode)}
+                    data-testid="ai-route-mode-conv"
+                    className={`font-ui px-2.5 py-0.5 text-[10px] font-medium transition-colors ${
+                      aiRouteMode === "conv"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Conv
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={aiRouteMode === "json"}
+                    onClick={() => setRouteMode(visit.id, "json" as AiRouteMode)}
+                    data-testid="ai-route-mode-json"
+                    className={`font-ui px-2.5 py-0.5 text-[10px] font-medium transition-colors ${
+                      aiRouteMode === "json"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    JSON
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               {/* It. 11 — badges cliquables : ouvrent le drawer en mode "À traiter". */}
