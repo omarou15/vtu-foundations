@@ -23,7 +23,6 @@ import {
   applyExtractResult,
   buildContextBundle,
   compressContextBundle,
-  routeMessage,
   type ContextBundle,
   type DescribeMediaResult,
   type ProviderMeta,
@@ -407,33 +406,48 @@ export async function processLlmRouteAndDispatch(
     return "ok";
   }
 
-  // Router déterministe (fallback LLM non utilisé en Phase 2)
-  const routed = routeMessage({
-    role: message.role,
-    kind: message.kind,
-    content: message.content,
-  });
-  // routed.needsLlm est false par construction (cf. router.ts) — on n'invoque
-  // pas routeMessageLlm ici. Si Phase 2.5 réintroduit needsLlm, brancher ici.
-  if (routed.needsLlm) {
-    await helpers.markLocalRowSynced(entry);
-    if (entry.id != null) await db.sync_queue.delete(entry.id);
-    return "ok";
-  }
-  const decision = routed.decision;
+  // Routing manuel (Option A) — remplace le router déterministe automatique.
+  // Doctrine : l'utilisateur contrôle explicitement Conv vs JSON via le
+  // toggle dans ChatInputBar. Plus aucune décision sémantique côté engine.
+  //
+  //  - Médias (photo/audio/document) : toujours `extract` (Phase 1
+  //    describeMedia + extract). Le toggle est ignoré pour ces kinds.
+  //  - Texte (kind=text) : lit `metadata.ai_route_mode`.
+  //      "conv" → handleConversational (réponse texte, aucun patch)
+  //      "json" (ou absent / valeur inconnue) → handleExtract
+  const isMedia =
+    message.kind === "photo" ||
+    message.kind === "audio" ||
+    message.kind === "document";
 
-  if (decision.route === "ignore") {
-    await helpers.markLocalRowSynced(entry);
-    if (entry.id != null) await db.sync_queue.delete(entry.id);
-    return "ok";
+  if (isMedia) {
+    return await handleExtract(
+      message,
+      visit,
+      latestState.state,
+      compressed.bundle,
+      entry,
+      helpers,
+    );
   }
 
-  if (decision.route === "extract") {
-    return await handleExtract(message, visit, latestState.state, compressed.bundle, entry, helpers);
+  const routeModeMeta = (message.metadata as Record<string, unknown> | undefined)
+    ?.ai_route_mode;
+  const route: "conv" | "json" =
+    routeModeMeta === "conv" ? "conv" : "json";
+
+  if (route === "conv") {
+    return await handleConversational(message, compressed.bundle, entry, helpers);
   }
 
-  // conversational
-  return await handleConversational(message, compressed.bundle, entry, helpers);
+  return await handleExtract(
+    message,
+    visit,
+    latestState.state,
+    compressed.bundle,
+    entry,
+    helpers,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import { PhotoPreviewPanel } from "./PhotoPreviewPanel";
 import { listDraftMedia, attachPendingMediaToMessage } from "@/shared/photo";
 import type { LocalAttachment } from "@/shared/db/schema";
 import type { MessageKind } from "@/shared/types";
-import { useChatStore } from "../store";
+import { useChatStore, type AiRouteMode } from "../store";
 import { useLlmPending, cancelLlmForMessage } from "../lib/useLlmPending";
 
 interface ChatInputBarProps {
@@ -29,6 +29,7 @@ interface ChatInputBarProps {
     kind: MessageKind;
     attachmentCount: number;
     aiEnabled: boolean;
+    aiRouteMode: AiRouteMode;
   }) => Promise<{ id: string } | void> | { id: string } | void;
 }
 
@@ -51,6 +52,8 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
+  const aiRouteMode = useChatStore((s) => s.getRouteMode(visitId));
+  const setRouteMode = useChatStore((s) => s.setRouteMode);
   const { pending: llmPending, lastUserMessageId } = useLlmPending(visitId);
 
   // Auto-resize : on ajuste la hauteur en fonction du scrollHeight, plafonné.
@@ -105,6 +108,7 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
         kind,
         attachmentCount: currentDrafts.length,
         aiEnabled,
+        aiRouteMode,
       });
       // Si onSubmit a renvoyé { id }, on rattache les drafts.
       if (
@@ -143,6 +147,54 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
       >
         {/* Aperçu drafts médias (It. 9) */}
         <PhotoPreviewPanel visitId={visitId} />
+
+        {/* Toggle manuel Conv / JSON — remplace le router automatique.
+            Ne s'affiche que si l'IA est activée (sinon le mode est sans effet).
+            Médias : la valeur est ignorée côté engine (toujours Phase 1). */}
+        {aiEnabled ? (
+          <div
+            className="flex items-center justify-end gap-1 px-2 pt-1.5"
+            data-testid="ai-route-mode-switch"
+          >
+            <span className="font-ui text-[11px] uppercase tracking-wide text-muted-foreground">
+              Mode IA
+            </span>
+            <div
+              role="radiogroup"
+              aria-label="Mode IA pour le prochain message"
+              className="inline-flex overflow-hidden rounded-full border border-border bg-background"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={aiRouteMode === "conv"}
+                onClick={() => setRouteMode(visitId, "conv")}
+                data-testid="ai-route-mode-conv"
+                className={`font-ui px-3 py-1 text-xs font-medium transition-colors ${
+                  aiRouteMode === "conv"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                Conv
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={aiRouteMode === "json"}
+                onClick={() => setRouteMode(visitId, "json")}
+                data-testid="ai-route-mode-json"
+                className={`font-ui px-3 py-1 text-xs font-medium transition-colors ${
+                  aiRouteMode === "json"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                JSON
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex items-end gap-2 p-2">
           {/* Bouton [+] — ouvre l'AttachmentSheet intention-first */}
