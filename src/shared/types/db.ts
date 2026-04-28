@@ -259,6 +259,8 @@ export interface LlmExtractionRow {
   raw_response: Record<string, unknown>;
   patches_count: number;
   custom_fields_count: number;
+  /** It. 11.6 — nombre d'opérations `insert_entry` produites par le LLM. */
+  insert_entries_count: number;
   status: LlmExtractionStatus;
   warnings: string[];
   error_message: string | null;

@@ -48,17 +48,66 @@ export interface ContextBundle {
     media_profile: string | null;
     reason: "no_description_yet" | "ai_disabled_when_sent";
   }>;
+  /**
+   * It. 11.6 — Schema map du JSON state. Le LLM s'appuie dessus pour
+   * choisir entre :
+   *   - `set_field` (path ∈ object_fields OU collection.[id=…].field)
+   *   - `insert_entry` (collection ∈ schema_map.collections)
+   *   - `custom_field` (le reste)
+   * Format compact : entries listées avec id court + summary, pas le state
+   * complet. Le state_summary porte la donnée brute en parallèle.
+   */
+  schema_map: {
+    object_fields: string[];
+    collections: Record<
+      string,
+      {
+        item_fields: string[];
+        entries_count: number;
+        entries_summary: string[];
+      }
+    >;
+  };
   /** Nomenclature pertinente (paths déterminés via mission_type). */
   nomenclature_hints: Record<string, unknown>;
 }
 
-/** Patch IA visant un Field<T> ciblé du JSON state. */
+/**
+ * Patch IA `set_field` — modifie un Field<T> existant.
+ *
+ * Path syntaxe acceptée :
+ *   - `building.wall_material_value` (object field plat)
+ *   - `envelope.murs.material_value` (sous-objet)
+ *   - `heating.installations[id=abc-123].type_value` (entrée collection par UUID)
+ *
+ * REJETÉ par l'apply layer (plus jamais accepté) :
+ *   - `heating.installations[0].type_value` (index positionnel) →
+ *     forcer le LLM à utiliser `insert_entry` ou `[id=…]`.
+ */
 export interface AiFieldPatch {
-  /** Path dot-notation, ex: "heating.fuel_type". */
   path: string;
   value: unknown;
   confidence: "low" | "medium" | "high";
   /** IDs message + attachments servant de preuve. */
+  evidence_refs: string[];
+}
+
+/**
+ * Patch IA `insert_entry` — ajoute une nouvelle entrée à une collection.
+ *
+ * UUID généré par l'apply layer (jamais par le LLM). Tous les `fields`
+ * fournis sont posés en source="ai_infer", validation_status="unvalidated".
+ * Les champs absents restent `emptyField()`.
+ */
+export interface AiInsertEntry {
+  /** Path absolu vers la collection, ex: "heating.installations". */
+  collection: string;
+  /**
+   * Valeurs initiales pour les champs de l'item, ex: { type_value: "PAC", power_kw: 8 }.
+   * Les keys doivent être ∈ schema_map.collections[collection].item_fields.
+   */
+  fields: Record<string, unknown>;
+  confidence: "low" | "medium" | "high";
   evidence_refs: string[];
 }
 
@@ -74,9 +123,10 @@ export interface AiCustomField {
   evidence_refs: string[];
 }
 
-/** Sortie du mode "extract_from_message". */
+/** Sortie du mode "extract_from_message" — 3 verbes distincts. */
 export interface ExtractResult {
   patches: AiFieldPatch[];
+  insert_entries: AiInsertEntry[];
   custom_fields: AiCustomField[];
   warnings: string[];
   confidence_overall: number;

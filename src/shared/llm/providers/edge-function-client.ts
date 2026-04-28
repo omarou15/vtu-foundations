@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type {
   AiCustomField,
   AiFieldPatch,
+  AiInsertEntry,
   ContextBundle,
   ProviderMeta,
 } from "../types";
@@ -23,6 +24,8 @@ const FUNCTION_NAME = "vtu-llm-agent";
 export interface UnifiedAgentResult {
   assistant_message: string;
   patches: AiFieldPatch[];
+  /** It. 11.6 — opérations `insert_entry` (création d'entrée de collection). */
+  insert_entries: AiInsertEntry[];
   custom_fields: AiCustomField[];
   warnings: string[];
   confidence_overall: number;

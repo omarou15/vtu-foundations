@@ -20,8 +20,7 @@ import {
   getLatestLocalJsonState,
 } from "@/shared/db/json-state.repo";
 import {
-  applyCustomFields,
-  applyPatches,
+  applyExtractResult,
   buildContextBundle,
   compressContextBundle,
   routeMessage,
@@ -29,6 +28,7 @@ import {
   type DescribeMediaResult,
   type ProviderMeta,
 } from "@/shared/llm";
+import { buildSchemaMap } from "@/shared/types/json-state.schema-map";
 import { describeMedia } from "@/server/llm.functions";
 import {
   callVtuLlmAgent,
@@ -517,33 +517,30 @@ async function handleExtract(
     rawResponse: raw,
     patchesCount: result.patches?.length ?? 0,
     customFieldsCount: result.custom_fields?.length ?? 0,
+    insertEntriesCount: result.insert_entries?.length ?? 0,
     status: "success",
     warnings: result.warnings ?? [],
   });
 
-  // Apply patches + custom fields immédiatement (Field<T> en
-  // validation_status="unvalidated", source="ai_infer"). Le user validera
-  // ensuite via la PendingActionsCard.
-  const afterPatches = applyPatches({
+  // It. 11.6 — Apply via orchestrateur strict (3 verbes : set_field,
+  // insert_entry, custom_field). schemaMap est la carte autoritative
+  // contre laquelle l'apply layer valide chaque opération.
+  const schemaMap = buildSchemaMap(currentState);
+  const applyOut = applyExtractResult({
     state: currentState,
+    schemaMap,
     patches: result.patches ?? [],
-    sourceMessageId: message.id,
-    sourceExtractionId: extraction.id,
-  });
-  const afterCustom = applyCustomFields({
-    state: afterPatches.state,
+    insertEntries: result.insert_entries ?? [],
     customFields: result.custom_fields ?? [],
     sourceMessageId: message.id,
     sourceExtractionId: extraction.id,
   });
 
-  const totalChanges =
-    afterPatches.applied.length + afterCustom.applied.length;
-  if (totalChanges > 0) {
+  if (applyOut.totalApplied > 0) {
     await appendJsonStateVersion({
       userId: message.user_id,
       visitId: message.visit_id,
-      state: afterCustom.state,
+      state: applyOut.state,
       createdByMessageId: message.id,
       sourceExtractionId: extraction.id,
     });
@@ -555,15 +552,18 @@ async function handleExtract(
   //   on émet en PLUS un message `conflict_card` séparé. Le user
   //   arbitrera via ConflictCard sans polluer le actions_card normal.
   const hasProposals =
-    (result.patches?.length ?? 0) > 0 || (result.custom_fields?.length ?? 0) > 0;
+    (result.patches?.length ?? 0) > 0 ||
+    (result.insert_entries?.length ?? 0) > 0 ||
+    (result.custom_fields?.length ?? 0) > 0;
   const assistantMessage = (result.assistant_message ?? "").trim() ||
     "Bien noté, n'hésite pas à préciser.";
-  const ignoredPaths = afterPatches.ignored.map((i) => ({
+  const ignoredPaths = applyOut.patches.ignored.map((i) => ({
     path: i.path,
     reason: i.reason,
   }));
   const conflictPaths = ignoredPaths.filter((i) => i.reason === "human_source_prime");
   const proposedPatches = result.patches ?? [];
+  const proposedInserts = result.insert_entries ?? [];
 
   await appendLocalMessage({
     userId: message.user_id,
@@ -575,9 +575,16 @@ async function handleExtract(
       llm_extraction_id: extraction.id,
       mode: "extract",
       proposed_patches: proposedPatches,
+      proposed_insert_entries: proposedInserts,
       proposed_custom_fields: result.custom_fields ?? [],
-      applied_paths: afterPatches.applied.map((a) => a.path),
+      applied_paths: applyOut.patches.applied.map((a) => a.path),
+      applied_inserts: applyOut.insertEntries.applied.map((a) => ({
+        collection: a.collection,
+        entry_id: a.entryId,
+        fields_set: a.fields_set,
+      })),
       ignored_paths: ignoredPaths,
+      ignored_inserts: applyOut.insertEntries.ignored,
     },
   });
 

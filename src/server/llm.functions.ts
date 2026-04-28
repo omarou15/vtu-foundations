@@ -90,6 +90,24 @@ const ContextBundleSchema = z.object({
       }),
     )
     .default([]),
+  // It. 11.6 — schema_map : carte des paths/collections valides pour les
+  // 3 verbes IA. Forme compacte (entries résumées). Validation lâche côté
+  // gateway, le contenu est consommé tel quel par le LLM.
+  schema_map: z
+    .object({
+      object_fields: z.array(z.string()).default([]),
+      collections: z
+        .record(
+          z.string(),
+          z.object({
+            item_fields: z.array(z.string()).default([]),
+            entries_count: z.number().default(0),
+            entries_summary: z.array(z.string()).default([]),
+          }),
+        )
+        .default({}),
+    })
+    .optional(),
   nomenclature_hints: z.record(z.string(), z.unknown()),
 });
 
@@ -124,11 +142,15 @@ const DESCRIBE_MEDIA_TOOL_PARAMS = {
   additionalProperties: false,
 } as const;
 
+// It. 11.6 — 3 verbes : patches (set_field), insert_entries (insert_entry),
+// custom_fields (vocabulaire émergent).
 const EXTRACT_TOOL_PARAMS = {
   type: "object",
   properties: {
     patches: {
       type: "array",
+      description:
+        "set_field — modifie un Field<T> existant. path ∈ schema_map.object_fields OU '<collection>[id=<UUID>].<field>'. PAS d'index positionnel.",
       items: {
         type: "object",
         properties: {
@@ -141,8 +163,34 @@ const EXTRACT_TOOL_PARAMS = {
         additionalProperties: false,
       },
     },
+    insert_entries: {
+      type: "array",
+      description:
+        "insert_entry — crée une nouvelle entrée dans une collection connue. UUID généré côté serveur.",
+      items: {
+        type: "object",
+        properties: {
+          collection: {
+            type: "string",
+            description:
+              "Path absolu vers la collection (ex 'heating.installations'). DOIT ∈ schema_map.collections.",
+          },
+          fields: {
+            type: "object",
+            description:
+              "Valeurs initiales : keys DOIVENT ∈ schema_map.collections[collection].item_fields.",
+            additionalProperties: true,
+          },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+          evidence_refs: { type: "array", items: { type: "string" } },
+        },
+        required: ["collection", "fields", "confidence"],
+        additionalProperties: false,
+      },
+    },
     custom_fields: {
       type: "array",
+      description: "custom_field — vocabulaire émergent hors schéma rigide.",
       items: {
         type: "object",
         properties: {

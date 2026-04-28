@@ -38,6 +38,7 @@ export interface AppendLocalLlmExtractionInput {
   rawResponse: Record<string, unknown>;
   patchesCount?: number;
   customFieldsCount?: number;
+  insertEntriesCount?: number;
   status: LlmExtractionStatus;
   warnings?: string[];
   errorMessage?: string | null;
@@ -71,6 +72,7 @@ export async function appendLocalLlmExtraction(
     raw_response: input.rawResponse,
     patches_count: input.patchesCount ?? 0,
     custom_fields_count: input.customFieldsCount ?? 0,
+    insert_entries_count: input.insertEntriesCount ?? 0,
     status: input.status,
     warnings: input.warnings ?? [],
     error_message: input.errorMessage ?? null,
@@ -127,6 +129,7 @@ function serializeForSync(r: LlmExtractionRow): Record<string, unknown> {
     raw_response: r.raw_response,
     patches_count: r.patches_count,
     custom_fields_count: r.custom_fields_count,
+    insert_entries_count: r.insert_entries_count,
     status: r.status,
     warnings: r.warnings,
     error_message: r.error_message,
