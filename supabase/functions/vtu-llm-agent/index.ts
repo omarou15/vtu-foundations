@@ -290,12 +290,25 @@ Deno.serve(async (req) => {
       return errorResp(400, "bad_request", input.error);
     }
 
-    // --- Build user prompt
-    const userPrompt = buildUserPrompt(
+    // --- Build user prompt + multi-turn history
+    const { userPrompt, historyMessages } = buildPromptAndHistory(
       input.mode,
       input.messageText,
       input.contextBundle,
     );
+
+    const llmMessages = [
+      { role: "system", content: SYSTEM_UNIFIED },
+      ...historyMessages,
+      { role: "user", content: userPrompt },
+    ];
+
+    // Diagnostic — visible dans edge_function_logs
+    console.log("[vtu-llm-agent] llm_request", JSON.stringify({
+      mode: input.mode,
+      history_count: historyMessages.length,
+      user_message_preview: input.messageText.slice(0, 200),
+    }));
 
     // --- Call Lovable AI Gateway (timeout 60s)
     const ctrl = new AbortController();
@@ -312,10 +325,7 @@ Deno.serve(async (req) => {
         },
         body: JSON.stringify({
           model: MODEL,
-          messages: [
-            { role: "system", content: SYSTEM_UNIFIED },
-            { role: "user", content: userPrompt },
-          ],
+          messages: llmMessages,
           tools: [PROPOSE_VISIT_PATCHES_TOOL],
           tool_choice: {
             type: "function",
