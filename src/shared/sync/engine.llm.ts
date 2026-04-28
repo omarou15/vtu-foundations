@@ -234,7 +234,7 @@ export async function processDescribeMedia(
     },
   });
 
-  await appendLocalLlmExtraction({
+  const extraction = await appendLocalLlmExtraction({
     userId: attachment.user_id,
     visitId: attachment.visit_id,
     attachmentId: attachment.id,
@@ -880,6 +880,69 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("blob_read_failed"));
     reader.onload = () => resolve(String(reader.result));
     reader.readAsDataURL(blob);
+  });
+}
+
+async function appendPhotoDescriptionToJsonState(args: {
+  userId: string;
+  visitId: string;
+  attachmentId: string;
+  messageId: string | null;
+  extractionId: string;
+  confidence: "low" | "medium" | "high";
+  description: AttachmentAiDescriptionPayload;
+}): Promise<void> {
+  const latest = await getLatestLocalJsonState(args.visitId);
+  if (!latest) return;
+
+  const state = JSON.parse(JSON.stringify(latest.state)) as Record<string, unknown>;
+  const observations = ensureCustomObservationItems(state);
+  if (observations.some((item) => photoObservationAttachmentId(item) === args.attachmentId)) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const structured = args.description.structured_observations
+    .map((o) => `${o.section_hint}: ${o.observation}`)
+    .join("\n");
+  const content = [
+    args.description.short_caption,
+    args.description.detailed_description,
+    structured,
+    args.description.ocr_text ? `OCR: ${args.description.ocr_text}` : "",
+  ]
+    .filter((part) => part.trim().length > 0)
+    .join("\n\n");
+
+  observations.push({
+    id: crypto.randomUUID(),
+    topic: aiPhotoField(`Photo ${args.attachmentId}`, args),
+    content: aiPhotoField(content || "Photo analysée.", args),
+    created_at: now,
+    related_message_id: args.messageId,
+    custom_fields: [
+      {
+        field_key: "attachment_id",
+        label_fr: "ID pièce jointe",
+        value: args.attachmentId,
+        value_type: "string",
+        unit: null,
+        source: "ai_infer",
+        confidence: args.confidence,
+        created_at: now,
+        source_message_id: args.messageId,
+        source_extraction_id: args.extractionId,
+        evidence_refs: [args.attachmentId],
+      },
+    ],
+  });
+
+  await appendJsonStateVersion({
+    userId: args.userId,
+    visitId: args.visitId,
+    state: state as unknown as import("@/shared/types").VisitJsonState,
+    createdByMessageId: args.messageId,
+    sourceExtractionId: args.extractionId,
   });
 }
 
