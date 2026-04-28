@@ -1,11 +1,8 @@
 /**
- * It. 10 — Tests context bundle + sérialisation stable + hash.
+ * Tests context bundle + sérialisation stable + hash.
  *
- * Couvre :
- *  - stableSerialize : ordre des clés stable (même input → mêmes bytes).
- *  - hashContext : 2 inputs équivalents → même hash (cache prompt OK).
- *  - buildContextBundle : tronque les recent_messages au cap, attache
- *    descriptions IA, propage schema_version.
+ * Refonte avril 2026 — bundle minimal { schema_version, visit, state,
+ * recent_messages }. Plus d'attachments_context, schema_map, etc.
  */
 
 import { describe, expect, it } from "vitest";
@@ -83,7 +80,6 @@ describe("hashContext", () => {
     const h1 = await hashContext(c1);
     const h2 = await hashContext(c2);
     expect(h1).toBe(h2);
-    // SHA-256 = 64 hex chars
     expect(h1).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -103,7 +99,6 @@ describe("buildContextBundle", () => {
       visit: VISIT,
       latestState: STATE_ROW,
       recentMessages: messages,
-      attachmentDescriptions: [],
     });
     expect(bundle.recent_messages).toHaveLength(30);
     expect(bundle.recent_messages[0]?.content).toBe("content 0");
@@ -118,7 +113,6 @@ describe("buildContextBundle", () => {
       visit: VISIT,
       latestState: STATE_ROW,
       recentMessages: messages,
-      attachmentDescriptions: [],
       maxRecentMessages: 8,
     });
     expect(bundle.recent_messages).toHaveLength(8);
@@ -129,32 +123,18 @@ describe("buildContextBundle", () => {
       visit: VISIT,
       latestState: STATE_ROW,
       recentMessages: [],
-      attachmentDescriptions: [],
     });
     expect(bundle.schema_version).toBe(2);
   });
 
-  it("attache les descriptions IA des attachments", () => {
+  it("expose le state complet sous bundle.state (source de vérité)", () => {
     const bundle = buildContextBundle({
       visit: VISIT,
       latestState: STATE_ROW,
       recentMessages: [],
-      attachmentDescriptions: [
-        {
-          attachment_id: "a1",
-          media_profile: "photo",
-          description: {
-            short_caption: "façade nord",
-            detailed_description: "mur enduit",
-            structured_observations: [],
-            ocr_text: null,
-          },
-        },
-      ],
     });
-    expect(bundle.attachments_context).toHaveLength(1);
-    expect(bundle.attachments_context[0]?.short_caption).toBe("façade nord");
-    expect(bundle.attachments_context[0]?.media_profile).toBe("photo");
+    expect(bundle.state).toBeDefined();
+    expect(bundle.state.schema_version).toBe(2);
   });
 
   it("hash du bundle stable entre 2 builds identiques (snapshot prompt)", async () => {
@@ -162,7 +142,6 @@ describe("buildContextBundle", () => {
       visit: VISIT,
       latestState: STATE_ROW,
       recentMessages: [msg("m1", "salon", "2026-01-01T00:00:00.000Z")],
-      attachmentDescriptions: [],
     };
     const b1 = buildContextBundle(input);
     const b2 = buildContextBundle(input);
