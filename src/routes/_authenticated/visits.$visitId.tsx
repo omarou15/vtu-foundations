@@ -24,7 +24,7 @@ import {
   STATUS_BADGE_CLASS,
   STATUS_LABEL,
 } from "@/features/visits/lib/icons";
-import { ChatInputBar, MessageList, VisitAttachmentSyncStatus, useChatStore } from "@/features/chat";
+import { ChatInputBar, MessageList, VisitAttachmentSyncStatus, useChatStore, type AiRouteMode } from "@/features/chat";
 import { countUnvalidatedAiFields } from "@/features/json-state/lib/inspect";
 import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
 import { VisitDebugPanel } from "@/features/debug/VisitDebugPanel";
@@ -52,6 +52,8 @@ function VisitChatPage() {
   const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
   const aiGlobalEnabled = useChatStore((s) => s.aiGlobalEnabled);
   const setAiEnabled = useChatStore((s) => s.setAiEnabled);
+  const aiRouteMode = useChatStore((s) => s.getRouteMode(visitId));
+  const setRouteMode = useChatStore((s) => s.setRouteMode);
   const isOnline = useConnectionStore((s) => s.isOnline);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -260,6 +262,47 @@ function VisitChatPage() {
               >
                 IA{!aiGlobalEnabled ? " (désactivée globalement)" : ""}
               </Label>
+
+              {/* Toggle manuel Conv / JSON — remplace le router automatique.
+                  Visible uniquement quand l'IA est active. Les médias
+                  ignorent ce mode (toujours Phase 1 extract). */}
+              {aiEnabled ? (
+                <div
+                  role="radiogroup"
+                  aria-label="Mode IA pour le prochain message"
+                  className="ml-1 inline-flex overflow-hidden rounded-full border border-border bg-background"
+                  data-testid="ai-route-mode-switch"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={aiRouteMode === "conv"}
+                    onClick={() => setRouteMode(visit.id, "conv" as AiRouteMode)}
+                    data-testid="ai-route-mode-conv"
+                    className={`font-ui px-2.5 py-0.5 text-[10px] font-medium transition-colors ${
+                      aiRouteMode === "conv"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Conv
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={aiRouteMode === "json"}
+                    onClick={() => setRouteMode(visit.id, "json" as AiRouteMode)}
+                    data-testid="ai-route-mode-json"
+                    className={`font-ui px-2.5 py-0.5 text-[10px] font-medium transition-colors ${
+                      aiRouteMode === "json"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    JSON
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               {/* It. 11 — badges cliquables : ouvrent le drawer en mode "À traiter". */}
