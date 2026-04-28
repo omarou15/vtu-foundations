@@ -41,6 +41,7 @@ interface Counts {
   inFlight: number;
   failed: number;
   aiDisabled: number;
+  aiFailed: number;
 }
 
 const EMPTY: Counts = {
@@ -51,6 +52,7 @@ const EMPTY: Counts = {
   inFlight: 0,
   failed: 0,
   aiDisabled: 0,
+  aiFailed: 0,
 };
 
 export function VisitAttachmentSyncStatus({
