@@ -2,16 +2,23 @@
  * VTU — Repo prompt système éditable.
  *
  * CRUD côté client (RLS-protected) sur la table `llm_system_prompts`.
- * Le prompt actif est lu côté edge function `vtu-llm-agent` à chaque appel.
- * Si aucun prompt actif n'existe pour l'utilisateur, l'edge function retombe
- * sur la constante par défaut (`SYSTEM_UNIFIED` Energyco).
+ * Deux catégories de prompts indépendantes (un seul actif par kind / user) :
+ *  - `unified` : prompt du chat (edge function `vtu-llm-agent`)
+ *  - `describe_media` : prompt d'analyse d'une photo / d'un plan
+ *    (server function `describeMedia` côté Worker)
+ *
+ * Chaque pipeline retombe sur sa constante par défaut si aucun prompt
+ * actif n'existe en DB pour l'utilisateur.
  */
 
 import { supabase } from "@/integrations/supabase/client";
 
+export type SystemPromptKind = "unified" | "describe_media";
+
 export interface SystemPromptRow {
   id: string;
   user_id: string;
+  kind: SystemPromptKind;
   content: string;
   is_active: boolean;
   label: string | null;
@@ -22,14 +29,17 @@ export const SYSTEM_PROMPT_MIN_LENGTH = 100;
 export const SYSTEM_PROMPT_MAX_LENGTH = 50_000;
 
 /**
- * Récupère le prompt actif courant de l'utilisateur connecté.
- * Renvoie `null` si aucun prompt n'est sauvegardé (l'edge function utilisera
- * alors la constante par défaut).
+ * Récupère le prompt actif courant de l'utilisateur connecté pour un `kind`
+ * donné. Renvoie `null` si aucun prompt n'est sauvegardé (la pipeline
+ * correspondante utilisera alors sa constante par défaut).
  */
-export async function getActiveSystemPrompt(): Promise<SystemPromptRow | null> {
+export async function getActiveSystemPrompt(
+  kind: SystemPromptKind = "unified",
+): Promise<SystemPromptRow | null> {
   const { data, error } = await supabase
     .from("llm_system_prompts")
     .select("*")
+    .eq("kind", kind)
     .eq("is_active", true)
     .maybeSingle();
   if (error) throw new Error(`getActiveSystemPrompt failed: ${error.message}`);
@@ -37,12 +47,15 @@ export async function getActiveSystemPrompt(): Promise<SystemPromptRow | null> {
 }
 
 /**
- * Liste l'historique complet des prompts de l'utilisateur, plus récents en tête.
+ * Liste l'historique des prompts pour un `kind` donné, plus récents en tête.
  */
-export async function listSystemPrompts(): Promise<SystemPromptRow[]> {
+export async function listSystemPrompts(
+  kind: SystemPromptKind = "unified",
+): Promise<SystemPromptRow[]> {
   const { data, error } = await supabase
     .from("llm_system_prompts")
     .select("*")
+    .eq("kind", kind)
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) throw new Error(`listSystemPrompts failed: ${error.message}`);
@@ -51,11 +64,13 @@ export async function listSystemPrompts(): Promise<SystemPromptRow[]> {
 
 /**
  * Crée une nouvelle version du prompt et la marque active.
- * Le trigger DB désactive automatiquement les autres versions actives.
+ * Le trigger DB désactive automatiquement les autres versions actives
+ * du même `kind` pour cet utilisateur.
  */
 export async function saveSystemPrompt(
   content: string,
-  label?: string | null,
+  label: string | null,
+  kind: SystemPromptKind = "unified",
 ): Promise<SystemPromptRow> {
   const trimmed = content.trim();
   if (trimmed.length < SYSTEM_PROMPT_MIN_LENGTH) {
@@ -78,6 +93,7 @@ export async function saveSystemPrompt(
     .from("llm_system_prompts")
     .insert({
       user_id: userData.user.id,
+      kind,
       content: trimmed,
       is_active: true,
       label: label && label.trim().length > 0 ? label.trim() : null,

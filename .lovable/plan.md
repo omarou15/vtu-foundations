@@ -1,60 +1,80 @@
-# Diagnostic + correction : l'IA ne répond pas
 
-## Cause racine identifiée
+# Plan — Prompt photo éditable + analyses visibles dans le JSON
 
-Capture d'écran : tu as envoyé "Bonjour" (7 caractères) et "test" (4 caractères) → aucune réponse de l'IA, aucun appel réseau capturé, aucun log côté edge function.
+Deux problèmes à corriger ensemble :
 
-Diagnostic complet effectué :
+1. **Le prompt photo (`SYSTEM_DESCRIBE_MEDIA`) n'est pas éditable** depuis l'UI — uniquement le prompt chat (`SYSTEM_UNIFIED`) l'est aujourd'hui via la table `llm_system_prompts`.
+2. **Les analyses détaillées des photos sont invisibles** : elles sont bien produites et stockées en DB (table `attachment_ai_descriptions` avec `detailed_description`, `structured_observations`, `ocr_text`), mais seul le `short_caption` apparaît dans le chat. Rien n'est exposé dans la vue JSON / Synthèse.
 
-1. ✅ **Edge function `vtu-llm-agent`** : testée en direct avec `curl`, répond en 1.6s avec un tool-call Gemini valide. La nouvelle table `llm_system_prompts` est bien lue (sinon erreur 500).
-2. ✅ **Migration DB** : table créée, RLS OK, trigger « un seul actif par user » OK.
-3. ✅ **Client edge-function-client.ts** : code propre, gère bien JWT + payload.
-4. ❌ **Côté enqueue** : l'appel n'est **jamais déclenché** parce qu'une vieille gate filtre les messages courts.
+## Ce qu'on va construire
 
-### Le bug
+### A. Prompt photo éditable
 
-Dans `src/shared/db/messages.repo.ts` lignes 73-76 :
+1. **Étendre la table `llm_system_prompts`** : ajouter une colonne `kind text not null default 'unified'` avec contrainte CHECK `kind in ('unified','describe_media')`. Migrer le trigger d'unicité « un seul actif » pour qu'il scope par `(user_id, kind)` au lieu de `user_id` seul. Backfill des lignes existantes en `kind = 'unified'`.
 
-```ts
-const shouldDispatchLlm =
-  aiEnabled &&
-  input.role === "user" &&
-  (contentLen >= 10 || attachmentCount > 0);
+2. **Repo `system-prompt.repo.ts`** : ajouter un paramètre `kind` (`"unified" | "describe_media"`) à toutes les fonctions (`getActiveSystemPrompt`, `listSystemPrompts`, `saveSystemPrompt`, `activateSystemPrompt`).
+
+3. **Composant `SystemPromptEditor`** : ajouter un sélecteur d'onglet en haut « Prompt chat » / « Prompt analyse photo » qui pilote le `kind` chargé/sauvegardé. Le défaut affiché bascule entre `SYSTEM_UNIFIED` et `SYSTEM_DESCRIBE_MEDIA`.
+
+4. **Côté pipeline photo** : `describeMedia` (server function dans `src/server/llm.functions.ts`) doit lire le prompt actif depuis la DB pour cet utilisateur avant l'appel Gemini, avec fallback sur la constante `SYSTEM_DESCRIBE_MEDIA`. Ça suit le même pattern que l'edge function `vtu-llm-agent` fait déjà pour `SYSTEM_UNIFIED`.
+
+### B. Analyses photo visibles
+
+Le drawer JSON (panneau droit dans la capture) montre aujourd'hui uniquement `visit_json_state.state`. On y ajoute un onglet supplémentaire **« Analyses photo »** qui liste, pour la visite en cours :
+
+- Pour chaque attachment de la visite ayant une description IA :
+  - Vignette + nom de fichier
+  - `short_caption` (titre)
+  - `detailed_description` (description longue)
+  - `structured_observations[]` (groupées par `section_hint`)
+  - `ocr_text` si présent (dans un bloc `<pre>` monospace)
+  - `confidence_overall` + provider/model en footer
+
+- Source : `db.attachment_ai_descriptions` filtré par `visit_id`, jointe avec `db.attachments` pour le nom et la thumb. Live via `useLiveQuery`.
+
+Cet onglet se place à côté de l'onglet **Arbre / À traiter** déjà présent dans le drawer JSON. Aucune modification du `state` lui-même : on respecte la doctrine anti-hallucination (les détails restent factuels, hors state).
+
+## Détails techniques
+
+**Migration SQL** :
+```sql
+alter table public.llm_system_prompts
+  add column kind text not null default 'unified';
+alter table public.llm_system_prompts
+  add constraint llm_system_prompts_kind_check
+  check (kind in ('unified','describe_media'));
+
+-- Trigger d'unicité par (user_id, kind)
+create or replace function public.deactivate_other_system_prompts()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.is_active then
+    update public.llm_system_prompts
+       set is_active = false
+     where user_id = new.user_id
+       and kind = new.kind
+       and id <> new.id
+       and is_active = true;
+  end if;
+  return new;
+end $$;
 ```
 
-Tout message texte de **moins de 10 caractères** est silencieusement écarté du dispatch LLM. "Bonjour" (7c), "test" (4c), "ok", "merci", "oui", "non" → jamais envoyés au LLM.
+**`describeMedia` lecture DB** : ajouter dans la server function un appel Supabase (avec service role ou auth user via header) pour récupérer le prompt actif `kind='describe_media'` et l'utiliser à la place de la constante. Déjà éprouvé côté `vtu-llm-agent`.
 
-C'est une gate héritée d'une époque où on craignait de surcharger le LLM avec du bavardage. Avec la doctrine actuelle :
-- toggle IA explicite par visite,
-- prompt système qui gère lui-même les salutations (`<edge_cases>` : « Salutation / "ok" / "merci" → réponse simple, aucune proposition »),
+**Drawer JSON** : `src/features/json-state/components/JsonViewerDrawer.tsx` (ou équivalent du drawer visible dans la capture) — ajouter un troisième tab. Composant `PhotoAnalysisList` simple, lecture Dexie temps réel.
 
-…cette gate est devenue **nuisible** : elle rend l'IA muette pour les messages les plus naturels en début de conversation.
+## Hors-scope (volontaire)
 
-## Correction
+- Pas d'injection des `detailed_description` dans le `state` JSON — anti-hallucination.
+- Pas de versioning séparé des deux prompts (l'historique reste partagé visuellement, juste filtré par kind).
+- Pas de rebuild automatique des descriptions existantes après changement de prompt — ne s'applique qu'aux nouvelles photos.
 
-**Un seul fichier touché** : `src/shared/db/messages.repo.ts`.
+## Tests
 
-Remplacer la gate `contentLen >= 10` par : « le message a au moins quelque chose (texte non vide OU au moins 1 attachment) ». Le toggle IA + le prompt système suffisent à gérer les cas triviaux.
+- Migration : vérifier qu'on peut avoir 1 actif par kind par user.
+- Repo : tests unitaires save/get/list/activate avec `kind`.
+- Server function : test que le prompt DB override la constante quand présent.
+- Drawer : test rendering avec descriptions vides / avec OCR / sans OCR.
 
-```ts
-const hasSomething =
-  (input.content ?? "").trim().length > 0 || attachmentCount > 0;
-const shouldDispatchLlm =
-  aiEnabled && input.role === "user" && hasSomething;
-```
-
-## Validation
-
-1. `bunx vitest run` — vérifier que les 260 tests passent toujours (aucun test ne couvre la gate `>= 10`, vérifié par grep).
-2. `supabase--curl_edge_functions` — refaire un appel direct pour reconfirmer la chaîne serveur (déjà OK, mais sanity check après build).
-3. **Test fonctionnel via la preview** : envoyer "Bonjour" depuis l'UI, vérifier qu'une réponse assistant arrive en <5s, et que l'inspecteur IA `/settings/dev` montre l'appel avec ton prompt système actif.
-
-Je ne te recontacterai qu'une fois ces 3 étapes vertes.
-
-## Pourquoi c'était invisible jusqu'ici
-
-- Aucun log côté client ni côté edge → le message « disparaissait » silencieusement dans le `if`.
-- Les tests existants utilisent tous des messages longs (descriptions techniques) → la gate n'a jamais été déclenchée en test.
-- Les changements récents (refonte prompt, table éditable) n'ont pas touché à ce fichier → on cherchait dans la mauvaise direction.
-
-Hors scope : ajouter un test de non-régression sur la gate (juste 1 it() qui vérifie qu'un message "ok" enqueue bien un `llm_route_and_dispatch`). Je l'ajoute aussi pendant que j'y suis, c'est trivial et ça scelle le bug.
+Cible : 100% des tests existants verts + nouveaux tests pour les 4 points ci-dessus.

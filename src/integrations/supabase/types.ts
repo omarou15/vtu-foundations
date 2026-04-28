@@ -252,6 +252,7 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
+          kind: string
           label: string | null
           user_id: string
         }
@@ -260,6 +261,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          kind?: string
           label?: string | null
           user_id: string
         }
@@ -268,6 +270,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          kind?: string
           label?: string | null
           user_id?: string
         }

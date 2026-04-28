@@ -21,9 +21,11 @@ import {
   Sparkles,
   ListFilter,
   ChevronDown,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PhotoAnalysisPanel } from "./PhotoAnalysisPanel";
 import { getDb, getLatestLocalJsonState, type LocalMessage } from "@/shared/db";
 import {
   rejectSectionPatches,
@@ -41,10 +43,12 @@ import {
 import { findActiveConflicts } from "../lib/conflicts";
 import { labelForPath, formatPatchValue } from "@/shared/llm/path-labels";
 
+type PanelMode = "tree" | "todo" | "photos";
+
 interface JsonStatePanelProps {
   visitId: string;
   /** Mode initial — peut changer si les badges header le poussent. */
-  initialMode?: "tree" | "todo";
+  initialMode?: PanelMode;
   /** Reset interne du mode quand le parent fait un nouvel "open". */
   resetSignal?: number;
 }
@@ -90,7 +94,7 @@ export function JsonStatePanel({
   );
 
   const [copied, setCopied] = useState(false);
-  const [mode, setMode] = useState<"tree" | "todo">(initialMode);
+  const [mode, setMode] = useState<PanelMode>(initialMode);
 
   useEffect(() => {
     setMode(initialMode);
@@ -247,11 +251,29 @@ export function JsonStatePanel({
               </span>
             ) : null}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "photos"}
+            onClick={() => setMode("photos")}
+            data-testid="json-mode-photos"
+            className={[
+              "font-ui inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition",
+              mode === "photos"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            ].join(" ")}
+          >
+            <ImageIcon className="h-3 w-3" aria-hidden="true" />
+            Photos
+          </button>
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {!latest ? (
+        {mode === "photos" ? (
+          <PhotoAnalysisPanel visitId={visitId} />
+        ) : !latest ? (
           <p className="font-body p-4 text-sm text-muted-foreground">
             État pas encore chargé (synchro en cours).
           </p>
