@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDb, type LocalLlmExtraction } from "@/shared/db/schema";
+import { SystemPromptEditor } from "@/features/settings/SystemPromptEditor";
 
 export const Route = createFileRoute("/_authenticated/settings/dev")({
   component: DevInspectorPage,
@@ -59,11 +60,13 @@ function DevInspectorPage() {
             Inspecteur IA
           </h2>
           <p className="font-body text-sm text-muted-foreground">
-            Ce qui est <strong>réellement</strong> envoyé au LLM lors du
-            dernier appel chat, et la réponse reçue. Doctrine
-            « pure proposition » : le LLM propose, le user dispose.
+            Édite le prompt système et inspecte ce qui est{" "}
+            <strong>réellement</strong> envoyé au LLM lors du dernier appel chat.
+            Doctrine « pure proposition » : le LLM propose, le user dispose.
           </p>
         </header>
+
+        <SystemPromptEditor />
 
         <LastCallSection />
       </div>

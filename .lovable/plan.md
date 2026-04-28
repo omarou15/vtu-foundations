@@ -1,125 +1,114 @@
-# Plan — Réduction massive du payload LLM (–~50%) + suppression des rejets silencieux
+# Prompt système éditable depuis l'inspecteur IA
 
 ## Objectif
 
-Deux changements couplés :
+Sortir `SYSTEM_UNIFIED` du code (hardcodé dans `system-unified.ts` + copie inline dans l'edge function) pour qu'il devienne :
+- **persisté en base** (modifiable sans redéploiement),
+- **éditable depuis `/settings/dev`** (textarea + bouton Sauvegarder + bouton Réinitialiser au défaut),
+- **envoyé à chaque appel LLM** par l'edge function (qui le lit en DB, plus en dur),
+- **versionné** (historique des modifications, possibilité de revenir en arrière).
 
-1. **Bundle minimal** : ne plus envoyer au LLM que `visit` + `state` + `recent_messages` (le schéma canonique passe en dur dans le prompt système).
-2. **Confiance totale au LLM** : la couche apply ne rejette plus rien silencieusement. Toute proposition devient une opération présentée sur la carte d'actions ; le user arbitre.
+La version actuelle (Energyco) devient le **prompt par défaut** intégré au code, utilisé en fallback si la DB est vide.
 
-## Partie A — Bundle minimal
+## Architecture
 
-### Nouveau ContextBundle
+### 1. Nouvelle table `llm_system_prompts`
 
-```ts
-interface ContextBundle {
-  schema_version: number;
-  visit: { id; mission_type; building_type };
-  state: VisitJsonState;             // JSON state complet, tel quel
-  recent_messages: RecentMessage[];  // compression progressive existante
-}
+Stocke les versions successives du prompt système, par utilisateur (pour l'instant mono-user dev, mais scope user_id propre dès le départ).
+
+Colonnes :
+- `id uuid pk`
+- `user_id uuid not null` (RLS : own only)
+- `content text not null` (le prompt complet)
+- `is_active boolean not null default false` (un seul actif par user)
+- `label text` (optionnel : "v3 — moins verbeux", etc.)
+- `created_at timestamptz default now()`
+
+Index : `(user_id, is_active) where is_active = true`.
+
+RLS : select / insert / update own (delete interdit, on garde l'historique).
+
+Trigger : avant insert/update si `is_active = true`, désactiver les autres prompts du même user (un seul actif à la fois).
+
+### 2. Edge function `vtu-llm-agent` — lecture DB du prompt
+
+Au début de chaque appel :
+1. Récupère le `user_id` depuis le JWT.
+2. Query `llm_system_prompts` where `user_id = X and is_active = true` → récupère `content`.
+3. Si aucune ligne active → fallback sur la constante `SYSTEM_UNIFIED` inline (= prompt Energyco actuel).
+4. Utilise ce contenu comme `system_prompt` dans l'appel LLM **et** dans `request_summary.system_prompt` retourné au client.
+
+Conséquence : `src/shared/llm/prompts/system-unified.ts` reste comme **valeur par défaut** (référence), mais n'est plus la source de vérité runtime.
+
+### 3. UI `/settings/dev` — bloc "Prompt système"
+
+Nouveau bloc en haut de l'inspecteur, au-dessus des 4 blocs wire actuels :
+
+```
+┌─ Prompt système (envoyé au LLM) ─────────────────┐
+│ [Label optionnel: v3 — ton plus direct       ]   │
+│                                                   │
+│ ┌───────────────────────────────────────────┐    │
+│ │ <role>                                     │    │
+│ │ Tu es l'Agent IA de VTU...                 │    │
+│ │ ...                                        │    │
+│ │ (textarea full height, ~25 lignes)         │    │
+│ └───────────────────────────────────────────┘    │
+│                                                   │
+│ Dernière modif : il y a 2h • v4 active            │
+│                                                   │
+│ [Réinitialiser au défaut] [Annuler] [Sauvegarder]│
+└───────────────────────────────────────────────────┘
+
+▾ Historique (5 versions)
+  • v4 — actif — il y a 2h
+  • v3 — il y a 1j        [Activer] [Voir]
+  • v2 — il y a 3j        [Activer] [Voir]
+  ...
 ```
 
-Disparaissent : `state_summary`, `attachments_context`, `pending_attachments`, `schema_map`, `nomenclature_hints`.
+Comportement :
+- Au mount : fetch `llm_system_prompts` actif du user → préremplit la textarea. Si vide → préremplit avec la constante par défaut + badge "Défaut (non sauvegardé)".
+- **Sauvegarder** : insert nouvelle ligne avec `is_active = true` (le trigger désactive l'ancienne). Toast "Prompt système mis à jour — actif au prochain message".
+- **Réinitialiser au défaut** : remplit la textarea avec la constante du code (ne sauvegarde pas tant que l'user ne clique pas Sauvegarder).
+- **Annuler** : recharge depuis la DB.
+- **Activer** (sur une version d'historique) : passe `is_active = true` sur cette ligne.
+- **Voir** : ouvre une dialog read-only avec le contenu de la version.
 
-Les descriptions de photos passent désormais par les messages assistant `photo_caption` (déjà émis par l'engine), donc via `recent_messages`.
+Validation : longueur min 100 caractères, max 50 000. Pas de validation sémantique (on fait confiance au user dev).
 
-### Fichiers touchés
+### 4. Suppression de la copie inline du prompt dans l'edge function
 
-- `src/shared/llm/types.ts` — refonte `ContextBundle`.
-- `src/shared/llm/context/builder.ts` — ne builde plus que les 4 champs.
-- `src/shared/sync/engine.llm.ts` — supprimer collecte `attachmentDescriptions` + `pendingAttachments`. Garder le check `ai_description_pending` sur les attachments du **message courant** (sinon photos parties sans caption).
-- `src/shared/llm/context/compress.ts` — retirer passes OCR (`passTrimOcr`, `passDropOcr`). Reste : `passTrimAssistant`, `passTrimUser`, `passLimitMessages50/20/8`, `passStripDetails` (qui opère désormais sur `state`).
-- `src/server/llm.functions.ts` — adapter `ContextBundleSchema` Zod.
-- `src/server/llm.prompt-builders.ts` — supprimer `buildPendingAttachmentsGuard`.
+La constante `SYSTEM_UNIFIED` reste dans l'edge function uniquement comme **fallback** quand la DB est vide. Toute modif "officielle" passe par la DB.
 
-### Prompt système enrichi
+`src/shared/llm/prompts/system-unified.ts` reste exporté pour :
+- afficher "Réinitialiser au défaut" côté UI,
+- bootstrap initial.
 
-`src/shared/llm/prompts/system-unified.ts` + copie inline `supabase/functions/vtu-llm-agent/index.ts` :
+Les deux copies (TS + edge) restent bit-identiques (= défaut Energyco actuel).
 
-- Suppression mentions `schema_map`, `attachments_context`, `pending_attachments`.
-- Nouvelle section **"## SCHÉMA CANONIQUE DU JSON STATE"** listant en dur :
-  - Sections plates : `meta`, `building`, `envelope.{murs|toiture|plancher_bas|ouvertures}`.
-  - Collections (path → keys d'item) : `heating.installations`, `ecs.installations`, `ventilation.installations`, `energy_production.installations`, `industriel_processes.installations`, `tertiaire_hors_cvc.installations`, `pathologies.items`, `preconisations.items`, `notes.items`, `custom_observations.items`.
-  - Pour chaque collection : exemple d'item canonique avec ses champs.
-- Règles de lecture : `[]` = collection vide qui attend des entrées ; `value: null` = champ qui attend une valeur ; pour patcher une entrée existante → utilise son `id` UUID lu dans le state ; jamais d'index `[N]`.
-- Règle anti-hallucination simplifiée : "vérifie qu'un message assistant `photo_caption` décrit la photo, sinon confirme la réception sans inventer".
+## Fichiers touchés
 
-### Edge function `vtu-llm-agent`
+**Nouveaux**
+- Migration SQL : table `llm_system_prompts` + RLS + trigger un-seul-actif
+- `src/features/settings/system-prompt.repo.ts` : `getActiveSystemPrompt()`, `saveSystemPrompt(content, label?)`, `listSystemPrompts()`, `activateSystemPrompt(id)`
+- `src/features/settings/SystemPromptEditor.tsx` : composant éditeur (textarea + boutons + historique)
 
-- Mettre à jour copie inline de `SYSTEM_UNIFIED`.
-- `buildPromptAndHistory` : retirer le `guardBlock` calculé sur `pending_attachments`.
-- `coalescePositionalPatches` : la liste `knownCollections` devient une **constante hardcodée** (10 collections), au lieu de lire `bundle.schema_map`.
-- Conserver la promotion `recent_messages` → multi-tour OpenAI (utile pour références pronominales).
+**Modifiés**
+- `supabase/functions/vtu-llm-agent/index.ts` : lecture DB du prompt actif au lieu de la constante inline (fallback constante si vide)
+- `src/routes/_authenticated/settings.dev.tsx` : ajout du bloc `<SystemPromptEditor />` en tête, le bloc "Prompt système" actuel (lecture seule depuis `request_summary.system_prompt`) reste pour montrer ce qui a été réellement envoyé sur le dernier appel
 
-## Partie B — Suppression totale des rejets silencieux (couche apply)
+## Détails techniques
 
-### Doctrine
+- **Lecture DB côté edge function** : utilise le client Supabase déjà importé, query simple avec `auth.uid()` extrait du JWT (header `Authorization`).
+- **Cache** : pas de cache dans l'edge (cold start = 1 query rapide indexée). Si problème de latence plus tard, on ajoutera un cache mémoire 30s.
+- **Migration de l'existant** : aucune. Tant qu'aucun user n'a sauvegardé, le fallback constante sert le prompt Energyco actuel → comportement identique à aujourd'hui.
+- **Inspector** : le bloc lecture seule "Prompt système" affiché sous chaque appel continue de venir de `request_summary.system_prompt` (donc montre bien la version qui a été envoyée à ce moment-là, pas la version courante en DB → utile si tu modifies le prompt entre deux messages).
+- **Sécurité** : RLS stricte par `user_id`, aucune exposition cross-user. Le prompt n'est pas un secret mais reste privé par compte.
+- **Tests** : ajouter tests Vitest sur `system-prompt.repo.ts` (insert active désactive l'ancien, fallback si vide).
 
-Le LLM propose, le user dispose. Aucun rejet code-side. Les propositions invalides ne sont pas filtrées : elles sont présentées telles quelles sur la carte d'actions, et le user clique Accepter / Refuser.
+## Points hors scope (à confirmer si tu veux les ajouter)
 
-### Changements `apply-patches.ts`
-
-- Supprimer rejets : `path_not_in_schema`, `entry_not_found`, `field_not_in_collection_item`, `validated_by_human`, `human_source_prime`, `positional_index_forbidden`.
-- Tout patch produit une **proposition applicable** affichée sur la PendingActionsCard :
-  - Path positionnel `collection[N].field` → résolu best-effort sur l'entrée à l'index N (créée si absente).
-  - Path inconnu → créé à la volée dans le state comme `Field<unknown>` au chemin demandé (le user juge).
-  - Conflit avec source humaine → écraseable, badge "écrasera valeur saisie" sur la carte.
-- Aucun warning de rejet émis ; à la place : badge informatif sur la proposition.
-
-### Changements `apply-insert-entries.ts`
-
-- Supprimer rejets : `unknown_collection`, `no_valid_fields`.
-- Collection inconnue → créée à la volée dans le state (`state[collection] = { items: [] }` ou similaire), entrée insérée. User juge.
-- `fields: {}` → entrée vide insérée avec juste un UUID. User complète/rejette.
-- Keys non reconnues d'un item → ajoutées comme `custom_fields` de l'entrée (au lieu d'être ignorées).
-
-### Changements `apply-custom-fields.ts`
-
-- Aucune validation snake_case bloquante : toute clé acceptée telle quelle.
-
-### Edge function `vtu-llm-agent`
-
-- Garder `coalescePositionalPatches` (utile pour la lisibilité de la carte : 1 carte par entité plutôt que N patches), mais **plus de filtre `dropDiags`**. Tous les `insert_entries` même `fields: {}` sont transmis.
-- Garder la garde anti-mensonge `assistant_message_rewritten` (sécurité UX, pas un rejet) : si le LLM dit "j'ai ajouté X" mais ne produit aucune op, on réécrit le message — c'est de la cohérence textuelle, pas du rejet de proposition.
-
-### PendingActionsCard
-
-- Afficher chaque proposition avec son contexte brut.
-- Pour chaque op invalide selon les anciennes règles : badge informatif (`path inconnu`, `écrase valeur saisie`, `collection nouvelle`, etc.) — le user voit, le user décide.
-- Boutons Accepter / Refuser inchangés.
-
-## Inspecteur Dev (`settings.dev.tsx`)
-
-- Bloc 1 : retirer "Schema map" et "Descriptions photos". Ajouter "JSON state envoyé".
-- Bloc 2 : retirer la table `REJECTION_RULES` (plus aucun rejet). La remplacer par un encart "Confiance totale au LLM — toute proposition est présentée à l'utilisateur".
-- Bloc 2 : compression progressive — retirer les passes OCR.
-
-## Tests Vitest
-
-- `context.test.ts` — assertion `bundle.state` au lieu de `attachments_context`.
-- `compress.test.ts` — retirer cas OCR.
-- `buildUserPrompt.test.ts` — supprimer tests guard.
-- `apply-patches.test.ts` — réécrire : asserter que les propositions invalides produisent une proposition + badge, pas un rejet.
-- `apply-insert-entries.test.ts` — idem, asserter que `unknown_collection` et `fields: {}` produisent une entrée plutôt qu'un `ignored`.
-- ~270 tests existants à passer en revue.
-
-## Hors-scope
-
-- Nomenclature canonique (PPPT / DTG / 3CL DPE).
-- Collection `attachments_log.items`.
-- Synthétiseur cross-photos.
-- Filtrage du state par section pertinente.
-
-## Risques assumés
-
-- **Apply layer permissif** : le state peut contenir transitoirement des paths/collections inattendus tant que le user n'a pas tranché. Acceptable — la PendingActionsCard est le filtre humain.
-- **Validation Zod du state** : si le LLM crée une collection hors schéma, le state sort du schéma Zod strict. → On stocke ces ajouts hors-schéma dans une section dédiée `unstructured_proposals: []` jusqu'à validation user, plutôt que de polluer les sections typées.
-- **Régression UX** : la PendingActionsCard doit afficher clairement les badges informatifs, sinon le user accepte aveuglément n'importe quoi.
-
-## Validation finale (manuelle)
-
-1. Message texte simple → Inspecteur IA : bundle réduit à `{ schema_version, visit, state, recent_messages }`.
-2. "PAC Daikin 8 kW" → 1 carte d'action insert_entry sur `heating.installations`, complète.
-3. Path inventé par le LLM → 1 carte d'action avec badge "path inconnu", acceptable ou refusable par le user.
-4. Collection inventée → 1 carte d'action avec badge "collection nouvelle", stockée dans `unstructured_proposals` jusqu'à acceptation.
+- Partage du prompt entre users d'une même organisation (aujourd'hui : per-user).
+- Diff visuel entre deux versions de l'historique.
+- A/B test entre deux prompts.
