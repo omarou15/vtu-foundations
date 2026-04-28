@@ -223,3 +223,91 @@ describe("applyInsertEntries — keys libres", () => {
     expect(r.applied[0]!.ignored_keys).toEqual([]);
   });
 });
+
+describe("applyInsertEntries — Lot A.5 dedup intra-call", () => {
+  it("2 inserts même collection avec field commun → mergés en 1 entrée", () => {
+    const { state, map } = freshState();
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [
+        op("heating.installations", { type_value: "PAC", power_kw: 12 }),
+        op("heating.installations", { type_value: "PAC", brand: "Daikin" }),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(2);
+    expect(r.state.heating.installations).toHaveLength(1);
+    expect(r.applied[1]!.merged_into_existing).toBe(true);
+    const entry = r.state.heating.installations[0]!;
+    expect(entry.type_value.value).toBe("PAC");
+    expect(entry.power_kw.value).toBe(12);
+    expect((entry as unknown as Record<string, { value: unknown }>).brand?.value)
+      .toBe("Daikin");
+  });
+
+  it("2 inserts SANS field commun → 2 entrées distinctes (pas de dedup)", () => {
+    const { state, map } = freshState();
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [
+        op("heating.installations", { type_value: "PAC" }),
+        op("heating.installations", { type_value: "Chaudière gaz" }),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(2);
+    expect(r.state.heating.installations).toHaveLength(2);
+    expect(r.applied[1]!.merged_into_existing).toBeUndefined();
+  });
+
+  it("merge ne doit pas écraser un Field<T> déjà posé", () => {
+    const { state, map } = freshState();
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [
+        op("heating.installations", { type_value: "PAC", power_kw: 12 }),
+        op("heating.installations", { type_value: "PAC", power_kw: 99 }),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.state.heating.installations).toHaveLength(1);
+    expect(r.state.heating.installations[0]!.power_kw.value).toBe(12);
+  });
+});
+
+describe("applyInsertEntries — Lot A.5 entrée vide", () => {
+  it("insert avec uniquement keys réservées → entrée vide marquée is_empty", () => {
+    const { state, map } = freshState();
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [
+        op("heating.installations", { id: "x", custom_fields: [] }),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.applied[0]!.is_empty).toBe(true);
+    expect(r.applied[0]!.fields_set).toEqual([]);
+    expect(r.state.heating.installations).toHaveLength(1);
+  });
+
+  it("insert avec fields valides → pas de is_empty", () => {
+    const { state, map } = freshState();
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [op("heating.installations", { type_value: "PAC" })],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied[0]!.is_empty).toBeUndefined();
+  });
+});
