@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FileText, ImageOff, Sparkles } from "lucide-react";
+import { AlertTriangle, FileText, ImageOff, Loader2, Sparkles } from "lucide-react";
 import { getDb, type LocalAttachment } from "@/shared/db";
 import { useAttachmentThumb } from "../lib/useAttachmentThumb";
+import { useAttachmentAiState, describeAiState } from "../lib/useAttachmentAiState";
 import { MediaLightbox } from "./MediaLightbox";
 
 interface MessageAttachmentsProps {
