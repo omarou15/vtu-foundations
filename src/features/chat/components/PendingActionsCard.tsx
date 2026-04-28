@@ -627,6 +627,14 @@ function CustomFieldRowItem({
   const onApply = async () => {
     if (busy || !isPending) return;
     setBusy(true);
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] card-click-apply", {
+      type: "custom_field",
+      section_path: row.sectionPath,
+      field_key: row.fieldKey,
+      visit_id: visitId,
+      message_id: messageId,
+    });
     try {
       const r = await validateCustomField({
         userId,
@@ -634,6 +642,14 @@ function CustomFieldRowItem({
         sectionPath: row.sectionPath,
         fieldKey: row.fieldKey,
         sourceMessageId: messageId,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[VTU-DIAG] card-click-result", {
+        type: "custom_field",
+        section_path: row.sectionPath,
+        field_key: row.fieldKey,
+        result_status: r.status,
+        result_reason: r.status === "noop" ? r.reason : null,
       });
       if (r.status === "noop" && r.reason !== "already_validated") {
         toast.error("Validation impossible", { description: r.reason });
@@ -650,6 +666,14 @@ function CustomFieldRowItem({
   const onIgnore = async () => {
     if (busy || !isPending) return;
     setBusy(true);
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] card-click-ignore", {
+      type: "custom_field",
+      section_path: row.sectionPath,
+      field_key: row.fieldKey,
+      visit_id: visitId,
+      message_id: messageId,
+    });
     try {
       const r = await rejectCustomField({
         userId,
@@ -657,6 +681,14 @@ function CustomFieldRowItem({
         sectionPath: row.sectionPath,
         fieldKey: row.fieldKey,
         sourceMessageId: messageId,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[VTU-DIAG] card-click-result", {
+        type: "custom_field",
+        section_path: row.sectionPath,
+        field_key: row.fieldKey,
+        result_status: r.status,
+        result_reason: r.status === "noop" ? r.reason : null,
       });
       if (r.status === "noop") {
         toast.error("Rejet impossible", { description: r.reason });
