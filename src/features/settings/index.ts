@@ -4,3 +4,6 @@ export { SettingsSidebar, SETTINGS_SECTIONS } from "./components/SettingsSidebar
 export { AiToggleCard } from "./components/AiToggleCard";
 export { ModelPickerGrid } from "./components/ModelPickerGrid";
 export { ModelCard } from "./components/ModelCard";
+export { ByokCard } from "./components/ByokCard";
+export { OPENROUTER_MODELS, DEFAULT_OPENROUTER_MODEL } from "./openrouter-models";
+export type { OpenRouterModel } from "./openrouter-models";
