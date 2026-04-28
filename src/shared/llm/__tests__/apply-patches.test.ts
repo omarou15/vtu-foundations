@@ -196,9 +196,7 @@ describe("applyPatches — paths permissifs", () => {
     expect(r.applied).toHaveLength(1);
     expect(r.ignored).toHaveLength(0);
     expect(r.state.ventilation.installations).toHaveLength(1);
-    const inst = r.state.ventilation.installations[0] as
-      | (Record<string, Field<unknown>> & { id: string })
-      | undefined;
+    const inst = r.state.ventilation.installations[0];
     expect(inst?.type_value.value).toBe("vmc_double_flux");
     expect(inst?.id).toBeDefined();
   });
