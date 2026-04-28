@@ -285,7 +285,7 @@ export function JsonStatePanel({
             <JsonView
               data={latest.state as unknown as object}
               style={defaultStyles}
-              shouldExpandNode={(level) => level < 2}
+              shouldExpandNode={(level) => level < 4}
               clickToExpandNode
             />
           </div>
