@@ -438,6 +438,23 @@ export async function processLlmRouteAndDispatch(
 // handleExtract / handleConversational
 // ---------------------------------------------------------------------------
 
+/**
+ * Pour les messages sans contenu texte (kind=photo/audio), on substitue un
+ * placeholder explicite. Sinon le LLM gateway rejette en 400 (messageText
+ * required non-empty). Le contexte (attachments) reste véhiculé via le bundle.
+ */
+function messageTextForLlm(message: MessageRow): string {
+  const raw = (message.content ?? "").trim();
+  if (raw.length > 0) return raw;
+  if (message.kind === "photo") {
+    return "[message photo sans texte — analyser les pièces jointes du bundle]";
+  }
+  if (message.kind === "audio") {
+    return "[message audio sans transcription — analyser les pièces jointes du bundle]";
+  }
+  return "[message sans contenu texte]";
+}
+
 async function handleExtract(
   message: MessageRow,
   visit: VisitRow,
