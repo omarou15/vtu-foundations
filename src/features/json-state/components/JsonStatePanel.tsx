@@ -43,10 +43,12 @@ import {
 import { findActiveConflicts } from "../lib/conflicts";
 import { labelForPath, formatPatchValue } from "@/shared/llm/path-labels";
 
+type PanelMode = "tree" | "todo" | "photos";
+
 interface JsonStatePanelProps {
   visitId: string;
   /** Mode initial — peut changer si les badges header le poussent. */
-  initialMode?: "tree" | "todo";
+  initialMode?: PanelMode;
   /** Reset interne du mode quand le parent fait un nouvel "open". */
   resetSignal?: number;
 }
@@ -92,7 +94,7 @@ export function JsonStatePanel({
   );
 
   const [copied, setCopied] = useState(false);
-  const [mode, setMode] = useState<"tree" | "todo">(initialMode);
+  const [mode, setMode] = useState<PanelMode>(initialMode);
 
   useEffect(() => {
     setMode(initialMode);
