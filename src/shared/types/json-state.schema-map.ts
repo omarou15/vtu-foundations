@@ -174,8 +174,12 @@ export function isKnownObjectFieldPath(map: SchemaMap, path: string): boolean {
 export function parseEntryPath(
   path: string,
 ): { collection: string; entryId: string; field: string } | null {
-  // Cherche `[id=…]` quelque part dans le path.
-  const m = path.match(/^([a-z0-9_.]+)\[id=([0-9a-fA-F-]+)\]\.([a-z0-9_]+)$/);
+  // Cherche `[id=…]` quelque part dans le path. L'ID est une string opaque
+  // côté parseur — la validation contre `current_entries` est faite par
+  // l'apply layer (`entry_not_found`). On accepte donc tout ID
+  // URL-safe (alphanum + tiret + underscore) pour distinguer un ID
+  // hallucinant un UUID inexistant d'un path complètement inconnu.
+  const m = path.match(/^([a-z0-9_.]+)\[id=([A-Za-z0-9_-]+)\]\.([a-z0-9_]+)$/);
   if (!m) return null;
   const [, collection, entryId, field] = m;
   if (!collection || !entryId || !field) return null;
