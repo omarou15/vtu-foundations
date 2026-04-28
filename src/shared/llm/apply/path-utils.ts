@@ -55,7 +55,9 @@ export function ensureKnownPatchTarget(
 
   const section = root[sectionKey];
   if (!section || typeof section !== "object") return false;
-  const list = (section as JsonObject).installations;
+  const sectionObject = section as JsonObject;
+  if (sectionObject.installations === undefined) sectionObject.installations = [];
+  const list = sectionObject.installations;
   if (!Array.isArray(list) || index > list.length) return false;
 
   const skeleton = build();
