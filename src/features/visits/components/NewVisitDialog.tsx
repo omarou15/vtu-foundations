@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import { MapPin, Loader2, RefreshCw, Clock } from "lucide-react";
+import { MapPin, Loader2, RefreshCw, Clock, Crosshair } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -27,14 +27,13 @@ import type {
 /**
  * Modal de création de VT.
  *
- * Itération 12 — métadonnées étendues :
- *  - Date & heure auto (timestamp local, lecture seule).
- *  - Géolocalisation auto via navigator.geolocation (asynchrone, optionnelle).
- *  - Mission : audit_energetique, dpe, ppt, dtg, note_dimensionnement, autre
- *  - Bâtiment : maison_individuelle, appartement, copropriete, monopropriete,
- *               industrie, tertiaire, autre
- *  - Champs libres "Précisez" si "autre" est choisi (mission OU bâtiment OU sous-secteur).
- *  - Sous-secteur tertiaire si building === "tertiaire".
+ * Itération 12bis — corrections géoloc :
+ *  - Géoloc déclenchée UNIQUEMENT sur clic utilisateur (geste requis pour
+ *    que `getCurrentPosition` fonctionne dans l'iframe preview).
+ *  - Watchdog 15s : si aucun callback success/error, on bascule en
+ *    "délai dépassé" (cas où l'iframe avale la requête silencieusement).
+ *  - Reverse geocoding (Nominatim OSM) → auto-remplit l'adresse si vide.
+ *  - Ordre visuel : GPS AVANT adresse (puisqu'il l'alimente).
  */
 
 const MISSION_OPTIONS: { value: MissionType; label: string }[] = [
@@ -156,6 +155,12 @@ type GpsState =
   | { status: "denied" }
   | { status: "unavailable"; reason: string };
 
+type GeocodeState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; address: string }
+  | { status: "error" };
+
 function formatDateTimeFr(iso: string): string {
   try {
     const d = new Date(iso);
@@ -187,9 +192,31 @@ export function NewVisitDialog({
     new Date().toISOString(),
   );
   const [gps, setGps] = useState<GpsState>({ status: "idle" });
+  const [geocode, setGeocode] = useState<GeocodeState>({ status: "idle" });
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset à l'ouverture + capture date/heure + géoloc
+  // Refs pour annuler watchdog & geocoding au démontage / fermeture
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geocodeAbortRef = useRef<AbortController | null>(null);
+  const addressRef = useRef(address);
+  useEffect(() => {
+    addressRef.current = address;
+  }, [address]);
+
+  function clearWatchdog() {
+    if (watchdogRef.current !== null) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  }
+  function abortGeocode() {
+    if (geocodeAbortRef.current) {
+      geocodeAbortRef.current.abort();
+      geocodeAbortRef.current = null;
+    }
+  }
+
+  // Reset à l'ouverture / fermeture (pas d'auto-géoloc : geste requis)
   useEffect(() => {
     if (!open) {
       setTitle("");
@@ -202,13 +229,23 @@ export function NewVisitDialog({
       setTertiaireSubtypeOther("");
       setSubmitting(false);
       setGps({ status: "idle" });
+      setGeocode({ status: "idle" });
+      clearWatchdog();
+      abortGeocode();
       return;
     }
     setStartedAt(new Date().toISOString());
-    requestGeolocation(setGps);
   }, [open]);
 
-  // Reset des champs conditionnels quand le parent change
+  // Cleanup au démontage
+  useEffect(() => {
+    return () => {
+      clearWatchdog();
+      abortGeocode();
+    };
+  }, []);
+
+  // Reset des champs conditionnels
   useEffect(() => {
     if (missionType !== "autre") setMissionTypeOther("");
   }, [missionType]);
@@ -222,6 +259,103 @@ export function NewVisitDialog({
   useEffect(() => {
     if (tertiaireSubtype !== "autre") setTertiaireSubtypeOther("");
   }, [tertiaireSubtype]);
+
+  /**
+   * IMPORTANT : appelé synchroniquement depuis un onClick (geste utilisateur).
+   * Ne pas mettre d'await avant `getCurrentPosition` sinon l'iframe bloque.
+   */
+  function handleLocateClick() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGps({ status: "unavailable", reason: "non supporté" });
+      return;
+    }
+    clearWatchdog();
+    abortGeocode();
+    setGps({ status: "loading" });
+    setGeocode({ status: "idle" });
+
+    let settled = false;
+    const finish = (next: GpsState) => {
+      if (settled) return;
+      settled = true;
+      clearWatchdog();
+      setGps(next);
+      if (next.status === "success") {
+        runReverseGeocode(next.lat, next.lng);
+      }
+    };
+
+    // Watchdog : si rien sous 15s, on déclare un timeout côté JS
+    watchdogRef.current = setTimeout(() => {
+      finish({ status: "unavailable", reason: "délai dépassé" });
+    }, 15000);
+
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          finish({
+            status: "success",
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracyM: Number.isFinite(pos.coords.accuracy)
+              ? pos.coords.accuracy
+              : null,
+          });
+        },
+        (err) => {
+          if (err.code === err.PERMISSION_DENIED) {
+            finish({ status: "denied" });
+          } else if (err.code === err.POSITION_UNAVAILABLE) {
+            finish({ status: "unavailable", reason: "position indisponible" });
+          } else if (err.code === err.TIMEOUT) {
+            finish({ status: "unavailable", reason: "délai dépassé" });
+          } else {
+            finish({ status: "unavailable", reason: "erreur" });
+          }
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+      );
+    } catch {
+      finish({ status: "unavailable", reason: "erreur" });
+    }
+  }
+
+  /**
+   * Reverse geocoding via Nominatim (OpenStreetMap) — pas de clé API.
+   * Auto-remplit le champ adresse seulement s'il est vide.
+   */
+  function runReverseGeocode(lat: number, lng: number) {
+    abortGeocode();
+    const ctrl = new AbortController();
+    geocodeAbortRef.current = ctrl;
+    setGeocode({ status: "loading" });
+
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(
+      String(lat),
+    )}&lon=${encodeURIComponent(String(lng))}&format=json&accept-language=fr&zoom=18&addressdetails=1`;
+
+    fetch(url, {
+      signal: ctrl.signal,
+      headers: { Accept: "application/json" },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("http"))))
+      .then((data: { display_name?: string }) => {
+        const display = (data?.display_name ?? "").trim();
+        if (!display) {
+          setGeocode({ status: "error" });
+          return;
+        }
+        setGeocode({ status: "success", address: display });
+        // N'écrase pas une adresse déjà saisie manuellement
+        if (!addressRef.current.trim()) {
+          setAddress(display);
+        }
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setGeocode({ status: "error" });
+      });
+  }
 
   const candidate = useMemo(
     () => ({
@@ -266,6 +400,11 @@ export function NewVisitDialog({
     }
   }
 
+  const canUseGeoAddress =
+    geocode.status === "success" &&
+    address.trim() !== "" &&
+    address.trim() !== geocode.address.trim();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
@@ -280,6 +419,7 @@ export function NewVisitDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 font-ui">
+          {/* 1. Titre */}
           <div className="space-y-2">
             <Label htmlFor="vt-title">Titre</Label>
             <Input
@@ -293,19 +433,7 @@ export function NewVisitDialog({
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="vt-address">Adresse</Label>
-            <Input
-              id="vt-address"
-              placeholder="12 rue de la République, 69007 Lyon"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              maxLength={255}
-              required
-            />
-          </div>
-
-          {/* Date & heure auto */}
+          {/* 2. Date & heure auto */}
           <div className="space-y-2">
             <Label htmlFor="vt-started-at">Date & heure</Label>
             <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-foreground">
@@ -319,7 +447,7 @@ export function NewVisitDialog({
             </div>
           </div>
 
-          {/* Géolocalisation auto */}
+          {/* 3. Position GPS — AVANT l'adresse (puisqu'elle l'alimente) */}
           <div className="space-y-2">
             <Label>Position GPS</Label>
             <div
@@ -333,29 +461,73 @@ export function NewVisitDialog({
               <span className="flex-1 truncate text-foreground">
                 <GpsLabel state={gps} />
               </span>
-              {gps.status !== "loading" && gps.status !== "success" ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => requestGeolocation(setGps)}
-                  className="h-7 px-2"
-                  aria-label="Réessayer la géolocalisation"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="ml-1 text-xs">Réessayer</span>
-                </Button>
-              ) : null}
               {gps.status === "loading" ? (
                 <Loader2
                   className="h-4 w-4 animate-spin text-muted-foreground"
                   aria-hidden="true"
                 />
-              ) : null}
+              ) : gps.status === "success" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleLocateClick}
+                  className="h-7 px-2"
+                  aria-label="Actualiser la position"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="ml-1 text-xs">Actualiser</span>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={handleLocateClick}
+                  className="h-7 px-2"
+                  aria-label="Localiser"
+                >
+                  <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="ml-1 text-xs">
+                    {gps.status === "idle" ? "Localiser" : "Réessayer"}
+                  </span>
+                </Button>
+              )}
             </div>
           </div>
 
-          {/* Type de mission */}
+          {/* 4. Adresse — auto-remplie depuis le GPS si vide */}
+          <div className="space-y-2">
+            <Label htmlFor="vt-address">Adresse</Label>
+            <Input
+              id="vt-address"
+              placeholder="12 rue de la République, 69007 Lyon"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              maxLength={255}
+              required
+            />
+            {geocode.status === "loading" ? (
+              <p className="text-xs text-muted-foreground">
+                Recherche de l'adresse à partir du GPS…
+              </p>
+            ) : null}
+            {canUseGeoAddress ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (geocode.status === "success") {
+                    setAddress(geocode.address);
+                  }
+                }}
+                className="text-xs text-primary underline-offset-2 hover:underline"
+              >
+                Utiliser l'adresse GPS
+              </button>
+            ) : null}
+          </div>
+
+          {/* 5. Type de mission */}
           <div className="space-y-2">
             <Label htmlFor="vt-mission">Type de mission</Label>
             <Select
@@ -388,7 +560,7 @@ export function NewVisitDialog({
             </div>
           ) : null}
 
-          {/* Typologie de bâtiment */}
+          {/* 6. Typologie de bâtiment */}
           <div className="space-y-2">
             <Label htmlFor="vt-building">Typologie de bâtiment</Label>
             <Select
@@ -421,7 +593,6 @@ export function NewVisitDialog({
             </div>
           ) : null}
 
-          {/* Sous-secteur tertiaire */}
           {buildingType === "tertiaire" ? (
             <div className="space-y-2">
               <Label htmlFor="vt-tertiaire">Sous-secteur tertiaire</Label>
@@ -483,7 +654,11 @@ export function NewVisitDialog({
 function GpsLabel({ state }: { state: GpsState }) {
   switch (state.status) {
     case "idle":
-      return <span className="text-muted-foreground">En attente…</span>;
+      return (
+        <span className="text-muted-foreground">
+          Appuyez sur « Localiser »
+        </span>
+      );
     case "loading":
       return (
         <span className="text-muted-foreground">Localisation en cours…</span>
@@ -513,36 +688,4 @@ function GpsLabel({ state }: { state: GpsState }) {
         </span>
       );
   }
-}
-
-function requestGeolocation(setGps: (s: GpsState) => void): void {
-  if (typeof navigator === "undefined" || !navigator.geolocation) {
-    setGps({ status: "unavailable", reason: "non supporté" });
-    return;
-  }
-  setGps({ status: "loading" });
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      setGps({
-        status: "success",
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        accuracyM: Number.isFinite(pos.coords.accuracy)
-          ? pos.coords.accuracy
-          : null,
-      });
-    },
-    (err) => {
-      if (err.code === err.PERMISSION_DENIED) {
-        setGps({ status: "denied" });
-      } else if (err.code === err.POSITION_UNAVAILABLE) {
-        setGps({ status: "unavailable", reason: "position indisponible" });
-      } else if (err.code === err.TIMEOUT) {
-        setGps({ status: "unavailable", reason: "délai dépassé" });
-      } else {
-        setGps({ status: "unavailable", reason: "erreur" });
-      }
-    },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
-  );
 }
