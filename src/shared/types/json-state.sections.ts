@@ -427,5 +427,35 @@ export function makeEmptyCustomObservations(): CustomObservationsSection {
   return { items: [], custom_fields: [] };
 }
 
+// ---------------------------------------------------------------------------
+// ATTACHMENTS LOG — descriptions IA des photos versionnées dans le state
+// ---------------------------------------------------------------------------
+//
+// Doctrine "JSON = Cerveau" : les descriptions issues de describeMedia
+// vivaient jusqu'ici uniquement dans `attachment_ai_descriptions`, donc
+// invisibles du LLM lors d'un extract sur 1 photo isolée. On les remonte
+// dans le state pour qu'elles fassent partie du `state` du ContextBundle.
+
+export const AttachmentLogItemSchema = z.object({
+  id: z.string().uuid(),
+  attachment_id: z.string(),
+  media_profile: z.enum(["photo", "plan", "pdf"]).nullable(),
+  short_caption: fieldSchema(z.string()),
+  detailed_description: fieldSchema(z.string()),
+  ocr_text: fieldSchema(z.string()),
+  parent_message_id: z.string().nullable(),
+  captured_at: fieldSchema(z.string()),
+});
+export type AttachmentLogItem = z.infer<typeof AttachmentLogItemSchema>;
+
+export const AttachmentsLogSchema = z.object({
+  items: z.array(AttachmentLogItemSchema).default([]),
+});
+export type AttachmentsLogSection = z.infer<typeof AttachmentsLogSchema>;
+
+export function makeEmptyAttachmentsLog(): AttachmentsLogSection {
+  return { items: [] };
+}
+
 // Re-export helper pour les modules consommateurs.
 export type { Field };
