@@ -16,7 +16,6 @@ import {
   getModelByTier,
   type ModelTier,
 } from "@/features/settings";
-import { SettingsSidebar } from "@/features/settings/components/SettingsSidebar";
 
 export const Route = createFileRoute("/_authenticated/settings/ai")({
   component: AiSettingsPage,
@@ -50,14 +49,24 @@ function AiSettingsPage() {
   }
 
   return (
-    <>
-      {/* Mobile-only sidebar shown when this is the entry route */}
-      <div className="md:hidden">
-        <MobileSettingsSidebarToggle />
-      </div>
+    <div className="flex flex-col">
+      {/* Header mobile (back + titre). Desktop affiche déjà la SettingsSidebar. */}
+      <header className="safe-top safe-x sticky top-0 z-10 border-b border-border bg-background md:hidden">
+        <div className="flex h-14 items-center gap-2 px-3">
+          <Link
+            to="/"
+            className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
+            aria-label="Retour"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <h1 className="font-heading text-base font-semibold tracking-tight">
+            Paramètres
+          </h1>
+        </div>
+      </header>
 
-      <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10 safe-bottom">
-        {/* Header */}
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10 safe-bottom">
         <header className="flex flex-col gap-1">
           <h2 className="font-heading text-2xl font-semibold text-foreground">
             IA &amp; Modèles
@@ -68,7 +77,6 @@ function AiSettingsPage() {
           </p>
         </header>
 
-        {/* Toggle global */}
         <section className="flex flex-col gap-2">
           <h3 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Activation
@@ -76,7 +84,6 @@ function AiSettingsPage() {
           <AiToggleCard enabled={aiGlobalEnabled} onChange={handleToggle} />
         </section>
 
-        {/* Sélecteur de modèle */}
         <section className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <h3 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -93,47 +100,11 @@ function AiSettingsPage() {
             onSelect={handleModelSelect}
           />
           <p className="font-body mt-2 text-[11px] text-muted-foreground">
-            Tarifs indicatifs Lovable AI (USD pour 1 million de tokens). Le
-            recall est une estimation interne sur des saisies terrain
+            Tarifs indicatifs Lovable AI (USD pour 1&nbsp;million de tokens).
+            Le recall est une estimation interne sur des saisies terrain
             représentatives — ce n'est pas une garantie.
           </p>
         </section>
-      </div>
-    </>
-  );
-}
-
-/** Mobile : header avec retour vers la home + accès au reste des sections. */
-function MobileSettingsSidebarToggle() {
-  return (
-    <header className="safe-top safe-x sticky top-0 z-10 border-b border-border bg-background">
-      <div className="flex h-14 items-center gap-2 px-3">
-        <Link
-          to="/"
-          className="touch-target inline-flex items-center justify-center rounded-md text-foreground hover:bg-accent"
-          aria-label="Retour"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <h1 className="font-heading text-base font-semibold tracking-tight">
-          Paramètres
-        </h1>
-      </div>
-      <div className="border-t border-border bg-muted/40">
-        {/* Mini-nav horizontale des sections sur mobile */}
-        <MobileSectionsNav />
-      </div>
-    </header>
-  );
-}
-
-function MobileSectionsNav() {
-  // On réutilise SETTINGS_SECTIONS mais en barre horizontale scrollable.
-  // Garde la nav accessible sans router complexe sur mobile.
-  return (
-    <div className="overflow-x-auto">
-      <div className="flex w-max">
-        <SettingsSidebar />
       </div>
     </div>
   );
