@@ -326,8 +326,13 @@ export async function processLlmRouteAndDispatch(
   }
 
   // Historique complet de la visite (cap dur retiré).
-  // La compression progressive (compress.ts, passes 2a→2e) reste le filet
-  // de sécurité si le bundle dépasse le budget tokens.
+  // La compression progressive (compress.ts) reste le filet de sécurité
+  // si le bundle dépasse le budget tokens.
+  //
+  // Refonte avril 2026 : on n'attache plus `attachmentDescriptions` ni
+  // `pendingAttachments` au bundle. Les descriptions de photos passent
+  // désormais via les messages assistant `photo_caption` (déjà émis par
+  // maybeEmitPhotoCaption) — donc dans `recent_messages`.
   const recentRaw = await db.messages
     .where("[visit_id+created_at]")
     .between([visit.id, ""], [visit.id, "\uffff"])
@@ -336,56 +341,12 @@ export async function processLlmRouteAndDispatch(
     a.created_at.localeCompare(b.created_at),
   );
 
-  const attachmentDescriptions = await Promise.all(
-    attachments.map(async (a) => {
-      const d = await getLatestAiDescriptionForAttachment(a.id);
-      return {
-        attachment_id: a.id,
-        media_profile: a.media_profile,
-        description: d!.description,
-      };
-    }),
-  );
-
-  // It. 14.1 — Détecter les attachments mentionnés dans `recent` mais
-  // sans description IA (anti-hallucination). Couvre le cas "user a
-  // envoyé des photos avec IA off, puis réactive l'IA et pose une
-  // question" : ces photos ne seront pas dans `attachmentDescriptions`
-  // mais le LLM les voit dans l'historique.
-  const recentMessageIds = recent.map((m) => m.id);
-  const recentAttachments = recentMessageIds.length
-    ? await db.attachments
-        .where("message_id")
-        .anyOf(recentMessageIds)
-        .toArray()
-    : [];
-  const pendingAttachments: Array<{
-    id: string;
-    media_profile: string | null;
-    reason: "no_description_yet" | "ai_disabled_when_sent";
-  }> = [];
-  const describedIds = new Set(attachmentDescriptions.map((d) => d.attachment_id));
-  for (const a of recentAttachments) {
-    if (describedIds.has(a.id)) continue;
-    const desc = await getLatestAiDescriptionForAttachment(a.id);
-    if (desc) continue;
-    const parent = recent.find((m) => m.id === a.message_id);
-    const aiEnabledMeta = (parent?.metadata as Record<string, unknown> | undefined)?.ai_enabled;
-    pendingAttachments.push({
-      id: a.id,
-      media_profile: a.media_profile,
-      reason: aiEnabledMeta === false ? "ai_disabled_when_sent" : "no_description_yet",
-    });
-  }
-
-  // Construction + compression context bundle
+  // Construction + compression context bundle minimal
   const visitRow: VisitRow = visit;
   const bundle = buildContextBundle({
     visit: visitRow,
     latestState,
     recentMessages: recent as MessageRow[],
-    attachmentDescriptions,
-    pendingAttachments,
   });
   const compressed = compressContextBundle(bundle);
   if (compressed.status === "failed") {
