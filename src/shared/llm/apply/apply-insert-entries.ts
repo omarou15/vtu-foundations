@@ -180,33 +180,31 @@ function isEmptyInitField(f: Field<unknown>): boolean {
   return f.source === "init" && (f.value === null || f.value === undefined);
 }
 
-function ensureArrayAtPath(
+function forceArrayAtPath(
   root: Record<string, unknown>,
   path: string,
-): unknown[] | null {
-  const segments = path.split(".");
+): unknown[] {
+  const segments = path.split(".").filter((s) => s.length > 0);
+  if (segments.length === 0) return [];
   let cur: Record<string, unknown> = root;
   for (let i = 0; i < segments.length - 1; i += 1) {
     const seg = segments[i]!;
     const next = cur[seg];
-    if (next === undefined || next === null) {
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
       cur[seg] = {};
       cur = cur[seg] as Record<string, unknown>;
-    } else if (typeof next === "object" && !Array.isArray(next)) {
-      cur = next as Record<string, unknown>;
     } else {
-      return null;
+      cur = next as Record<string, unknown>;
     }
   }
   const last = segments[segments.length - 1]!;
   const existing = cur[last];
-  if (existing === undefined || existing === null) {
+  if (!Array.isArray(existing)) {
     const arr: unknown[] = [];
     cur[last] = arr;
     return arr;
   }
-  if (Array.isArray(existing)) return existing;
-  return null;
+  return existing;
 }
 
 function clone<T>(v: T): T {
