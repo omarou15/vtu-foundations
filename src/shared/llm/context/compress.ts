@@ -1,16 +1,21 @@
 /**
- * Compression du ContextBundle en 5 passes cascadées (Correction B v2.1).
+ * Compression progressive du ContextBundle.
  *
  * Cible : faire passer le bundle sous le budget tokens (par défaut 12k).
- * À chaque passe on réduit + on re-mesure. Si après la passe 5 on est
- * toujours hors budget, on retourne `{ bundle, status: "failed" }`.
+ * À chaque passe on réduit + on re-mesure. Sortie immédiate dès qu'on
+ * passe sous le budget. Si après la dernière passe on est toujours
+ * hors budget, on retourne `{ status: "failed" }`.
  *
  * Ordre (du moins destructif au plus) :
- *   1. soft trim ocr_text > 500c (sur attachments_context)
- *   2. réduire recent_messages à 8 derniers
- *   3. drop structured_observations détaillées
- *   4. strip detailed_description (garder short_caption)
- *   5. failed
+ *   1   soft trim ocr_text > 500c (sur attachments_context)
+ *   2a  tronquer messages assistant > 800 chars (… + suffixe)
+ *   2b  tronquer messages user > 1500 chars (… + suffixe)
+ *   2c  garder les 50 derniers messages
+ *   2d  garder les 20 derniers messages
+ *   2e  garder les 8 derniers messages (filet final messages)
+ *   3   drop ocr_text complet sur attachments_context
+ *   4   strip detailed_description + state non essentiel
+ *   5   failed
  */
 
 import type { ContextBundle } from "../types";
@@ -19,13 +24,32 @@ import { estimateTokens } from "./tokens-estimate";
 export interface CompressResult {
   bundle: ContextBundle;
   status: "ok" | "failed";
+  /** Nombre cumulatif de passes appliquées (0 à 9). */
   passes_applied: number;
   estimated_tokens: number;
 }
 
 export const DEFAULT_TOKEN_BUDGET = 12_000;
 const OCR_SOFT_LIMIT_CHARS = 500;
-const RECENT_MESSAGES_HARD_LIMIT = 8;
+const ASSISTANT_SOFT_LIMIT_CHARS = 800;
+const USER_SOFT_LIMIT_CHARS = 1500;
+const MESSAGES_SOFT_LIMIT_LARGE = 50;
+const MESSAGES_SOFT_LIMIT_MEDIUM = 20;
+const MESSAGES_HARD_LIMIT = 8;
+const TRUNCATION_SUFFIX = "…";
+
+type Pass = (b: ContextBundle) => ContextBundle;
+
+const PASSES: Pass[] = [
+  passTrimOcr,            // 1
+  passTrimAssistant,      // 2a
+  passTrimUser,           // 2b
+  passLimitMessages50,    // 2c
+  passLimitMessages20,    // 2d
+  passLimitMessages8,     // 2e
+  passDropOcr,            // 3
+  passStripDetails,       // 4
+];
 
 export function compressContextBundle(
   bundle: ContextBundle,
@@ -37,36 +61,26 @@ export function compressContextBundle(
     return { bundle: cur, status: "ok", passes_applied: 0, estimated_tokens: estimated };
   }
 
-  // Pass 1 : soft trim ocr_text
-  cur = passTrimOcr(cur);
-  estimated = estimateTokens(cur);
-  if (estimated <= budget) {
-    return { bundle: cur, status: "ok", passes_applied: 1, estimated_tokens: estimated };
+  for (let i = 0; i < PASSES.length; i += 1) {
+    cur = PASSES[i]!(cur);
+    estimated = estimateTokens(cur);
+    if (estimated <= budget) {
+      return {
+        bundle: cur,
+        status: "ok",
+        passes_applied: i + 1,
+        estimated_tokens: estimated,
+      };
+    }
   }
 
-  // Pass 2 : recent_messages → 8 derniers
-  cur = passLimitMessages(cur);
-  estimated = estimateTokens(cur);
-  if (estimated <= budget) {
-    return { bundle: cur, status: "ok", passes_applied: 2, estimated_tokens: estimated };
-  }
-
-  // Pass 3 : drop structured_observations
-  cur = passDropObservations(cur);
-  estimated = estimateTokens(cur);
-  if (estimated <= budget) {
-    return { bundle: cur, status: "ok", passes_applied: 3, estimated_tokens: estimated };
-  }
-
-  // Pass 4 : strip detailed_description
-  cur = passStripDetails(cur);
-  estimated = estimateTokens(cur);
-  if (estimated <= budget) {
-    return { bundle: cur, status: "ok", passes_applied: 4, estimated_tokens: estimated };
-  }
-
-  // Pass 5 : failed (renvoie bundle minimal)
-  return { bundle: cur, status: "failed", passes_applied: 5, estimated_tokens: estimated };
+  // Dernière passe : failed (renvoie le bundle le plus compressé).
+  return {
+    bundle: cur,
+    status: "failed",
+    passes_applied: PASSES.length + 1,
+    estimated_tokens: estimated,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -80,25 +94,60 @@ function passTrimOcr(b: ContextBundle): ContextBundle {
       ...a,
       ocr_text:
         a.ocr_text && a.ocr_text.length > OCR_SOFT_LIMIT_CHARS
-          ? a.ocr_text.slice(0, OCR_SOFT_LIMIT_CHARS) + "…"
+          ? a.ocr_text.slice(0, OCR_SOFT_LIMIT_CHARS) + TRUNCATION_SUFFIX
           : a.ocr_text,
     })),
   };
 }
 
-function passLimitMessages(b: ContextBundle): ContextBundle {
+function passTrimAssistant(b: ContextBundle): ContextBundle {
   return {
     ...b,
-    recent_messages: b.recent_messages.slice(-RECENT_MESSAGES_HARD_LIMIT),
+    recent_messages: b.recent_messages.map((m) =>
+      m.role === "assistant" &&
+      m.content &&
+      m.content.length > ASSISTANT_SOFT_LIMIT_CHARS
+        ? { ...m, content: m.content.slice(0, ASSISTANT_SOFT_LIMIT_CHARS) + TRUNCATION_SUFFIX }
+        : m,
+    ),
   };
 }
 
-function passDropObservations(b: ContextBundle): ContextBundle {
-  // Note : structured_observations vit au niveau de la description IA
-  // d'un attachment (pas dans le bundle directement). On les retire en
-  // simplifiant attachments_context (déjà projeté en short/detailed/ocr).
-  // Donc cette passe = no-op métier MAIS on supprime ocr_text pour
-  // gagner encore — pertinent si pass 1 n'a pas suffi.
+function passTrimUser(b: ContextBundle): ContextBundle {
+  return {
+    ...b,
+    recent_messages: b.recent_messages.map((m) =>
+      m.role === "user" &&
+      m.content &&
+      m.content.length > USER_SOFT_LIMIT_CHARS
+        ? { ...m, content: m.content.slice(0, USER_SOFT_LIMIT_CHARS) + TRUNCATION_SUFFIX }
+        : m,
+    ),
+  };
+}
+
+function passLimitMessages50(b: ContextBundle): ContextBundle {
+  return {
+    ...b,
+    recent_messages: b.recent_messages.slice(-MESSAGES_SOFT_LIMIT_LARGE),
+  };
+}
+
+function passLimitMessages20(b: ContextBundle): ContextBundle {
+  return {
+    ...b,
+    recent_messages: b.recent_messages.slice(-MESSAGES_SOFT_LIMIT_MEDIUM),
+  };
+}
+
+function passLimitMessages8(b: ContextBundle): ContextBundle {
+  return {
+    ...b,
+    recent_messages: b.recent_messages.slice(-MESSAGES_HARD_LIMIT),
+  };
+}
+
+function passDropOcr(b: ContextBundle): ContextBundle {
   return {
     ...b,
     attachments_context: b.attachments_context.map((a) => ({
