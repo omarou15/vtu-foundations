@@ -101,7 +101,9 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
     expect(out.state.building.custom_fields).toEqual([]);
   });
 
-  it("1 patch valide + 1 patch positional sur entrée absente + 1 insert", () => {
+  it("1 patch valide + 1 patch positional auto-promu + 1 insert", () => {
+    // Lot A.5 fix 1 : un patch positional sur array vide est désormais
+    // auto-promu en insert (entrée créée + field posé). Plus de path_not_found.
     const state = freshState();
     const schemaMap = buildSchemaMap(state);
     const out = applyExtractResult({
@@ -115,7 +117,6 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
           evidence_refs: [],
         },
         {
-          // Index positionnel sur entrée inexistante → path_not_found
           path: "heating.installations[0].type_value",
           value: "x",
           confidence: "high",
@@ -135,11 +136,11 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
       sourceExtractionId: EXTRACTION,
     });
 
-    expect(out.totalApplied).toBe(2); // 1 patch + 1 insert
-    expect(out.patches.applied).toHaveLength(1);
-    expect(out.patches.ignored).toHaveLength(1);
-    expect(out.patches.ignored[0]?.reason).toBe("path_not_found");
+    expect(out.totalApplied).toBe(3); // 2 patches (dont 1 promu) + 1 insert
+    expect(out.patches.applied).toHaveLength(2);
+    expect(out.patches.ignored).toHaveLength(0);
     expect(out.insertEntries.applied).toHaveLength(1);
+    expect(out.state.heating.installations).toHaveLength(2);
   });
 
   it("patch sur entrée par UUID inexistant : auto-vivify (permissif)", () => {
