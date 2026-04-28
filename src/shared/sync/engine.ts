@@ -622,8 +622,6 @@ async function markLocalRowSyncing(
   attempts: number | null = null,
 ): Promise<void> {
   const table = tableForName(entry.table);
-  // eslint-disable-next-line no-console
-  console.log("[DEBUG markLocalRowSyncing]", entry.op, entry.table, entry.row_id, new Error().stack?.split("\n").slice(1, 5).join("\n"));
   const patch: Record<string, unknown> = {
     sync_status: "syncing",
     local_updated_at: new Date().toISOString(),
