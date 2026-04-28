@@ -140,8 +140,8 @@ describe("applyInsertEntries — happy path", () => {
   });
 });
 
-describe("applyInsertEntries — rejets", () => {
-  it("collection inconnue → ignored avec unknown_collection", () => {
+describe("applyInsertEntries — permissif", () => {
+  it("collection inconnue → auto-vivify et entrée créée", () => {
     const { state, map } = freshState();
     const r = applyInsertEntries({
       state,
@@ -150,11 +150,12 @@ describe("applyInsertEntries — rejets", () => {
       sourceMessageId: MESSAGE,
       sourceExtractionId: EXTRACTION,
     });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("unknown_collection");
+    expect(r.applied).toHaveLength(1);
+    expect(r.applied[0]!.collection).toBe("fictif.section");
+    expect(r.ignored).toHaveLength(0);
   });
 
-  it("aucun field valide (toutes keys hors item_fields) → no_valid_fields", () => {
+  it("aucun field valide : entrée créée vide quand même (user arbitre)", () => {
     const { state, map } = freshState();
     const r = applyInsertEntries({
       state,
@@ -165,11 +166,12 @@ describe("applyInsertEntries — rejets", () => {
       sourceMessageId: MESSAGE,
       sourceExtractionId: EXTRACTION,
     });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("no_valid_fields");
+    expect(r.applied).toHaveLength(1);
+    expect(r.applied[0]!.fields_set.sort()).toEqual(["autre", "champ_invente"]);
+    expect(r.state.heating.installations).toHaveLength(1);
   });
 
-  it("keys réservées (id, custom_fields) → filtrées, mais entrée créée si autre key valide", () => {
+  it("keys réservées (id, custom_fields) → filtrées, entrée créée", () => {
     const { state, map } = freshState();
     const r = applyInsertEntries({
       state,
@@ -190,26 +192,22 @@ describe("applyInsertEntries — rejets", () => {
       "custom_fields",
       "id",
     ]);
-    // L'UUID n'est PAS celui que le LLM a tenté de fournir
     expect(r.applied[0]!.entryId).not.toBe("le-llm-essaie-de-poser-un-id");
-    expect(r.state.heating.installations[0]?.id).not.toBe(
-      "le-llm-essaie-de-poser-un-id",
-    );
   });
 });
 
-describe("applyInsertEntries — partial valid keys", () => {
-  it("certaines keys valides + certaines invalides → applied avec ignored_keys", () => {
+describe("applyInsertEntries — keys libres", () => {
+  it("keys hors item_fields acceptées comme Field<T> sur entrée connue", () => {
     const { state, map } = freshState();
     const r = applyInsertEntries({
       state,
       schemaMap: map,
       insertEntries: [
         op("heating.installations", {
-          type_value: "PAC", // valide
-          fuel_value: "électricité", // valide
-          marque: "Daikin", // hors item_fields
-          random_key: 42, // hors item_fields
+          type_value: "PAC",
+          fuel_value: "électricité",
+          marque: "Daikin",
+          random_key: 42,
         }),
       ],
       sourceMessageId: MESSAGE,
@@ -218,8 +216,10 @@ describe("applyInsertEntries — partial valid keys", () => {
     expect(r.applied).toHaveLength(1);
     expect(r.applied[0]!.fields_set.sort()).toEqual([
       "fuel_value",
+      "marque",
+      "random_key",
       "type_value",
     ]);
-    expect(r.applied[0]!.ignored_keys.sort()).toEqual(["marque", "random_key"]);
+    expect(r.applied[0]!.ignored_keys).toEqual([]);
   });
 });

@@ -1,21 +1,11 @@
 /**
- * It. 11.6 — Tests apply-patches (gates de sécurité IA + path strict).
+ * Refonte avril 2026 — Tests apply-patches PERMISSIF.
  *
- * Couvre la doctrine LLM-propose/user-valide :
- *  - Path doit être ∈ schemaMap.object_fields ou collection[id=…].field.
- *  - Index positionnel `[N]` REJETÉ (positional_index_forbidden).
- *  - Path inventé REJETÉ (path_not_in_schema).
- *  - validation_status="validated" → IGNORÉ.
- *  - source ∈ {user, voice, photo_ocr, import} ET value !== null → IGNORÉ.
- *  - source="ai_infer" + unvalidated : gate confidence (Correction A v2.2)
- *    - low → high : OVERWRITE.
- *    - high → low : IGNORÉ.
- *    - medium → medium : IGNORÉ (égalité, 1re extraction prime).
- *  - value=null → patch OK.
- *
- * Stratégie : on utilise un état réel `createInitialVisitJsonState` et un
- * path réel (`building.wall_material_value`) pour exercer tous les gates
- * sur un Field<string> fixe ; les gates ne dépendent pas du path précis.
+ * Doctrine : le LLM propose, l'apply matérialise comme ai_infer/unvalidated,
+ * le user arbitre via la PendingActionsCard. Plus aucun rejet métier
+ * (humain prime, confidence, schemaMap). Seuls bugs structurels rejetés :
+ *   - not_a_field : la cible existe mais n'est pas un Field<T>.
+ *   - path_not_found : impossible de résoudre/créer la cible.
  */
 
 import { describe, expect, it } from "vitest";
@@ -41,7 +31,6 @@ const MESSAGE = "msg-1";
 const VISIT_ID = "11111111-1111-1111-1111-111111111111";
 const THERMICIEN_ID = "22222222-2222-2222-2222-222222222222";
 
-/** Path utilisé par tous les tests de gates : meta.title est un Field<string>. */
 const PATH = "building.wall_material_value";
 
 function freshState(
@@ -70,8 +59,8 @@ function setBuildingWallMaterial(s: VisitJsonState, f: Field<string>): void {
   s.building.wall_material_value = f;
 }
 
-describe("applyPatches — gates IA", () => {
-  it("Field vide (source=init, value=null) → patch appliqué", () => {
+describe("applyPatches — permissif (LLM propose, user arbitre)", () => {
+  it("Field vide → patch appliqué (ai_infer/unvalidated)", () => {
     const { state, map } = freshState();
     const r = applyPatches({
       state,
@@ -85,9 +74,10 @@ describe("applyPatches — gates IA", () => {
     expect(r.state.building.wall_material_value.value).toBe("brique");
     expect(r.state.building.wall_material_value.source).toBe("ai_infer");
     expect(r.state.building.wall_material_value.confidence).toBe("high");
+    expect(r.state.building.wall_material_value.validation_status).toBe("unvalidated");
   });
 
-  it("source=user avec value → IGNORÉ (human_source_prime)", () => {
+  it("source=user existant : patch écrase quand même (user arbitre via card)", () => {
     const { state, map } = freshState((s) =>
       setBuildingWallMaterial(s, {
         ...emptyField<string>(),
@@ -102,276 +92,184 @@ describe("applyPatches — gates IA", () => {
       sourceMessageId: MESSAGE,
       sourceExtractionId: EXTRACTION,
     });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("human_source_prime");
-  });
-
-  it.each(["voice", "photo_ocr", "import"] as const)(
-    "source=%s avec value → IGNORÉ",
-    (src) => {
-      const { state, map } = freshState((s) =>
-        setBuildingWallMaterial(s, {
-          ...emptyField<string>(),
-          value: "pierre",
-          source: src,
-        }),
-      );
-      const r = applyPatches({
-        state,
-        schemaMap: map,
-        patches: [patch(PATH, "brique", "high")],
-        sourceMessageId: MESSAGE,
-        sourceExtractionId: EXTRACTION,
-      });
-      expect(r.applied).toHaveLength(0);
-      expect(r.ignored[0]?.reason).toBe("human_source_prime");
-    },
-  );
-
-  it("validation_status=validated → IGNORÉ même si ai_infer", () => {
-    const f = aiInferField({
-      value: "pierre",
-      confidence: "low",
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: "old",
-      evidenceRefs: [],
-    });
-    f.validation_status = "validated";
-    const { state, map } = freshState((s) => setBuildingWallMaterial(s, f));
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [patch(PATH, "brique", "high")],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("validated_by_human");
-  });
-
-  it("ai_infer unvalidated low → high : OVERWRITE", () => {
-    const f = aiInferField({
-      value: "pierre",
-      confidence: "low",
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: "old",
-      evidenceRefs: [],
-    });
-    const { state, map } = freshState((s) => setBuildingWallMaterial(s, f));
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [patch(PATH, "brique", "high")],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
     expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
     expect(r.state.building.wall_material_value.value).toBe("brique");
-    expect(r.state.building.wall_material_value.confidence).toBe("high");
+    expect(r.state.building.wall_material_value.source).toBe("ai_infer");
+    expect(r.state.building.wall_material_value.validation_status).toBe("unvalidated");
   });
 
-  it("ai_infer unvalidated high → low : IGNORÉ", () => {
-    const f = aiInferField({
-      value: "brique",
-      confidence: "high",
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: "old",
-      evidenceRefs: [],
-    });
-    const { state, map } = freshState((s) => setBuildingWallMaterial(s, f));
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [patch(PATH, "pierre", "low")],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe(
-      "lower_or_equal_confidence_than_current",
-    );
-  });
-
-  it("ai_infer unvalidated medium → medium : IGNORÉ (égalité)", () => {
-    const f = aiInferField({
-      value: "brique",
-      confidence: "medium",
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: "old",
-      evidenceRefs: [],
-    });
-    const { state, map } = freshState((s) => setBuildingWallMaterial(s, f));
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [patch(PATH, "pierre", "medium")],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe(
-      "lower_or_equal_confidence_than_current",
-    );
-  });
-
-  it("init validated avec value → IGNORÉ via validated_by_human", () => {
-    // initField produit validation_status='validated' → bloqué
-    const { state, map } = freshState((s) =>
-      setBuildingWallMaterial(s, initField<string>("brique")),
-    );
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [patch(PATH, "pierre", "high")],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("validated_by_human");
-  });
-});
-
-describe("applyPatches — paths stricts (It. 11.6)", () => {
-  it("path inexistant → REJETÉ avec path_not_in_schema", () => {
-    const { state, map } = freshState();
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [patch("nope.fictif", 42)],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("path_not_in_schema");
-  });
-
-  it("index positionnel installations[0] → REJETÉ avec positional_index_forbidden", () => {
-    const { state, map } = freshState();
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [
-        patch("heating.installations[0].type_value", "chaudiere_gaz", "high"),
-      ],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("positional_index_forbidden");
-  });
-
-  it("entry path UUID inexistant → REJETÉ avec entry_not_found", () => {
-    const { state, map } = freshState();
-    const fakeId = "00000000-0000-0000-0000-000000000000";
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [
-        patch(
-          `heating.installations[id=${fakeId}].type_value`,
-          "PAC",
-          "high",
-        ),
-      ],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("entry_not_found");
-  });
-
-  it("entry path UUID valide → patch sur l'entrée modifié", () => {
-    const entryId = "33333333-3333-3333-3333-333333333333";
-    const { state } = freshState();
-    state.heating.installations.push({
-      id: entryId,
-      type_value: emptyField<string>(),
-      type_other: emptyField<string>(),
-      fuel_value: emptyField<string>(),
-      fuel_other: emptyField<string>(),
-      power_kw: emptyField<number>(),
-      installation_year: emptyField<number>(),
-      brand: emptyField<string>(),
-      efficiency_pct: emptyField<number>(),
-      custom_fields: [],
-    });
-    const map = buildSchemaMap(state);
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [
-        patch(
-          `heating.installations[id=${entryId}].type_value`,
-          "PAC air-eau",
-          "high",
-        ),
-      ],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(1);
-    expect(r.state.heating.installations[0]?.type_value.value).toBe(
-      "PAC air-eau",
-    );
-    expect(r.state.heating.installations[0]?.type_value.source).toBe("ai_infer");
-  });
-
-  it("entry path : champ absent du collection.item_fields → REJETÉ", () => {
-    const entryId = "33333333-3333-3333-3333-333333333333";
-    const { state } = freshState();
-    state.heating.installations.push({
-      id: entryId,
-      type_value: emptyField<string>(),
-      type_other: emptyField<string>(),
-      fuel_value: emptyField<string>(),
-      fuel_other: emptyField<string>(),
-      power_kw: emptyField<number>(),
-      installation_year: emptyField<number>(),
-      brand: emptyField<string>(),
-      efficiency_pct: emptyField<number>(),
-      custom_fields: [],
-    });
-    const map = buildSchemaMap(state);
-    const r = applyPatches({
-      state,
-      schemaMap: map,
-      patches: [
-        patch(
-          `heating.installations[id=${entryId}].champ_invente`,
-          "x",
-          "high",
-        ),
-      ],
-      sourceMessageId: MESSAGE,
-      sourceExtractionId: EXTRACTION,
-    });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("field_not_in_collection_item");
-  });
-});
-
-describe("applyPatches — multi", () => {
-  it("plusieurs patches : applied et ignored coexistent", () => {
+  it("validation_status=validated existant : patch écrase quand même", () => {
     const { state, map } = freshState((s) =>
       setBuildingWallMaterial(s, {
-        ...emptyField<string>(),
-        value: "pierre",
-        source: "user", // bloqué (humain prime)
+        ...aiInferField({
+          value: "old",
+          confidence: "high",
+          sourceMessageId: null,
+          sourceExtractionId: "prev",
+          evidenceRefs: [],
+        }),
+        validation_status: "validated",
       }),
     );
     const r = applyPatches({
       state,
       schemaMap: map,
+      patches: [patch(PATH, "new", "low")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.state.building.wall_material_value.value).toBe("new");
+  });
+
+  it("ai_infer high → low : patch écrase (le user arbitre)", () => {
+    const { state, map } = freshState((s) =>
+      setBuildingWallMaterial(
+        s,
+        aiInferField({
+          value: "old",
+          confidence: "high",
+          sourceMessageId: null,
+          sourceExtractionId: "prev",
+          evidenceRefs: [],
+        }),
+      ),
+    );
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch(PATH, "low_value", "low")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.state.building.wall_material_value.value).toBe("low_value");
+    expect(r.state.building.wall_material_value.confidence).toBe("low");
+  });
+
+  it("init validated avec value : patch écrase quand même", () => {
+    const { state, map } = freshState((s) =>
+      setBuildingWallMaterial(s, {
+        ...initField<string>("manuel"),
+        validation_status: "validated",
+      }),
+    );
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch(PATH, "ai", "high")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.state.building.wall_material_value.value).toBe("ai");
+  });
+});
+
+describe("applyPatches — paths permissifs", () => {
+  it("path object inexistant : auto-vivify et applique", () => {
+    const { state, map } = freshState();
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch("custom_section.new_field", 42, "high")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
+    const sec = (r.state as unknown as Record<string, { new_field: Field<number> }>)
+      .custom_section;
+    expect(sec.new_field.value).toBe(42);
+  });
+
+  it("index positionnel sur entrée inexistante → path_not_found", () => {
+    const { state, map } = freshState();
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch("heating.installations[0].fuel_value", "gaz")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(0);
+    expect(r.ignored[0]?.reason).toBe("path_not_found");
+  });
+
+  it("entry path UUID inexistant : auto-vivify l'entrée et applique", () => {
+    const { state, map } = freshState();
+    const NEW_UUID = "abc-1234-5678";
+    const r = applyPatches({
+      state,
+      schemaMap: map,
       patches: [
-        patch(PATH, "brique", "high"), // bloqué human_source_prime
-        patch("building.construction_year", 1990, "high"), // appliqué
-        patch("nope.fictif", "x", "high"), // path_not_in_schema
+        patch(`heating.installations[id=${NEW_UUID}].fuel_value`, "gaz", "high"),
       ],
       sourceMessageId: MESSAGE,
       sourceExtractionId: EXTRACTION,
     });
     expect(r.applied).toHaveLength(1);
-    expect(r.applied[0]?.path).toBe("building.construction_year");
-    expect(r.ignored).toHaveLength(2);
+    expect(r.ignored).toHaveLength(0);
+    const inst = r.state.heating.installations.find((i) => i.id === NEW_UUID);
+    expect(inst).toBeDefined();
+    expect(inst!.fuel_value.value).toBe("gaz");
+  });
+
+  it("entry path : champ libre du LLM accepté (devient Field<T>)", () => {
+    const { state, map } = freshState();
+    const NEW_UUID = "abc-9999";
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [
+        patch(`heating.installations[id=${NEW_UUID}].random_key`, "x"),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    const inst = r.state.heating.installations.find((i) => i.id === NEW_UUID) as
+      | (Record<string, Field<unknown>> & { id: string })
+      | undefined;
+    expect(inst?.random_key.value).toBe("x");
+  });
+});
+
+describe("applyPatches — multi", () => {
+  it("plusieurs patches : tous appliqués (auto-vivify)", () => {
+    const { state, map } = freshState();
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [
+        patch("building.construction_year", 1990),
+        patch("totally.unknown.path", "x"),
+        patch("heating.installations[id=zzz].fuel_value", "gaz"),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(3);
+    expect(r.ignored).toHaveLength(0);
+  });
+
+  it("path mène à un non-Field existant → not_a_field", () => {
+    const { state, map } = freshState();
+    // building est un objet plat ; building.wall_material_value est un Field.
+    // Si on tape sur "building" lui-même via un sous-segment qui pointe sur
+    // un objet non-Field, on doit l'écraser sans broncher (auto-vivify).
+    // Pour déclencher not_a_field, on patch la valeur DIRECTE d'une entrée.
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch("heating.installations.0", "x")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    // installations[0] n'existe pas → path_not_found OU not_a_field selon résolution.
+    // L'important : il n'est pas appliqué.
+    expect(r.applied).toHaveLength(0);
+    expect(r.ignored).toHaveLength(1);
   });
 });

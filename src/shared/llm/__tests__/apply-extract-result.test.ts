@@ -101,7 +101,7 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
     expect(out.state.building.custom_fields).toEqual([]);
   });
 
-  it("1 patch valide + 1 patch invalide (positional) + 1 insert valide", () => {
+  it("1 patch valide + 1 patch positional sur entrée absente + 1 insert", () => {
     const state = freshState();
     const schemaMap = buildSchemaMap(state);
     const out = applyExtractResult({
@@ -115,6 +115,7 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
           evidence_refs: [],
         },
         {
+          // Index positionnel sur entrée inexistante → path_not_found
           path: "heating.installations[0].type_value",
           value: "x",
           confidence: "high",
@@ -137,19 +138,17 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
     expect(out.totalApplied).toBe(2); // 1 patch + 1 insert
     expect(out.patches.applied).toHaveLength(1);
     expect(out.patches.ignored).toHaveLength(1);
-    expect(out.patches.ignored[0]?.reason).toBe("positional_index_forbidden");
+    expect(out.patches.ignored[0]?.reason).toBe("path_not_found");
     expect(out.insertEntries.applied).toHaveLength(1);
   });
 
-  it("schemaMap reflète l'état initial : un patch sur entrée pré-existante doit utiliser [id=…]", () => {
+  it("patch sur entrée par UUID inexistant : auto-vivify (permissif)", () => {
     const state = freshState();
-    // Aucun heating.installations → patches sur entry forcément invalides
     const schemaMap = buildSchemaMap(state);
     const out = applyExtractResult({
       state,
       schemaMap,
       patches: [
-        // L'IA doit d'abord faire un insert_entry, pas un set_field
         {
           path: "heating.installations[id=fake-uuid].type_value",
           value: "PAC",
@@ -163,7 +162,11 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
       sourceExtractionId: EXTRACTION,
     });
 
-    expect(out.totalApplied).toBe(0);
-    expect(out.patches.ignored[0]?.reason).toBe("entry_not_found");
+    expect(out.totalApplied).toBe(1);
+    expect(out.patches.ignored).toHaveLength(0);
+    expect(
+      out.state.heating.installations.find((i) => i.id === "fake-uuid")
+        ?.type_value.value,
+    ).toBe("PAC");
   });
 });

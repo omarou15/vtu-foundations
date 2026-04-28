@@ -526,22 +526,18 @@ async function handleExtract(
     });
   }
 
-  // It. 10.5 — Message assistant : actions_card si patches/custom_fields,
-  // sinon text simple. Plus jamais de "Aucun champ mis à jour".
-  // It. 11 — Si des patches ont été ignorés pour `human_source_prime`,
-  //   on émet en PLUS un message `conflict_card` séparé. Le user
-  //   arbitrera via ConflictCard sans polluer le actions_card normal.
+  // Refonte avril 2026 — Plus de conflict_card séparé. Toute proposition
+  // (même celle qui écrase une saisie humaine) atterrit dans la même
+  // actions_card. Le user voit, accepte ou refuse, point.
+  // L'append_json_state_version a déjà eu lieu plus haut si totalApplied > 0
+  // (les Field<T> posés sont en source=ai_infer / validation_status=unvalidated,
+  // donc le user les valide ou les rejette via la PendingActionsCard).
   const hasProposals =
     (result.patches?.length ?? 0) > 0 ||
     (result.insert_entries?.length ?? 0) > 0 ||
     (result.custom_fields?.length ?? 0) > 0;
   const assistantMessage = (result.assistant_message ?? "").trim() ||
     "Bien noté, n'hésite pas à préciser.";
-  const ignoredPaths = applyOut.patches.ignored.map((i) => ({
-    path: i.path,
-    reason: i.reason,
-  }));
-  const conflictPaths = ignoredPaths.filter((i) => i.reason === "human_source_prime");
   const proposedPatches = result.patches ?? [];
   const proposedInserts = result.insert_entries ?? [];
 
@@ -563,36 +559,15 @@ async function handleExtract(
         entry_id: a.entryId,
         fields_set: a.fields_set,
       })),
-      ignored_paths: ignoredPaths,
+      // Ignored ne contient plus que des bugs structurels (pas de conflit
+      // métier). On les expose tout de même pour debug via /settings/dev.
+      ignored_paths: applyOut.patches.ignored.map((i) => ({
+        path: i.path,
+        reason: i.reason,
+      })),
       ignored_inserts: applyOut.insertEntries.ignored,
     },
   });
-
-  // It. 11 — message conflict_card dédié si conflits humains détectés.
-  if (conflictPaths.length > 0) {
-    const conflictPatches = proposedPatches.filter((p) =>
-      conflictPaths.some((c) => c.path === p.path),
-    );
-    await appendLocalMessage({
-      userId: message.user_id,
-      visitId: message.visit_id,
-      role: "assistant",
-      kind: "conflict_card",
-      content:
-        conflictPaths.length === 1
-          ? "J'ai relevé une valeur différente de la tienne — laquelle garder ?"
-          : `J'ai relevé ${conflictPaths.length} valeurs différentes des tiennes — arbitre celles à garder.`,
-      metadata: {
-        llm_extraction_id: extraction.id,
-        mode: "extract",
-        proposed_patches: conflictPatches,
-        ignored_paths: conflictPaths,
-        // ai_enabled=false pour éviter tout dispatch LLM sur ce message
-        // (gate dans messages.repo.ts).
-        ai_enabled: false,
-      },
-    });
-  }
 
   await helpers.markLocalRowSynced(entry);
   if (entry.id != null) await db.sync_queue.delete(entry.id);

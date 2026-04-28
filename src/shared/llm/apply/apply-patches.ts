@@ -1,40 +1,44 @@
 /**
  * apply-patches : applique les patches IA `set_field` sur un VisitJsonState.
  *
- * It. 11.6 — strict :
- *   - Path doit être ∈ schemaMap.object_fields, OU avoir la forme
- *     `collection[id=…].field` avec collection ∈ schemaMap.collections
- *     et l'entrée `id` présente dans `current_entries`.
- *   - Index positionnel `[N]` REJETÉ (`positional_index_forbidden`).
- *   - Plus jamais d'auto-vivify silencieuse — le LLM utilise `insert_entry`
- *     pour créer ou `[id=…]` pour modifier.
+ * Refonte avril 2026 — couche PERMISSIVE :
+ *   - Plus aucun rejet basé sur "humain prime" / confidence / schemaMap.
+ *   - Le LLM propose, l'apply layer matérialise, le user arbitre via la
+ *     PendingActionsCard (validate / reject).
+ *   - Auto-vivification : si le path mène à une entrée par UUID inconnu,
+ *     on crée silencieusement l'entrée minimale dans la collection si
+ *     celle-ci est connue. Si la collection elle-même est inconnue, on
+ *     auto-vivifie un array (le path devient juste un endroit où poser
+ *     un Field — le user pourra rejeter via la card).
+ *   - Index positionnel `[N]` : résolu à l'entrée correspondante si elle
+ *     existe. Sinon ignoré (path_not_found) — pas de création silencieuse
+ *     car l'index n'a pas de sémantique stable.
  *
- * Gates conservés (corrections 1-7 + A v2.2) :
- *   - validation_status === "validated" → IGNORÉ (humain prime).
- *   - source ∈ {user, voice, photo_ocr, import} ET value !== null → IGNORÉ.
- *   - source === "ai_infer" + unvalidated : gate confidence — un patch
- *     avec confidence ≤ confidence courante (-0.1 marge) est IGNORÉ.
+ * Ne rejette plus que les vrais problèmes structurels :
+ *   - `not_a_field` : la cible existe mais n'est pas un Field<T>.
+ *   - `path_not_found` : impossible de résoudre/créer la cible.
  *
- * Sortie : nouveau state + applied[] + ignored[] avec raisons explicites.
+ * Ces "ignored" restent disponibles pour debug mais ne bloquent plus
+ * l'utilisateur : ils n'apparaissent plus dans une carte de conflit.
  */
 
 import {
   aiInferField,
+  emptyField,
   type Field,
-  type FieldConfidence,
 } from "@/shared/types/json-state.field";
 import type { VisitJsonState } from "@/shared/types";
 import {
-  isKnownObjectFieldPath,
-  isPositionalIndexPath,
+  buildEmptyCollectionEntry,
   parseEntryPath,
   type SchemaMap,
 } from "@/shared/types/json-state.schema-map";
 import type { AiFieldPatch } from "../types";
-import { walkEntryPath, walkObjectPath } from "./path-utils";
+import { walkObjectPath } from "./path-utils";
 
 export interface ApplyPatchesInput {
   state: VisitJsonState;
+  /** Conservé pour signature stable mais plus utilisé pour rejeter. */
   schemaMap: SchemaMap;
   patches: AiFieldPatch[];
   sourceMessageId: string | null;
@@ -48,88 +52,34 @@ export interface ApplyPatchesResult {
 }
 
 export type ApplyPatchIgnoreReason =
-  | "positional_index_forbidden"
-  | "path_not_in_schema"
-  | "entry_not_found"
-  | "field_not_in_collection_item"
-  | "path_not_found"
   | "not_a_field"
-  | "validated_by_human"
-  | "human_source_prime"
-  | "lower_or_equal_confidence_than_current";
+  | "path_not_found";
 
-const HUMAN_SOURCES = new Set(["user", "voice", "photo_ocr", "import"]);
-
-function confidenceScore(c: FieldConfidence | null | undefined): number {
-  if (c === "high") return 0.9;
-  if (c === "medium") return 0.7;
-  if (c === "low") return 0.4;
-  return 0;
-}
+const POSITIONAL_RE = /^([a-z0-9_.]+)\[(\d+)\]\.([a-z0-9_]+)$/;
 
 export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
   const next = clone(input.state);
+  const root = next as unknown as Record<string, unknown>;
   const applied: ApplyPatchesResult["applied"] = [];
   const ignored: ApplyPatchesResult["ignored"] = [];
 
   for (const patch of input.patches) {
-    // 1. Refus immédiat des indexes positionnels — le LLM doit utiliser
-    //    `[id=…]` ou `insert_entry`.
-    if (isPositionalIndexPath(patch.path)) {
-      ignored.push({ path: patch.path, reason: "positional_index_forbidden" });
-      continue;
-    }
-
-    // 2. Résolution path → (parent, key) selon syntaxe :
-    //    - object field plat → schemaMap.object_fields
-    //    - entry field UUID  → parseEntryPath + walkEntryPath
-    const target = resolvePatchTarget(
-      next as unknown as Record<string, unknown>,
-      input.schemaMap,
-      patch.path,
-    );
+    const target = resolvePatchTarget(root, patch.path);
     if (target.reason !== "ok") {
       ignored.push({ path: patch.path, reason: target.reason });
       continue;
     }
 
     const cur = target.parent[target.key] as Field<unknown> | undefined;
-    if (!cur || typeof cur !== "object" || !("value" in cur)) {
+
+    // Si la cible existe mais n'est PAS un Field<T>, on ne peut rien faire.
+    if (cur !== undefined && cur !== null && !isFieldShape(cur)) {
       ignored.push({ path: patch.path, reason: "not_a_field" });
       continue;
     }
 
-    // 3. Gates de sécurité (humain prime, confidence)
-    if (cur.validation_status === "validated") {
-      ignored.push({ path: patch.path, reason: "validated_by_human" });
-      continue;
-    }
-    if (
-      cur.value !== null &&
-      cur.value !== undefined &&
-      HUMAN_SOURCES.has(cur.source)
-    ) {
-      ignored.push({ path: patch.path, reason: "human_source_prime" });
-      continue;
-    }
-    if (
-      cur.source === "ai_infer" &&
-      cur.validation_status === "unvalidated" &&
-      cur.value !== null &&
-      cur.value !== undefined
-    ) {
-      if (
-        confidenceScore(cur.confidence) >=
-        confidenceScore(patch.confidence) - 0.1
-      ) {
-        ignored.push({
-          path: patch.path,
-          reason: "lower_or_equal_confidence_than_current",
-        });
-        continue;
-      }
-    }
-
+    // Si la cible n'existe pas (cas auto-vivified), on pose un Field neuf.
+    // Sinon on remplace par un nouvel ai_infer (le user décide via card).
     target.parent[target.key] = aiInferField({
       value: patch.value,
       confidence: patch.confidence,
@@ -153,37 +103,123 @@ type ResolveResult =
 
 function resolvePatchTarget(
   root: Record<string, unknown>,
-  map: SchemaMap,
   path: string,
 ): ResolveResult {
-  // a) Path d'entrée par UUID : `collection[id=…].field`
+  // 1. Path d'entrée par UUID : `collection[id=…].field`
   const entry = parseEntryPath(path);
   if (entry) {
-    if (!(entry.collection in map.collections)) {
-      return { reason: "path_not_in_schema" };
+    const arr = ensureArrayAtPath(root, entry.collection);
+    if (!arr) return { reason: "path_not_found" };
+    let item = arr.find(
+      (e): e is Record<string, unknown> =>
+        !!e && typeof e === "object" && (e as Record<string, unknown>).id === entry.entryId,
+    );
+    if (!item) {
+      // Auto-vivify : on crée une entrée minimale avec l'UUID donné.
+      const skeleton =
+        buildEmptyCollectionEntry(entry.collection) ??
+        ({ id: entry.entryId, custom_fields: [] } as Record<string, unknown>);
+      skeleton.id = entry.entryId;
+      arr.push(skeleton);
+      item = skeleton;
     }
-    const collection = map.collections[entry.collection]!;
-    if (!collection.item_fields.includes(entry.field)) {
-      return { reason: "field_not_in_collection_item" };
-    }
-    const known = collection.current_entries.some((e) => e.id === entry.entryId);
-    if (!known) {
-      return { reason: "entry_not_found" };
-    }
-    const t = walkEntryPath(root, entry.collection, entry.entryId, entry.field);
-    if (!t.parent || !t.key) return { reason: "path_not_found" };
-    return { reason: "ok", parent: t.parent, key: t.key };
+    return { reason: "ok", parent: item, key: entry.field };
   }
 
-  // b) Path d'object field plat
-  if (!isKnownObjectFieldPath(map, path)) {
-    return { reason: "path_not_in_schema" };
+  // 2. Index positionnel `collection[N].field` — résolu si N existe.
+  const m = path.match(POSITIONAL_RE);
+  if (m) {
+    const [, collection, indexStr, field] = m;
+    const arr = ensureArrayAtPath(root, collection!);
+    if (!arr) return { reason: "path_not_found" };
+    const idx = Number(indexStr);
+    const item = arr[idx];
+    if (!item || typeof item !== "object") {
+      return { reason: "path_not_found" };
+    }
+    return { reason: "ok", parent: item as Record<string, unknown>, key: field! };
   }
-  const t = walkObjectPath(root, path);
+
+  // 3. Path d'object field plat — auto-vivify les conteneurs intermédiaires.
+  const t = ensureObjectPath(root, path);
   if (!t.parent || !t.key) return { reason: "path_not_found" };
   return { reason: "ok", parent: t.parent, key: t.key };
+}
+
+/**
+ * Comme walkObjectPath mais auto-vivifie les conteneurs intermédiaires
+ * absents (objet vide). Le dernier segment n'est PAS créé — il sera
+ * posé par le caller comme Field<T>.
+ */
+function ensureObjectPath(
+  root: Record<string, unknown>,
+  path: string,
+): { parent: Record<string, unknown> | null; key: string | null } {
+  const segments = path.split(".");
+  if (segments.length < 2 || segments.some((s) => s.length === 0)) {
+    // Cas trivial : path à un seul segment → on essaie quand même via walkObjectPath
+    const t = walkObjectPath(root, path);
+    return { parent: t.parent, key: t.key };
+  }
+  let cur: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const seg = segments[i]!;
+    const next = cur[seg];
+    if (next === undefined || next === null) {
+      cur[seg] = {};
+      cur = cur[seg] as Record<string, unknown>;
+    } else if (typeof next === "object" && !Array.isArray(next)) {
+      cur = next as Record<string, unknown>;
+    } else {
+      // Type incompatible (array, primitif) — refuse pour ne pas corrompre.
+      return { parent: null, key: null };
+    }
+  }
+  return { parent: cur, key: segments[segments.length - 1]! };
+}
+
+/**
+ * Résout (ou crée) un array à un path dot-notation. Retourne null si un
+ * conteneur intermédiaire est d'un type incompatible (primitif).
+ */
+function ensureArrayAtPath(
+  root: Record<string, unknown>,
+  path: string,
+): unknown[] | null {
+  const segments = path.split(".");
+  let cur: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const seg = segments[i]!;
+    const next = cur[seg];
+    if (next === undefined || next === null) {
+      cur[seg] = {};
+      cur = cur[seg] as Record<string, unknown>;
+    } else if (typeof next === "object" && !Array.isArray(next)) {
+      cur = next as Record<string, unknown>;
+    } else {
+      return null;
+    }
+  }
+  const last = segments[segments.length - 1]!;
+  const existing = cur[last];
+  if (existing === undefined || existing === null) {
+    const arr: unknown[] = [];
+    cur[last] = arr;
+    return arr;
+  }
+  if (Array.isArray(existing)) return existing;
+  return null;
+}
+
+function isFieldShape(node: unknown): node is Field<unknown> {
+  if (!node || typeof node !== "object") return false;
+  const o = node as Record<string, unknown>;
+  return "value" in o && "source" in o && "validation_status" in o;
 }
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }
+
+// emptyField gardé importé pour compat éventuelle des call-sites de tests.
+void emptyField;
