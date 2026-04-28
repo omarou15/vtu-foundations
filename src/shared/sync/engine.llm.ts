@@ -23,7 +23,6 @@ import {
   applyExtractResult,
   buildContextBundle,
   compressContextBundle,
-  routeMessage,
   type ContextBundle,
   type DescribeMediaResult,
   type ProviderMeta,
