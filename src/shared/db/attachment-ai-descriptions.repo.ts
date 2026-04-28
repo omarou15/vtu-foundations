@@ -89,6 +89,20 @@ export async function getLatestAiDescriptionForAttachment(
   return list[0];
 }
 
+export async function upsertAttachmentAiDescriptionFromRemote(
+  row: AttachmentAiDescriptionRow,
+): Promise<void> {
+  const db = getDb();
+  const local: LocalAttachmentAiDescription = {
+    ...row,
+    sync_status: "synced",
+    sync_attempts: 0,
+    sync_last_error: null,
+    local_updated_at: new Date().toISOString(),
+  };
+  await db.attachment_ai_descriptions.put(local);
+}
+
 function serializeForSync(
   r: AttachmentAiDescriptionRow,
 ): Record<string, unknown> {
