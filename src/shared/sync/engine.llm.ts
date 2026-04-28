@@ -950,9 +950,7 @@ function ensureCustomObservationItems(state: Record<string, unknown>): Record<st
   if (!Array.isArray(section.items)) {
     section.items = [];
   }
-  return section.items.filter((item): item is Record<string, unknown> =>
-    item !== null && typeof item === "object" && !Array.isArray(item),
-  );
+  return section.items as Record<string, unknown>[];
 }
 
 function photoObservationAttachmentId(item: Record<string, unknown>): string | null {
