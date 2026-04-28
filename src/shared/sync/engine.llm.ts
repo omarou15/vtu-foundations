@@ -325,7 +325,7 @@ export async function processLlmRouteAndDispatch(
     return "ok";
   }
 
-  const latestState = await getLatestLocalJsonState(visit.id);
+  let latestState = await getLatestLocalJsonState(visit.id);
   if (!latestState) {
     return await helpers.scheduleDependencyWait(entry, "json_state_missing");
   }
@@ -343,6 +343,14 @@ export async function processLlmRouteAndDispatch(
     if (!desc) {
       return await helpers.scheduleDependencyWait(entry, "ai_description_pending");
     }
+  }
+
+  latestState = await ensureVisitPhotoDescriptionsInJsonState({
+    userId: message.user_id,
+    visitId: visit.id,
+  });
+  if (!latestState) {
+    return await helpers.scheduleDependencyWait(entry, "json_state_missing");
   }
 
   // Historique complet de la visite (cap dur retiré).
