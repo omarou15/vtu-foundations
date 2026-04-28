@@ -487,11 +487,11 @@ async function handleExtract(
     latencyMs: resp.meta.latency_ms,
     confidenceOverall: result.confidence_overall,
     contextBundle: bundle as unknown as Record<string, unknown>,
-    rawRequestSummary: {
+    rawRequestSummary: (resp.request_summary ?? {
       mode: "extract_from_message",
       model: resp.meta.model_version,
       schema_version: bundle.schema_version,
-    },
+    }) as Record<string, unknown>,
     stablePromptHash: null,
     providerRequestId: resp.meta.provider_request_id,
     rawResponse: raw,
@@ -623,11 +623,11 @@ async function handleConversational(
     latencyMs: resp.meta.latency_ms,
     confidenceOverall: result.confidence_overall,
     contextBundle: bundle as unknown as Record<string, unknown>,
-    rawRequestSummary: {
+    rawRequestSummary: (resp.request_summary ?? {
       mode: "conversational_query",
       model: resp.meta.model_version,
       schema_version: bundle.schema_version,
-    },
+    }) as Record<string, unknown>,
     stablePromptHash: null,
     providerRequestId: resp.meta.provider_request_id,
     rawResponse: raw,
