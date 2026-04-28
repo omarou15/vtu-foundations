@@ -647,3 +647,9 @@ de l'app déployée. Page `/admin/monitoring` réservée au rôle `admin`.
 INSERT INTO public.user_roles (user_id, role)
 VALUES ('<uid>', 'admin') ON CONFLICT DO NOTHING;
 ```
+
+---
+
+## Dette technique
+
+- **Truth-gate côté Edge function (`vtu-llm-agent`)** : la garde anti-hallucination réécrit `assistant_message` quand `totalOps=0` + mots-clés. Couche temporaire, fragile (couplage avec le filtre `fields={}` et le `coalesce` positional). À remplacer par génération déterministe côté client après `applyExtractResult` quand on aura un cycle de stabilité.
