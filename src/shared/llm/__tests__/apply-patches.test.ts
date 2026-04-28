@@ -214,6 +214,33 @@ describe("applyPatches — paths permissifs", () => {
     expect(r.state.heating.installations[0]?.fuel_value.value).toBe("gaz");
   });
 
+  it("PAC Hitachi : 2 patches positionnels sur array vide → 1 entrée pleine", () => {
+    const { state, map } = freshState();
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [
+        patch("heating.installations[0].brand", "Hitachi", "high"),
+        patch(
+          "heating.installations[0].type_value",
+          "pompe_a_chaleur_air_eau",
+          "high",
+        ),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(2);
+    expect(r.ignored).toHaveLength(0);
+    expect(r.state.heating.installations).toHaveLength(1);
+    const inst = r.state.heating.installations[0] as unknown as Record<
+      string,
+      Field<unknown>
+    >;
+    expect(inst.brand.value).toBe("Hitachi");
+    expect(inst.type_value.value).toBe("pompe_a_chaleur_air_eau");
+  });
+
   it("entry path UUID inexistant : auto-vivify l'entrée et applique", () => {
     const { state, map } = freshState();
     const NEW_UUID = "abc-1234-5678";
@@ -269,6 +296,26 @@ describe("applyPatches — multi", () => {
     });
     expect(r.applied).toHaveLength(3);
     expect(r.ignored).toHaveLength(0);
+  });
+
+  it("path object qui traverse un primitif → écrase et auto-vivify", () => {
+    const { state, map } = freshState((s) => {
+      (s as unknown as Record<string, unknown>).weird = "primitive";
+    });
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch("weird.deep.field", "ok")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
+    const weird = (r.state as unknown as Record<
+      string,
+      { deep: { field: Field<string> } }
+    >).weird;
+    expect(weird.deep.field.value).toBe("ok");
   });
 
   it("path mène à un non-Field existant → écrase avec un Field neuf", () => {
