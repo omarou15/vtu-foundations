@@ -498,41 +498,65 @@ export type Database = {
         Row: {
           address: string | null
           building_type: string | null
+          building_type_other: string | null
           client_id: string
           created_at: string
+          gps_accuracy_m: number | null
+          gps_lat: number | null
+          gps_lng: number | null
           id: string
           mission_type: string | null
+          mission_type_other: string | null
           status: string
+          tertiaire_subtype: string | null
+          tertiaire_subtype_other: string | null
           title: string
           updated_at: string
           user_id: string
           version: number
+          visit_started_at: string | null
         }
         Insert: {
           address?: string | null
           building_type?: string | null
+          building_type_other?: string | null
           client_id: string
           created_at?: string
+          gps_accuracy_m?: number | null
+          gps_lat?: number | null
+          gps_lng?: number | null
           id?: string
           mission_type?: string | null
+          mission_type_other?: string | null
           status?: string
+          tertiaire_subtype?: string | null
+          tertiaire_subtype_other?: string | null
           title?: string
           updated_at?: string
           user_id: string
           version?: number
+          visit_started_at?: string | null
         }
         Update: {
           address?: string | null
           building_type?: string | null
+          building_type_other?: string | null
           client_id?: string
           created_at?: string
+          gps_accuracy_m?: number | null
+          gps_lat?: number | null
+          gps_lng?: number | null
           id?: string
           mission_type?: string | null
+          mission_type_other?: string | null
           status?: string
+          tertiaire_subtype?: string | null
+          tertiaire_subtype_other?: string | null
           title?: string
           updated_at?: string
           user_id?: string
           version?: number
+          visit_started_at?: string | null
         }
         Relationships: []
       }
