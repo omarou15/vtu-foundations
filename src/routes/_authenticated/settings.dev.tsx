@@ -4,16 +4,11 @@
  * Doctrine VTU (refonte avril 2026) :
  *  - Le LLM propose, le user dispose. Aucun rejet silencieux côté apply.
  *  - Toute proposition (patches, insert_entries, custom_fields) est convertie
- *    en action et présentée sur la PendingActionsCard. Le user accepte ou
- *    refuse chaque modification, y compris les overrides d'une saisie humaine.
+ *    en action et présentée sur la PendingActionsCard.
  *
- * Cette page est 100% lecture. Deux blocs :
- *  1. Ce qui est envoyé à l'IA — dernier appel persisté localement
- *     (extract_from_message, conversational_query, describe_media).
- *     Affiche context_bundle, recent_messages, schema_map, raw_response.
- *  2. Ce qui est codé en dur — collections autorisées, doctrine apply
- *     (pure proposition), passes de compression, routeur déterministe
- *     (référence interne pour le routage des médias).
+ * Page 100 % lecture, 100 % live : on ne montre QUE ce qui s'est réellement
+ * passé sur le chat (dernier appel IA persisté dans `llm_extractions`).
+ * Pas de catalogue documentaire statique — la doc vit dans le code.
  *
  * Limite assumée : le prompt système et le prompt utilisateur assemblé
  * ne sont pas (encore) persistés. Un futur lot enrichira l'audit.
@@ -21,7 +16,7 @@
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, Copy, Database, FileWarning, Route as RouteIcon, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Copy, Database } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -31,73 +26,6 @@ import { getDb, type LocalLlmExtraction } from "@/shared/db/schema";
 export const Route = createFileRoute("/_authenticated/settings/dev")({
   component: DevInspectorPage,
 });
-
-// ---------------------------------------------------------------------------
-// Catalogues documentaires (Bloc 2)
-// ---------------------------------------------------------------------------
-
-const ALLOWED_COLLECTIONS: ReadonlyArray<{ path: string; label: string }> = [
-  { path: "heating.installations", label: "Chauffage — installations" },
-  { path: "ecs.installations", label: "ECS — installations" },
-  { path: "ventilation.installations", label: "Ventilation — installations" },
-  { path: "energy_production.installations", label: "Production énergie — installations" },
-  { path: "industriel_processes.installations", label: "Process industriels — installations" },
-  { path: "tertiaire_hors_cvc.installations", label: "Tertiaire hors CVC — installations" },
-  { path: "pathologies.items", label: "Pathologies" },
-  { path: "preconisations.items", label: "Préconisations" },
-  { path: "notes.items", label: "Notes" },
-  { path: "custom_observations.items", label: "Observations personnalisées" },
-];
-
-// Refonte avril 2026 — Plus aucune règle de rejet côté apply.
-// Toute proposition LLM (patch, insert_entry, custom_field) est convertie
-// en action et présentée au user sur la PendingActionsCard. Le user est
-// seul juge : il accepte ou refuse, y compris les overrides d'une saisie
-// manuelle. La doctrine "humain prime" est appliquée par le user, plus
-// par du code.
-
-const ROUTER_RULES: ReadonlyArray<{ order: number; name: string; route: string; doc: string }> = [
-  { order: 1, name: "media", route: "extract", doc: "kind=photo|audio|document → toujours extract." },
-  { order: 2, name: "non_user", route: "ignore", doc: "role ≠ user → ignore." },
-  { order: 3, name: "empty", route: "ignore", doc: "Texte vide après trim → ignore." },
-  { order: 4, name: "noise", route: "ignore", doc: "Patterns bruit : ok / merci / vu / 👍 / emojis seuls." },
-  {
-    order: 5,
-    name: "conversational_hint",
-    route: "conversational",
-    doc: "« ? », résume, explique, comment, pourquoi, donne, liste… (PRIME sur terrain_pattern).",
-  },
-  {
-    order: 6,
-    name: "terrain_pattern",
-    route: "extract",
-    doc: "Chiffres+unités (m², kW, °C…), codes RT/RE/R+n/HSP, acronymes (VMC, ECS, PAC, ITI, ITE…).",
-  },
-  {
-    order: 7,
-    name: "short_capture",
-    route: "extract",
-    doc: "≤ 4 mots sans hint → extract (capture > conversation).",
-  },
-  { order: 8, name: "default_extract", route: "extract", doc: "Tout le reste → extract." },
-];
-
-// Note : Lot 1A utilise le routage MANUEL via toggle Conv/JSON.
-// Le routeur déterministe ci-dessus est gardé en référence pour les modes
-// hérités (médias) et pour préparer l'option Auto du Lot 2.
-
-const COMPRESSION_PASSES: ReadonlyArray<{ id: string; name: string; doc: string }> = [
-  { id: "0", name: "no_op", doc: "Bundle déjà sous le budget tokens → envoyé tel quel, historique illimité." },
-  { id: "1", name: "trim_ocr_500c", doc: "OCR > 500 caractères tronqué (… ajouté). Le moins destructif." },
-  { id: "2a", name: "trim_assistant_800c", doc: "Messages assistant > 800 caractères tronqués." },
-  { id: "2b", name: "trim_user_1500c", doc: "Messages user > 1500 caractères tronqués." },
-  { id: "2c", name: "keep_last_50", doc: "Garde les 50 derniers messages." },
-  { id: "2d", name: "keep_last_20", doc: "Garde les 20 derniers messages." },
-  { id: "2e", name: "keep_last_8", doc: "Filet final messages : garde les 8 derniers." },
-  { id: "3", name: "drop_ocr", doc: "Supprime totalement ocr_text de tous les attachments." },
-  { id: "4", name: "strip_details", doc: "Supprime detailed_description + sections non essentielles du state_summary." },
-  { id: "5", name: "failed", doc: "Toujours hors budget après toutes les passes → status=failed, l'appel IA est rejeté." },
-];
 
 // ---------------------------------------------------------------------------
 // Composant racine
@@ -127,25 +55,24 @@ function DevInspectorPage() {
             Inspecteur IA
           </h2>
           <p className="font-body text-sm text-muted-foreground">
-            Diagnostic complet du pipeline IA. Lecture seule. Doctrine
+            Dernier échange réel entre le chat et le modèle. Doctrine
             « pure proposition » : le LLM propose, le user dispose. Aucun
             rejet silencieux — toute suggestion arrive sur la
             PendingActionsCard pour arbitrage.
           </p>
         </header>
 
-        <Block1LastCall />
-        <Block2Hardcoded />
+        <LastCallSection />
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Bloc 1 — Ce qui est envoyé à l'IA (dernier appel)
+// Dernier appel IA (live depuis `llm_extractions`)
 // ---------------------------------------------------------------------------
 
-function Block1LastCall() {
+function LastCallSection() {
   const lastCall = useLiveQuery(async () => {
     const db = getDb();
     const all = await db.llm_extractions
@@ -153,7 +80,6 @@ function Block1LastCall() {
       .reverse()
       .limit(50)
       .toArray();
-    // On privilégie les modes "extract_from_message" et "conversational_query"
     return (
       all.find(
         (e) =>
@@ -166,8 +92,8 @@ function Block1LastCall() {
     <section className="flex flex-col gap-3">
       <SectionTitle
         icon={<Database className="h-4 w-4" />}
-        title="Bloc 1 — Ce qui est envoyé à l'IA"
-        subtitle="Dernier appel IA persisté localement (extract ou conversational)."
+        title="Ce qui est envoyé à l'IA"
+        subtitle="Dernier appel chat persisté localement (extract / conversational / describe_media)."
       />
       {lastCall === undefined ? (
         <CardShell>
@@ -176,7 +102,8 @@ function Block1LastCall() {
       ) : !lastCall ? (
         <CardShell>
           <p className="font-body text-sm text-muted-foreground">
-            Aucun appel IA enregistré localement pour le moment.
+            Aucun appel IA enregistré localement pour le moment. Lance une
+            conversation depuis le chat pour voir apparaître les détails ici.
           </p>
         </CardShell>
       ) : (
@@ -251,149 +178,11 @@ function CallInspector({ call }: { call: LocalLlmExtraction }) {
         )}
         <p className="font-body mt-2 text-[11px] italic text-muted-foreground">
           Limite connue : le prompt système et le prompt utilisateur assemblé
-          ne sont pas persistés pour ce dump. Un futur lot Dev les
-          enregistrera dans <code className="font-ui">raw_request_summary</code>.
+          ne sont pas persistés pour ce dump. Un futur lot enregistrera tout
+          dans <code className="font-ui">raw_request_summary</code>.
         </p>
       </div>
     </CardShell>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Bloc 2 — Ce qui est codé en dur
-// ---------------------------------------------------------------------------
-
-function Block2Hardcoded() {
-  return (
-    <section className="flex flex-col gap-6">
-      <SectionTitle
-        icon={<ShieldAlert className="h-4 w-4" />}
-        title="Bloc 2 — Ce qui est codé en dur"
-        subtitle="Règles internes du pipeline IA, exposées sans rien cacher."
-      />
-
-      {/* Collections autorisées */}
-      <CardShell>
-        <h4 className="font-heading text-sm font-semibold text-foreground">
-          Collections autorisées (insert_entry)
-        </h4>
-        <p className="font-body mt-1 text-xs text-muted-foreground">
-          Source : <code className="font-ui">COLLECTIONS_REGISTRY</code> dans
-          <code className="font-ui"> json-state.schema-map.ts</code>. Si le LLM
-          propose une collection hors liste, l'auto-vivification crée
-          l'entrée et la PendingActionsCard l'étiquette « hors schéma » —
-          c'est le user qui tranche.
-        </p>
-        <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
-          {ALLOWED_COLLECTIONS.map((c) => (
-            <li
-              key={c.path}
-              className="flex items-baseline gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5"
-            >
-              <code className="font-ui text-[11px] font-medium text-primary">{c.path}</code>
-              <span className="font-body text-xs text-muted-foreground">{c.label}</span>
-            </li>
-          ))}
-        </ul>
-      </CardShell>
-
-      {/* Doctrine pure proposition */}
-      <CardShell>
-        <h4 className="font-heading text-sm font-semibold text-foreground">
-          Doctrine apply — pure proposition
-        </h4>
-        <p className="font-body mt-1 text-xs text-muted-foreground">
-          Plus aucune règle de rejet côté <code className="font-ui">apply-patches.ts</code> /
-          <code className="font-ui"> apply-insert-entries.ts</code>. Toute proposition
-          LLM est convertie en action et présentée sur la
-          <strong> PendingActionsCard</strong>. Codes
-          <code className="font-ui"> path_not_in_schema</code>,
-          <code className="font-ui"> human_source_prime</code>,
-          <code className="font-ui"> validated_by_human</code>,
-          <code className="font-ui"> entry_not_found</code>, etc. : <strong>supprimés</strong>.
-        </p>
-        <ul className="mt-3 flex flex-col gap-1.5">
-          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
-            ✅ Le user accepte ou refuse chaque modification individuellement.
-          </li>
-          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
-            ✅ Auto-vivification : un path absent (ou un UUID inconnu dans une
-            collection) est créé à la volée si la proposition est acceptée.
-          </li>
-          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
-            ⚠️ Les overrides d'une saisie humaine sont autorisés mais
-            étiquetés « écrase saisie manuelle » sur la carte — la doctrine
-            « humain prime » est appliquée par le user, plus par du code.
-          </li>
-          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
-            ℹ️ Les anciens messages <code className="font-ui">conflict_card</code> historiques
-            sont rendus via la même PendingActionsCard (rétro-compat lecture).
-          </li>
-        </ul>
-      </CardShell>
-
-      {/* Compression progressive du context bundle */}
-      <CardShell>
-        <h4 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
-          <FileWarning className="h-4 w-4 text-muted-foreground" />
-          Compression progressive du context bundle
-        </h4>
-        <p className="font-body mt-1 text-xs text-muted-foreground">
-          L'historique est <strong>illimité par défaut</strong>. Si le bundle
-          dépasse le budget tokens (~12 000), <code className="font-ui">compress.ts</code> applique
-          ces passes dans l'ordre, en sortant dès qu'on repasse sous le budget.
-        </p>
-        <ol className="mt-3 flex flex-col gap-1.5">
-          {COMPRESSION_PASSES.map((p) => (
-            <li
-              key={p.id}
-              className="grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5"
-            >
-              <span className="font-ui text-[11px] font-semibold text-muted-foreground">
-                {p.id}
-              </span>
-              <code className="font-ui text-[11px] font-medium text-primary">
-                {p.name}
-              </code>
-              <span className="font-body text-xs text-muted-foreground">{p.doc}</span>
-            </li>
-          ))}
-        </ol>
-      </CardShell>
-
-      {/* Routeur déterministe */}
-      <CardShell>
-        <h4 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
-          <RouteIcon className="h-4 w-4 text-muted-foreground" />
-          Routeur déterministe (référence)
-        </h4>
-        <p className="font-body mt-1 text-xs text-muted-foreground">
-          Le routage automatique a été remplacé par le toggle manuel
-          Conv / JSON dans le chat. Ces règles restent en référence : elles
-          servent encore pour le routage des médias et pourront être
-          réactivées en mode Auto dans un Lot ultérieur.
-        </p>
-        <ol className="mt-3 flex flex-col gap-1.5">
-          {ROUTER_RULES.map((r) => (
-            <li
-              key={r.name}
-              className="grid grid-cols-[auto_auto_auto_1fr] items-baseline gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5"
-            >
-              <span className="font-ui text-[11px] font-semibold text-muted-foreground">
-                #{r.order}
-              </span>
-              <code className="font-ui text-[11px] font-medium text-primary">
-                {r.name}
-              </code>
-              <Badge variant="outline" className="font-ui text-[10px]">
-                {r.route}
-              </Badge>
-              <span className="font-body text-xs text-muted-foreground">{r.doc}</span>
-            </li>
-          ))}
-        </ol>
-      </CardShell>
-    </section>
   );
 }
 
