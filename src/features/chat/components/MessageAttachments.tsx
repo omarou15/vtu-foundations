@@ -93,18 +93,11 @@ function AttachmentThumb({
   } = useAttachmentThumb(attachment);
   const url = localUrl ?? remoteUrl;
 
-  // Badge ✨ si description IA dispo
-  const hasAi = useLiveQuery(
-    async () => {
-      const rows = await getDb()
-        .attachment_ai_descriptions.where("attachment_id")
-        .equals(attachment.id)
-        .toArray();
-      return rows.length > 0;
-    },
-    [attachment.id],
-    false,
-  );
+  const aiState = useAttachmentAiState(attachment);
+  const aiTooltip = describeAiState(aiState);
+
+  // Conserve `hasAi` (pour compat / a11y) — déduit de l'état métier.
+  const hasAi = aiState.state === "done" && !aiState.skipped;
 
   const failureLabel = failed
     ? errorCode === "no_path"
@@ -130,6 +123,7 @@ function AttachmentThumb({
       aria-label="Voir le média en plein écran"
       data-testid={`msg-attachment-${attachment.id}`}
       data-thumb-status={status}
+      data-ai-state={aiState.state}
       title={tooltip}
     >
       {isPdf ? (
@@ -153,10 +147,29 @@ function AttachmentThumb({
       ) : (
         <div className="h-full w-full animate-pulse bg-muted" />
       )}
-      {hasAi ? (
+
+      {/* Badge IA — un seul à la fois, priorité aux erreurs */}
+      {aiState.state === "failed" ? (
+        <span
+          className="pointer-events-none absolute right-1 bottom-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow"
+          aria-label={aiTooltip}
+          title={aiTooltip}
+        >
+          <AlertTriangle className="h-3 w-3" />
+        </span>
+      ) : aiState.state === "queued" ? (
+        <span
+          className="pointer-events-none absolute right-1 bottom-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground shadow"
+          aria-label={aiTooltip}
+          title={aiTooltip}
+        >
+          <Loader2 className="h-3 w-3 animate-spin" />
+        </span>
+      ) : hasAi ? (
         <span
           className="pointer-events-none absolute right-1 bottom-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
-          aria-label="Analysé par l'IA"
+          aria-label={aiTooltip}
+          title={aiTooltip}
         >
           <Sparkles className="h-3 w-3" />
         </span>
