@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDb, type LocalLlmExtraction } from "@/shared/db/schema";
+import { SystemPromptEditor } from "@/features/settings/SystemPromptEditor";
 
 export const Route = createFileRoute("/_authenticated/settings/dev")({
   component: DevInspectorPage,
