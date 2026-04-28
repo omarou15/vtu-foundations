@@ -264,12 +264,47 @@ export async function processDescribeMedia(
     warnings: result.warnings,
   });
 
-
+  // Doctrine "JSON = Cerveau" : on persiste la description IA dans le
+  // state versionné pour que le prochain extract LLM voie cette photo
+  // via `state.attachments_log.items[]` (le bundle inclut tout le state).
+  // Idempotent : un re-describe ne crée pas de doublon (gate sur
+  // `attachment_id` côté `appendAttachmentLogEntry`).
+  try {
+    const latest = await getLatestLocalJsonState(attachment.visit_id);
+    if (latest) {
+      const next = appendAttachmentLogEntry({
+        state: latest.state,
+        attachmentId: attachment.id,
+        mediaProfile: profile,
+        shortCaption: result.short_caption,
+        detailedDescription: result.detailed_description,
+        ocrText: result.ocr_text,
+        parentMessageId: attachment.message_id,
+        sourceMessageId: attachment.message_id,
+        sourceExtractionId: extraction.id,
+        confidenceOverall: result.confidence_overall,
+      });
+      if (next.appended) {
+        await appendJsonStateVersion({
+          userId: attachment.user_id,
+          visitId: attachment.visit_id,
+          state: next.state,
+          createdByMessageId: attachment.message_id,
+          sourceExtractionId: extraction.id,
+        });
+      }
+    }
+  } catch (err) {
+    // Non bloquant : la description reste dispo via attachment_ai_descriptions.
+    // eslint-disable-next-line no-console
+    console.warn("[processDescribeMedia] attachments_log append failed", err);
+  }
 
   // It. 14 — Streaming photo-par-photo : si la photo appartient à un batch
   // (≥ 2 attachments sur le même message), on émet immédiatement une bulle
-  // assistant `photo_caption` pour donner un signal visible de progression.
-  // Idempotent via metadata.attachment_id (anti-doublon).
+  // assistant `text` cosmétique (UX feedback uniquement). La description
+  // utile pour le LLM passe désormais par `state.attachments_log.items[]`
+  // (cf. plus haut), donc plus de doublon de contenu.
   await maybeEmitPhotoCaption({
     attachment,
     shortCaption: result.short_caption,
