@@ -11,6 +11,7 @@ import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { useChatStore } from "@/features/chat";
 import {
+  ByokCard,
   ModelPickerGrid,
   getModelByTier,
   type ModelTier,
@@ -65,11 +66,12 @@ function AiSettingsPage() {
         <section className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <h3 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Modèle
+              Modèle Lovable AI
             </h3>
             <p className="font-body text-xs text-muted-foreground">
               Le modèle sélectionné est utilisé pour toutes les nouvelles
-              extractions et conversations IA.
+              extractions et conversations IA — sauf si tu actives ta propre
+              clé OpenRouter ci-dessous.
             </p>
           </div>
           <ModelPickerGrid
@@ -81,6 +83,20 @@ function AiSettingsPage() {
             Le recall est une estimation interne sur des saisies terrain
             représentatives — ce n'est pas une garantie.
           </p>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h3 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Bring Your Own Key (OpenRouter)
+            </h3>
+            <p className="font-body text-xs text-muted-foreground">
+              Active ta propre clé pour accéder à Claude Sonnet 4.5, GPT-5,
+              Opus 4 et 200+ autres modèles. Quand activée, elle remplace le
+              modèle Lovable AI pour toutes tes extractions.
+            </p>
+          </div>
+          <ByokCard />
         </section>
 
         <section className="flex flex-col gap-3">
