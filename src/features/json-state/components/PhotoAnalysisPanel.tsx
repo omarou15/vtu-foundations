@@ -114,7 +114,7 @@ interface PhotoAnalysisItemProps {
 }
 
 function PhotoAnalysisItem({ desc, attachment, thumbUrl }: PhotoAnalysisItemProps) {
-  const description = desc.description as Record<string, unknown> | null | undefined;
+  const description = desc.description as unknown as Record<string, unknown> | null | undefined;
   const shortCaption =
     typeof description?.short_caption === "string" ? description.short_caption : null;
   const detailed =
