@@ -25,6 +25,7 @@ import {
 } from "@/shared/db/json-state.validate.repo";
 import { getLatestLocalJsonState } from "@/shared/db/json-state.repo";
 import { formatPatchValue, labelForPath } from "@/shared/llm/path-labels";
+import { walkJsonPath } from "@/shared/llm/apply/path-utils";
 import type { AiFieldPatch, AiCustomField } from "@/shared/llm";
 import type { Field } from "@/shared/types/json-state.field";
 
@@ -385,14 +386,9 @@ function readField(
   path: string,
 ): Field<unknown> | null {
   if (!state || typeof state !== "object") return null;
-  const segments = path.split(".");
-  let cur: unknown = state;
-  for (let i = 0; i < segments.length - 1; i++) {
-    if (!cur || typeof cur !== "object") return null;
-    cur = (cur as Record<string, unknown>)[segments[i]!];
-  }
-  if (!cur || typeof cur !== "object") return null;
-  const leaf = (cur as Record<string, unknown>)[segments[segments.length - 1]!];
+  const { parent, key } = walkJsonPath(state as Record<string, unknown>, path);
+  if (!parent || !key) return null;
+  const leaf = parent[key];
   if (!leaf || typeof leaf !== "object" || !("value" in (leaf as object))) {
     return null;
   }
