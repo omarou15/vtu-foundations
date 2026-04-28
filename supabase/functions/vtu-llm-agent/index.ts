@@ -363,15 +363,32 @@ Deno.serve(async (req) => {
     }
 
     // Normalisation défensive
+    const rawPatches = Array.isArray(parsed.patches) ? parsed.patches : [];
+    const rawInserts = Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [];
+    const rawWarnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+
+    // It. 11.6 hardening — coalesce des patches "<collection>[N].<field>" en
+    // insert_entry quand la collection existe dans schema_map. Filet de
+    // sécurité contre la confusion fréquente du LLM (préfère [0] à insert_entry
+    // quand entries_summary est vide). L'apply layer reste strict.
+    const schemaMap = (input.contextBundle as { schema_map?: { collections?: Record<string, unknown> } })
+      .schema_map;
+    const knownCollections = new Set(Object.keys(schemaMap?.collections ?? {}));
+    const { patches, insertEntries, coalescedWarnings } = coalescePositionalPatches(
+      rawPatches,
+      rawInserts,
+      knownCollections,
+    );
+
     const result = {
       assistant_message:
         typeof parsed.assistant_message === "string" && parsed.assistant_message.length > 0
           ? parsed.assistant_message.slice(0, 400)
           : "Bien noté.",
-      patches: Array.isArray(parsed.patches) ? parsed.patches : [],
-      insert_entries: Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [],
+      patches,
+      insert_entries: insertEntries,
       custom_fields: Array.isArray(parsed.custom_fields) ? parsed.custom_fields : [],
-      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+      warnings: [...rawWarnings, ...coalescedWarnings],
       confidence_overall:
         typeof parsed.confidence_overall === "number"
           ? parsed.confidence_overall
