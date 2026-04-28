@@ -47,52 +47,12 @@ const ALLOWED_COLLECTIONS: ReadonlyArray<{ path: string; label: string }> = [
   { path: "custom_observations.items", label: "Observations personnalisées" },
 ];
 
-const REJECTION_RULES: ReadonlyArray<{
-  code: string;
-  origin: "patches" | "insert_entries";
-  fr: string;
-}> = [
-  {
-    code: "positional_index_forbidden",
-    origin: "patches",
-    fr: "Path utilise un index positionnel `[N]` — interdit. Les entrées sont identifiées par UUID.",
-  },
-  {
-    code: "path_not_in_schema",
-    origin: "patches",
-    fr: "Le path proposé ne correspond à aucun champ déclaré dans le schéma JSON.",
-  },
-  {
-    code: "entry_not_found",
-    origin: "patches",
-    fr: "Aucune entrée existante avec cet UUID dans la collection ciblée.",
-  },
-  {
-    code: "field_not_in_collection_item",
-    origin: "patches",
-    fr: "Le champ ciblé n'existe pas sur le schéma de l'item de cette collection.",
-  },
-  {
-    code: "validated_by_human",
-    origin: "patches",
-    fr: "Le champ a déjà été validé par un humain — l'IA ne peut pas l'écraser.",
-  },
-  {
-    code: "human_source_prime",
-    origin: "patches",
-    fr: "Conflit : valeur saisie humaine déjà présente. Émet une conflict_card pour arbitrage.",
-  },
-  {
-    code: "unknown_collection",
-    origin: "insert_entries",
-    fr: "La collection demandée n'existe pas dans le registre.",
-  },
-  {
-    code: "no_valid_fields",
-    origin: "insert_entries",
-    fr: "L'insert_entry ne contient aucun champ valide reconnu par le schéma de l'item.",
-  },
-];
+// Refonte avril 2026 — Plus aucune règle de rejet côté apply.
+// Toute proposition LLM (patch, insert_entry, custom_field) est convertie
+// en action et présentée au user sur la PendingActionsCard. Le user est
+// seul juge : il accepte ou refuse, y compris les overrides d'une saisie
+// manuelle. La doctrine "humain prime" est appliquée par le user, plus
+// par du code.
 
 const ROUTER_RULES: ReadonlyArray<{ order: number; name: string; route: string; doc: string }> = [
   { order: 1, name: "media", route: "extract", doc: "kind=photo|audio|document → toujours extract." },
