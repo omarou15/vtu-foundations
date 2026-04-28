@@ -237,19 +237,19 @@ const PROPOSE_VISIT_PATCHES_TOOL = {
         insert_entries: {
           type: "array",
           description:
-            "insert_entry — création d'une nouvelle entrée dans une collection. UUID généré côté serveur.",
+            "insert_entry — création d'une nouvelle entrée dans une collection. UUID généré côté serveur. INTERDIT : entrée vide (fields={}). Pour heating/ecs/ventilation, type_value est obligatoire ; sans lui, n'émets PAS d'insert.",
           items: {
             type: "object",
             properties: {
               collection: {
                 type: "string",
                 description:
-                  "Path absolu vers la collection (ex 'heating.installations').",
+                  "Path absolu vers la collection (ex 'heating.installations', 'ecs.installations', 'ventilation.installations').",
               },
               fields: {
                 type: "object",
                 description:
-                  "Valeurs initiales : au moins 1 clé.",
+                  "Valeurs initiales — OBLIGATOIRE au moins 1 clé non vide. Pour les équipements (heating/ecs/ventilation), type_value est requis. Exemple ECS: { type_value: 'ballon_electrique', fuel_value: 'electricite', capacity_l: 150 }.",
                 minProperties: 1,
                 additionalProperties: true,
               },
