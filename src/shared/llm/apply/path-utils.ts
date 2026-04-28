@@ -1,112 +1,101 @@
 /**
- * Helpers sûrs pour les paths JSON IA.
+ * Helpers de parsing de paths IA — It. 11.6.
  *
- * Supporte la dot-notation avec index de tableau :
- * `heating.installations[0].type_value` → ["heating", "installations", "0", "type_value"].
+ * Syntaxe acceptée par le LLM :
+ *   - `building.wall_material_value`               (object field plat)
+ *   - `envelope.murs.material_value`               (sous-objet)
+ *   - `heating.installations[id=abc-123].type`     (entrée de collection par UUID)
+ *
+ * Syntaxe REJETÉE :
+ *   - `heating.installations[0].type_value`        (index positionnel)
+ *     → forcer le LLM à utiliser `insert_entry` pour créer ou
+ *       `[id=…]` pour cibler une entrée existante.
  */
 
-import { v4 as uuidv4 } from "uuid";
-import { emptyField } from "@/shared/types/json-state.field";
+import { parseEntryPath } from "@/shared/types/json-state.schema-map";
 
 type JsonObject = Record<string, unknown>;
 
-export function parseJsonPath(path: string): string[] {
-  const segments: string[] = [];
-  const re = /([^.[\]]+)|\[(\d+)\]/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = re.exec(path)) !== null) {
-    const segment = match[1] ?? match[2];
-    if (segment) segments.push(segment);
-  }
-
-  return segments;
+export interface PathTarget {
+  parent: JsonObject | null;
+  key: string | null;
 }
 
+/**
+ * Walker unifié pour les paths IA — utilisé par les call sites côté user
+ * (validation/reject d'un patch via `PendingActionsCard`, vues debug).
+ *
+ * Détecte automatiquement la syntaxe :
+ *   - `collection[id=…].field` → walkEntryPath
+ *   - sinon → walkObjectPath (path dot-notation simple)
+ *
+ * Renvoie `{ parent: null, key: null }` si le path n'est pas résoluble.
+ *
+ * Pour la validation côté apply-patches (qui exige aussi schemaMap), voir
+ * `applyPatches` directement.
+ */
 export function walkJsonPath(
   root: JsonObject,
-  path: string | string[],
-): { parent: JsonObject | null; key: string | null } {
-  const segments = Array.isArray(path) ? path : parseJsonPath(path);
+  path: string,
+): PathTarget {
+  const entry = parseEntryPath(path);
+  if (entry) {
+    return walkEntryPath(root, entry.collection, entry.entryId, entry.field);
+  }
+  return walkObjectPath(root, path);
+}
+
+/**
+ * Walk un path dot-notation simple (sans index). Renvoie le parent
+ * et la dernière clé pour permettre une affectation.
+ *
+ * Pour les paths avec `[id=…]`, utiliser `walkEntryPath` à la place.
+ */
+export function walkObjectPath(root: JsonObject, path: string): PathTarget {
+  const segments = path.split(".");
   if (segments.length < 2) return { parent: null, key: null };
+  if (segments.some((s) => s.length === 0)) return { parent: null, key: null };
 
   let cur: unknown = root;
   for (let i = 0; i < segments.length - 1; i += 1) {
-    if (!cur || typeof cur !== "object") return { parent: null, key: null };
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+      return { parent: null, key: null };
+    }
     cur = (cur as JsonObject)[segments[i]!];
   }
 
-  if (!cur || typeof cur !== "object") return { parent: null, key: null };
+  if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+    return { parent: null, key: null };
+  }
   return { parent: cur as JsonObject, key: segments[segments.length - 1]! };
 }
 
-export function ensureKnownPatchTarget(
+/**
+ * Pour un path de la forme `heating.installations[id=abc].type_value`,
+ * trouve l'entrée par UUID dans la collection et renvoie le parent
+ * (l'entrée elle-même) + la clé du champ.
+ *
+ * Renvoie null si :
+ *   - le path n'a pas la forme attendue
+ *   - la collection n'existe pas
+ *   - aucune entrée avec cet UUID
+ */
+export function walkEntryPath(
   root: JsonObject,
-  path: string | string[],
-): boolean {
-  const segments = Array.isArray(path) ? path : parseJsonPath(path);
-  if (segments.length < 4 || segments[1] !== "installations") return true;
-
-  const sectionKey = segments[0]!;
-  const index = Number(segments[2]);
-  const fieldKey = segments[3]!;
-  const build = INSTALLATION_BUILDERS[sectionKey];
-  if (!build || !Number.isInteger(index) || index < 0) return false;
-
-  const section = root[sectionKey];
-  if (!section || typeof section !== "object") return false;
-  const sectionObject = section as JsonObject;
-  if (sectionObject.installations === undefined) sectionObject.installations = [];
-  const list = sectionObject.installations;
-  if (!Array.isArray(list) || index > list.length) return false;
-
-  const skeleton = build();
-  if (!Object.prototype.hasOwnProperty.call(skeleton, fieldKey)) return false;
-
-  if (index === list.length) {
-    list.push(skeleton);
-    return true;
+  collection: string,
+  entryId: string,
+  field: string,
+): PathTarget {
+  const segments = collection.split(".");
+  let cur: unknown = root;
+  for (const seg of segments) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+      return { parent: null, key: null };
+    }
+    cur = (cur as JsonObject)[seg];
   }
-
-  const item = list[index];
-  if (!item || typeof item !== "object") return false;
-  if (!Object.prototype.hasOwnProperty.call(item, fieldKey)) {
-    (item as JsonObject)[fieldKey] = skeleton[fieldKey];
-  }
-  return true;
+  if (!Array.isArray(cur)) return { parent: null, key: null };
+  const entry = (cur as JsonObject[]).find((e) => e?.id === entryId);
+  if (!entry || typeof entry !== "object") return { parent: null, key: null };
+  return { parent: entry, key: field };
 }
-
-const INSTALLATION_BUILDERS: Record<string, () => JsonObject> = {
-  heating: () => ({
-    id: uuidv4(),
-    type_value: emptyField<string>(),
-    type_other: emptyField<string>(),
-    fuel_value: emptyField<string>(),
-    fuel_other: emptyField<string>(),
-    brand: emptyField<string>(),
-    power_kw: emptyField<number>(),
-    installation_year: emptyField<number>(),
-    efficiency_pct: emptyField<number>(),
-    custom_fields: [],
-  }),
-  ecs: () => ({
-    id: uuidv4(),
-    type_value: emptyField<string>(),
-    type_other: emptyField<string>(),
-    fuel_value: emptyField<string>(),
-    fuel_other: emptyField<string>(),
-    brand: emptyField<string>(),
-    capacity_l: emptyField<number>(),
-    installation_year: emptyField<number>(),
-    custom_fields: [],
-  }),
-  ventilation: () => ({
-    id: uuidv4(),
-    type_value: emptyField<string>(),
-    type_other: emptyField<string>(),
-    brand: emptyField<string>(),
-    installation_year: emptyField<number>(),
-    flow_rate_m3_h: emptyField<number>(),
-    custom_fields: [],
-  }),
-};

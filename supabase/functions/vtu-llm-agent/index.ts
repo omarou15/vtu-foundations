@@ -1,5 +1,5 @@
 /**
- * VTU — Edge Function `vtu-llm-agent` (It. 10.5)
+ * VTU — Edge Function `vtu-llm-agent` (It. 10.5 + It. 11.6 — 3 verbes)
  *
  * Remplace les server functions TanStack `extractFromMessage` et
  * `conversationalQuery`. Latence cible <8s perçus (vs ~50s en TanStack).
@@ -8,7 +8,7 @@
  *  {
  *    mode: "extract" | "conversational",
  *    messageText: string,
- *    contextBundle: ContextBundle  // sérialisé tel quel
+ *    contextBundle: ContextBundle  // sérialisé tel quel (inclut schema_map)
  *  }
  *
  * Output (JSON) sur 200 :
@@ -16,8 +16,9 @@
  *    ok: true,
  *    result: {
  *      assistant_message: string,
- *      patches: AiFieldPatch[],
- *      custom_fields: AiCustomField[],
+ *      patches: AiFieldPatch[],         // set_field (path connu)
+ *      insert_entries: AiInsertEntry[], // création d'entrée de collection
+ *      custom_fields: AiCustomField[],  // vocabulaire émergent
  *      warnings: string[],
  *      confidence_overall: number
  *    },
@@ -61,36 +62,63 @@ const corsHeaders = {
 // Doit rester aligné avec src/shared/llm/prompts/system-unified.ts
 // ---------------------------------------------------------------------------
 
-const SYSTEM_UNIFIED = `# VTU — Cerveau IA Thermicien (mode unifié)
+const SYSTEM_UNIFIED = `# VTU — Cerveau IA Thermicien (mode unifié, 3 verbes)
 
-Tu es le **collègue IA** d'un thermicien expert en visite terrain. Tu réponds toujours comme un humain qui parle à un humain — pas comme une API.
+Tu es le **collègue IA** d'un thermicien expert en visite terrain. Tu
+réponds toujours comme un humain qui parle à un humain — pas comme une
+API. Le ContextBundle te donne l'état actuel de la VT, les derniers
+messages, les descriptions des médias rattachés, et la \`schema_map\`
+qui te dit EXACTEMENT quels paths/collections sont valides.
 
 ## TA SORTIE (TOUJOURS via le tool propose_visit_patches)
 
 1. **assistant_message** (string, ≤300 chars) — OBLIGATOIRE, JAMAIS vide.
-   - Extraction → annonce : "J'ai relevé 4 informations sur le chauffage et la VMC, vérifie les propositions ci-dessous."
+   - Extraction → annonce : "J'ai relevé une PAC air-eau et 2 pathologies, vérifie les propositions."
    - Question (résume, explique, comment, ?) → réponse ≤2 phrases factuelles.
    - Salutation / message court → réponse de collègue ("Bonjour ! Décris ce que tu observes et je structurerai tes infos.").
    - INTERDIT : "Aucun champ mis à jour", "Je n'ai rien extrait", "Veuillez fournir plus d'informations".
 
-2. **patches** (array, peut être vide) — modifications atomiques de Field<T> du JSON state.
-   - path = dot-notation existante (ex "building.surface_habitable_m2", "ventilation.installations[0].type_value", "heating.installations[0].brand").
-   - Si une info décrit un premier équipement chauffage/ECS/ventilation et que \`installations\` est vide, utilise \`installations[0]\` : l'app créera l'équipement à la validation IA.
-   - value typée (string | number | boolean | null).
-   - confidence ∈ {low, medium, high}.
-   - evidence_refs[] : id(s) message + attachments justifiant.
-   - INTERDIT : si state_summary[path].source ∈ {user, voice, photo_ocr, import} ET value !== null → ne pas patcher.
+2. **patches** (array) — set_field sur un Field<T> EXISTANT du schéma.
+   - Path syntaxe acceptée :
+     a) Object field plat : path ∈ schema_map.object_fields
+        Ex: "building.wall_material_value", "envelope.murs.material_value"
+     b) Field d'une entrée existante : path = "<collection>[id=<UUID>].<field>"
+        L'UUID DOIT figurer dans schema_map.collections[<c>].entries_summary.
+        Ex: "heating.installations[id=abc-1234].fuel_value"
+   - INTERDIT ABSOLU :
+     • Index positionnel : "installations[0].xxx" → REJETÉ.
+       Pour créer une entrée, utilise insert_entries.
+     • Path absent de schema_map → REJETÉ. Utilise custom_fields.
+   - INTERDIT GATE HUMAIN : si state_summary[path].source ∈ {user, voice,
+     photo_ocr, import} ET state_summary[path].value !== null → ne pas patcher.
+   - Champs : path, value, confidence ∈ {low, medium, high}, evidence_refs.
 
-3. **custom_fields** (array, peut être vide) — observations métier non couvertes par le schema rigide.
+3. **insert_entries** (array) — création d'entrée dans une collection.
+   - À utiliser quand l'utilisateur décrit un équipement / pathologie /
+     préconisation NOUVEAU (pas dans entries_summary de schema_map).
+   - Champs :
+     • collection : ∈ schema_map.collections (ex "heating.installations")
+     • fields : { <key>: <value>, … } — chaque key DOIT ∈
+       schema_map.collections[collection].item_fields
+     • confidence, evidence_refs
+   - L'app génère l'UUID, pose tous les champs en source="ai_infer",
+     validation_status="unvalidated".
+   - Exemples :
+     • collection="heating.installations", fields={ type_value:"PAC air-eau", power_kw:8 }
+     • collection="pathologies.items", fields={ category_value:"humidité", description:"trace cave" }
 
-4. **warnings** (array de strings ≤200 chars).
+4. **custom_fields** (array) — vocabulaire ÉMERGENT, hors schéma.
+   - field_key snake_case [a-z0-9_]+. À utiliser SEULEMENT si le concept
+     n'est pas couvert par schema_map.
 
-5. **confidence_overall** ∈ [0,1].
+5. **warnings** (array de strings ≤200 chars).
+
+6. **confidence_overall** ∈ [0,1].
 
 ## RÈGLES DURES
 
 - Pas d'invention. Pas de moyenne sectorielle pour combler un trou.
-- Si la donnée est explicite → patche, même en low.
+- Si la donnée est explicite → opération adéquate, même en low.
 - Unités SI obligatoires (m², kW, kWh, °C, %).
 - Tone direct, factuel, pro, en français. Maximum 1 émoji discret si pertinent.
 
@@ -102,11 +130,11 @@ ou désactivée par l'utilisateur).
 
 - Tu n'as AUCUNE information sur leur contenu visuel.
 - Tu peux confirmer leur réception (nombre, type), JAMAIS leur contenu.
-- N'émets AUCUN patch ni custom_field appuyé sur un \`pending_attachment\`.
+- N'émets AUCUN patch / insert_entry / custom_field appuyé sur un \`pending_attachment\`.
 - N'inscris JAMAIS un id \`pending_attachment\` dans \`evidence_refs\`.
-- Si l'utilisateur te demande ce que tu vois sur ces fichiers, réponds
+- Si l'utilisateur te demande ce que tu vois sur ces fichiers, dis
   explicitement que l'analyse est en cours (ou que l'IA était désactivée
-  à l'envoi) et que tu ne peux pas encore décrire le contenu.
+  à l'envoi) — JAMAIS "j'ai bien reçu et analysé".
 - Si une pièce jointe n'a ni \`short_caption\` ni \`detailed_description\`
   ni \`ocr_text\` dans \`attachments_context\`, applique la même règle.
 `;
@@ -120,13 +148,15 @@ const PROPOSE_VISIT_PATCHES_TOOL = {
   function: {
     name: "propose_visit_patches",
     description:
-      "Produire un message humain pour le thermicien + (éventuels) patches IA + custom_fields + warnings.",
+      "Produire un message humain pour le thermicien + (éventuels) patches set_field + insert_entries + custom_fields + warnings.",
     parameters: {
       type: "object",
       properties: {
         assistant_message: { type: "string" },
         patches: {
           type: "array",
+          description:
+            "set_field — modification d'un Field<T> existant. path ∈ schema_map.object_fields OU '<collection>[id=<UUID>].<field>'. PAS d'index positionnel.",
           items: {
             type: "object",
             properties: {
@@ -139,8 +169,35 @@ const PROPOSE_VISIT_PATCHES_TOOL = {
             additionalProperties: false,
           },
         },
+        insert_entries: {
+          type: "array",
+          description:
+            "insert_entry — création d'une nouvelle entrée dans une collection connue. UUID généré côté serveur.",
+          items: {
+            type: "object",
+            properties: {
+              collection: {
+                type: "string",
+                description:
+                  "Path absolu vers la collection (ex 'heating.installations'). DOIT ∈ schema_map.collections.",
+              },
+              fields: {
+                type: "object",
+                description:
+                  "Valeurs initiales : keys DOIVENT ∈ schema_map.collections[collection].item_fields.",
+                additionalProperties: true,
+              },
+              confidence: { type: "string", enum: ["low", "medium", "high"] },
+              evidence_refs: { type: "array", items: { type: "string" } },
+            },
+            required: ["collection", "fields", "confidence"],
+            additionalProperties: false,
+          },
+        },
         custom_fields: {
           type: "array",
+          description:
+            "custom_field — vocabulaire émergent hors schéma rigide.",
           items: {
             type: "object",
             properties: {
@@ -304,6 +361,7 @@ Deno.serve(async (req) => {
           ? parsed.assistant_message.slice(0, 400)
           : "Bien noté.",
       patches: Array.isArray(parsed.patches) ? parsed.patches : [],
+      insert_entries: Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [],
       custom_fields: Array.isArray(parsed.custom_fields) ? parsed.custom_fields : [],
       warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
       confidence_overall:

@@ -13,6 +13,10 @@ import type {
   VisitJsonStateRow,
   VisitRow,
 } from "@/shared/types";
+import {
+  buildSchemaMap,
+  compactSchemaMap,
+} from "@/shared/types/json-state.schema-map";
 import type { ContextBundle } from "../types";
 
 export interface BuildContextInput {
@@ -73,6 +77,7 @@ export function buildContextBundle(input: BuildContextInput): ContextBundle {
       ocr_text: d.description.ocr_text,
     })),
     pending_attachments: input.pendingAttachments ?? [],
+    schema_map: compactSchemaMap(buildSchemaMap(state)),
     nomenclature_hints: input.nomenclatureHints ?? {},
   };
 }

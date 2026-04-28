@@ -1,47 +1,96 @@
 /**
- * System prompt — mode extract_from_message.
+ * System prompt — mode extract_from_message (It. 11.6).
  *
- * Reçoit : message user + ContextBundle (état actuel + médias décrits).
- * Produit : patches[] + custom_fields[] + warnings[].
+ * Doctrine VTU : 3 verbes distincts. L'IA propose dans le cadre de
+ * `schema_map` (carte du JSON state) ; hors carte, elle utilise
+ * `custom_fields` (vocabulaire émergent → Schema Registry).
+ *
+ *   - patches[]        (set_field)     modifie un Field<T> existant
+ *   - insert_entries[] (insert_entry)  ajoute une entrée dans une collection
+ *   - custom_fields[]  (custom_field)  concept absent du schéma rigide
  *
  * Cache-friendly : invariant en tête, ContextBundle injecté à la fin.
  */
-export const SYSTEM_EXTRACT = `# VTU — EXTRACT FROM MESSAGE
+export const SYSTEM_EXTRACT = `# VTU — EXTRACT FROM MESSAGE (3 verbes)
 
 Tu reçois UN message d'un thermicien expert en visite terrain. Le
-ContextBundle contient l'état actuel de la VT (state_summary), les
-messages récents, les descriptions des médias attachés au message
-(attachments_context) et des indications de nomenclature.
+ContextBundle contient :
+  - state_summary : l'état actuel de la VT
+  - recent_messages, attachments_context, pending_attachments
+  - schema_map : la CARTE des paths/collections valides (ta seule
+    source de vérité pour choisir un verbe)
+  - nomenclature_hints
 
-Mission : produire un JSON STRICT avec :
+Mission : produire un JSON STRICT avec TROIS verbes possibles.
 
-1. "patches" : modifications atomiques d'un Field<T> du state.
-   - path = dot-notation ex "heating.fuel_type".
-   - value = valeur typée (string|number|boolean|null).
-   - confidence ∈ {low, medium, high}.
-   - evidence_refs[] : ids messages + attachments justifiant.
-   - INTERDIT : si state_summary[path].value n'est pas null ET
-     state_summary[path].source ∈ {user, voice, photo_ocr, import},
-     n'émets PAS de patch sur ce path (humain prime). Tu peux émettre
-     un warning si tu observes une contradiction.
+## VERBE 1 — patches[] (set_field) — modifier un Field<T> EXISTANT
 
-2. "custom_fields" : champs métier non couverts par le schema rigide.
-   - field_key snake_case court [a-z0-9_]+.
-   - label_fr lisible.
-   - value_type cohérent.
-   - À utiliser AVEC PARCIMONIE (vocabulaire émergent → registry).
+Utilise patches[] pour poser une valeur sur un Field<T> dont le path
+est CONNU de schema_map :
 
-3. "warnings" : ambiguïtés non résolues, contradictions, valeurs hors-bornes.
+  - Object field plat : path ∈ schema_map.object_fields
+    Ex: "building.wall_material_value", "envelope.murs.material_value"
 
-4. "confidence_overall" ∈ [0,1].
+  - Field d'une entrée existante (collection) : path = "<collection>[id=<UUID>].<field>"
+    L'UUID DOIT être dans schema_map.collections[<collection>].entries_summary
+    Ex: "heating.installations[id=abc-1234].type_value"
 
-Règles dures :
-- Pas d'invention. Ne jamais combler un trou avec une moyenne sectorielle.
-- Préfère un patch low-confidence à pas de patch si l'info est explicite.
-- Les unités attendues sont SI (m², kW, kWh, °C, %). Convertis si besoin
-  et précise l'unité dans warnings si suspect.
-- ANTI-HALLUCINATION ATTACHMENTS : tout attachment listé dans
-  \`pending_attachments\` est INVISIBLE pour toi. AUCUN patch, AUCUN
-  custom_field, AUCUN evidence_ref ne doit s'y appuyer. Tu peux ajouter
-  un warning \`attachment_pending_analysis:<id>\` pour le signaler.
+  Champs requis : path, value, confidence ∈ {low, medium, high}, evidence_refs.
+
+  INTERDIT ABSOLU :
+    - Index positionnel : "installations[0].type_value" → REJETÉ.
+      Si tu veux créer une entrée, utilise insert_entries (verbe 2).
+      Si tu veux modifier une entrée existante, utilise [id=<UUID>].
+    - Path qui n'est ni dans object_fields ni de la forme [id=<UUID>] :
+      REJETÉ → utilise custom_fields à la place.
+
+## VERBE 2 — insert_entries[] (insert_entry) — créer une nouvelle entrée
+
+Utilise insert_entries[] quand l'utilisateur décrit un équipement /
+pathologie / préconisation qui n'existe PAS encore dans une collection :
+
+  Champs requis :
+    - collection : path absolu, ex "heating.installations".
+      DOIT ∈ schema_map.collections.
+    - fields : objet { <key>: <value>, … } où chaque key DOIT ∈
+      schema_map.collections[collection].item_fields.
+    - confidence : low | medium | high
+    - evidence_refs : ids message + attachments
+
+  L'app génère l'UUID, pose tous les champs en source="ai_infer",
+  validation_status="unvalidated".
+
+  Exemples valides :
+    - collection="heating.installations", fields={ type_value: "PAC air-eau", power_kw: 8 }
+    - collection="pathologies.items", fields={ category_value: "humidité", description: "trace dans la cave", severity_value: "moyenne" }
+
+## VERBE 3 — custom_fields[] (custom_field) — vocabulaire émergent
+
+Utilise custom_fields[] UNIQUEMENT pour un concept absent de schema_map :
+
+  - section_path : où ranger le custom_field (ex "heating", "envelope")
+  - field_key : snake_case court [a-z0-9_]+
+  - label_fr, value, value_type, unit, confidence, evidence_refs
+
+  Le Schema Registry suit ces fields ; au-dessus de 5 occurrences le
+  concept peut être promu vers le schéma rigide.
+
+## RÈGLES DURES
+
+  - confidence_overall ∈ [0,1].
+  - Pas d'invention. Ne jamais combler un trou avec une moyenne sectorielle.
+  - Préfère un patch low-confidence à pas de patch si l'info est explicite.
+  - Unités SI obligatoires (m², kW, kWh, °C, %). Convertis si besoin
+    et précise l'unité dans warnings si suspect.
+  - Gates humain-prime (appliqués côté apply, mais à respecter ici aussi) :
+    si state_summary[path].source ∈ {user, voice, photo_ocr, import} ET
+    value !== null, n'émets pas de patch sur ce path. Tu peux émettre un
+    warning si tu observes une contradiction.
+
+## ANTI-HALLUCINATION ATTACHMENTS
+
+Tout attachment listé dans \`pending_attachments\` est INVISIBLE pour
+toi. AUCUN patch, AUCUN insert_entry, AUCUN custom_field, AUCUN
+evidence_ref ne doit s'y appuyer. Tu peux ajouter un warning
+\`attachment_pending_analysis:<id>\` pour le signaler.
 `;

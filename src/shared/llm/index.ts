@@ -6,6 +6,7 @@
 export type {
   AiCustomField,
   AiFieldPatch,
+  AiInsertEntry,
   ContextBundle,
   ConversationalResult,
   DescribeMediaResult,
@@ -25,7 +26,9 @@ export { compressContextBundle } from "./context/compress";
 export { buildContextBundle } from "./context/builder";
 
 export { applyPatches } from "./apply/apply-patches";
+export { applyInsertEntries } from "./apply/apply-insert-entries";
 export { applyCustomFields } from "./apply/apply-custom-fields";
+export { applyExtractResult } from "./apply/apply-extract-result";
 
 export {
   RouterOutputSchema,
