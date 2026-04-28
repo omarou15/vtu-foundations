@@ -124,6 +124,19 @@ const ROUTER_RULES: ReadonlyArray<{ order: number; name: string; route: string; 
 // Le routeur déterministe ci-dessus est gardé en référence pour les modes
 // hérités (médias) et pour préparer l'option Auto du Lot 2.
 
+const COMPRESSION_PASSES: ReadonlyArray<{ id: string; name: string; doc: string }> = [
+  { id: "0", name: "no_op", doc: "Bundle déjà sous le budget tokens → envoyé tel quel, historique illimité." },
+  { id: "1", name: "trim_ocr_500c", doc: "OCR > 500 caractères tronqué (… ajouté). Le moins destructif." },
+  { id: "2a", name: "trim_assistant_800c", doc: "Messages assistant > 800 caractères tronqués." },
+  { id: "2b", name: "trim_user_1500c", doc: "Messages user > 1500 caractères tronqués." },
+  { id: "2c", name: "keep_last_50", doc: "Garde les 50 derniers messages." },
+  { id: "2d", name: "keep_last_20", doc: "Garde les 20 derniers messages." },
+  { id: "2e", name: "keep_last_8", doc: "Filet final messages : garde les 8 derniers." },
+  { id: "3", name: "drop_ocr", doc: "Supprime totalement ocr_text de tous les attachments." },
+  { id: "4", name: "strip_details", doc: "Supprime detailed_description + sections non essentielles du state_summary." },
+  { id: "5", name: "failed", doc: "Toujours hors budget après toutes les passes → status=failed, l'appel IA est rejeté." },
+];
+
 // ---------------------------------------------------------------------------
 // Composant racine
 // ---------------------------------------------------------------------------
