@@ -63,11 +63,19 @@ export function applyInsertEntries(
   const applied: ApplyInsertEntriesResult["applied"] = [];
 
   for (const op of input.insertEntries) {
-    // 1. Force l'array cible (auto-vivify/overwrite si absent ou incompatible).
-    const arr = forceArrayAtPath(next, op.collection);
-
     const opFields = op.fields ?? {};
     const evidenceRefs = op.evidence_refs ?? [];
+
+    // Garde anti-fantôme : un insert sans aucun field non-réservé est
+    // silencieusement skippé. Le LLM est instruit de ne jamais émettre ça,
+    // mais on protège l'UI au cas où.
+    const hasUsefulField = Object.keys(opFields).some(
+      (k) => !isReservedItemKey(k),
+    );
+    if (!hasUsefulField) continue;
+
+    // 1. Force l'array cible (auto-vivify/overwrite si absent ou incompatible).
+    const arr = forceArrayAtPath(next, op.collection);
 
     // 2. Lot A.5 fix 2 — Dedup intra-call : chercher une entrée déjà créée
     //    dans CE call sur la même collection avec au moins une key+value
