@@ -85,17 +85,20 @@ qui te dit EXACTEMENT quels paths/collections sont valides.
      b) Field d'une entrée existante : path = "<collection>[id=<UUID>].<field>"
         L'UUID DOIT figurer dans schema_map.collections[<c>].entries_summary.
         Ex: "heating.installations[id=abc-1234].fuel_value"
-   - INTERDIT ABSOLU :
-     • Index positionnel : "installations[0].xxx" → REJETÉ.
-       Pour créer une entrée, utilise insert_entries.
+   - INTERDIT ABSOLU — TON ERREUR LA PLUS FRÉQUENTE :
+     • "heating.installations[0].type_value" → REJETÉ. JAMAIS d'index numérique.
+     • Si entries_summary est VIDE pour une collection, tu NE PEUX PAS patcher
+       d'entrée — tu DOIS produire un insert_entries.
      • Path absent de schema_map → REJETÉ. Utilise custom_fields.
    - INTERDIT GATE HUMAIN : si state_summary[path].source ∈ {user, voice,
      photo_ocr, import} ET state_summary[path].value !== null → ne pas patcher.
    - Champs : path, value, confidence ∈ {low, medium, high}, evidence_refs.
 
 3. **insert_entries** (array) — création d'entrée dans une collection.
-   - À utiliser quand l'utilisateur décrit un équipement / pathologie /
-     préconisation NOUVEAU (pas dans entries_summary de schema_map).
+   - **RÈGLE DE DÉCISION** : si l'utilisateur décrit un équipement/pathologie/
+     préconisation ET que entries_summary[collection] est VIDE
+     (ou que rien n'y correspond), → produis UN insert_entries qui groupe
+     TOUS les champs de cette entité, PAS plusieurs patches [0].
    - Champs :
      • collection : ∈ schema_map.collections (ex "heating.installations")
      • fields : { <key>: <value>, … } — chaque key DOIT ∈
@@ -103,9 +106,14 @@ qui te dit EXACTEMENT quels paths/collections sont valides.
      • confidence, evidence_refs
    - L'app génère l'UUID, pose tous les champs en source="ai_infer",
      validation_status="unvalidated".
-   - Exemples :
-     • collection="heating.installations", fields={ type_value:"PAC air-eau", power_kw:8 }
-     • collection="pathologies.items", fields={ category_value:"humidité", description:"trace cave" }
+   - **EXEMPLE CANONIQUE** — message: "PAC air-eau de 8kW électrique, marque Daikin"
+     → schema_map.collections["heating.installations"].entries_summary == []
+     → tu produis 1 SEUL insert_entries:
+       { collection:"heating.installations",
+         fields:{ type_value:"pac_air_eau", power_kw:8, fuel_value:"electricite",
+                  brand:"Daikin" },
+         confidence:"high" }
+     → tu NE produis PAS de patches "heating.installations[0].xxx".
 
 4. **custom_fields** (array) — vocabulaire ÉMERGENT, hors schéma.
    - field_key snake_case [a-z0-9_]+. À utiliser SEULEMENT si le concept
