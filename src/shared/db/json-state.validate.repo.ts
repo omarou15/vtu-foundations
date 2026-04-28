@@ -396,3 +396,257 @@ async function markConflictResolved(input: {
     });
   });
 }
+
+// ===========================================================================
+// Lot A — Validation/rejet d'insert_entries et custom_fields
+// ===========================================================================
+
+export interface InsertEntryOpInput {
+  userId: string;
+  visitId: string;
+  /** Path absolu de la collection, ex: "heating.installations". */
+  collection: string;
+  /** UUID de l'entrée à valider/rejeter. */
+  entryId: string;
+  sourceMessageId?: string | null;
+}
+
+/**
+ * Valide TOUS les Field<T> d'une entrée de collection (passe leur
+ * validation_status à "validated"). Les keys techniques (id,
+ * custom_fields, created_at, related_message_id) sont ignorées.
+ */
+export async function validateInsertEntry(
+  input: InsertEntryOpInput,
+): Promise<ValidateResult> {
+  const last = await getLatestLocalJsonState(input.visitId);
+  if (!last) return { status: "noop", reason: "no_state" };
+
+  const next = clone(last.state);
+  const collection = readArrayInState(next, input.collection);
+  if (!Array.isArray(collection)) {
+    return { status: "noop", reason: "collection_not_found" };
+  }
+  const entry = collection.find(
+    (e) => e && typeof e === "object" && (e as { id?: string }).id === input.entryId,
+  ) as Record<string, unknown> | undefined;
+  if (!entry) return { status: "noop", reason: "entry_not_found" };
+
+  const now = new Date().toISOString();
+  let touched = 0;
+  for (const [k, v] of Object.entries(entry)) {
+    if (RESERVED_ENTRY_KEYS.has(k)) continue;
+    if (!isFieldShape(v)) continue;
+    const f = v as Field<unknown>;
+    if (f.validation_status === "validated") continue;
+    entry[k] = {
+      ...f,
+      validation_status: "validated",
+      validated_at: now,
+      validated_by: input.userId,
+      updated_at: now,
+    };
+    touched += 1;
+  }
+
+  if (touched === 0) return { status: "noop", reason: "nothing_to_validate" };
+
+  const row = await appendJsonStateVersion({
+    userId: input.userId,
+    visitId: input.visitId,
+    state: next,
+    createdByMessageId: input.sourceMessageId ?? null,
+  });
+  return { status: "ok", row };
+}
+
+/**
+ * Supprime une entrée d'une collection. Conserve un audit léger dans
+ * `metadata.rejected_inserts[]` du message porteur.
+ */
+export async function rejectInsertEntry(
+  input: InsertEntryOpInput,
+): Promise<ValidateResult> {
+  const last = await getLatestLocalJsonState(input.visitId);
+  if (!last) return { status: "noop", reason: "no_state" };
+
+  const next = clone(last.state);
+  const collection = readArrayInState(next, input.collection);
+  if (!Array.isArray(collection)) {
+    return { status: "noop", reason: "collection_not_found" };
+  }
+  const idx = collection.findIndex(
+    (e) => e && typeof e === "object" && (e as { id?: string }).id === input.entryId,
+  );
+  if (idx < 0) return { status: "noop", reason: "entry_not_found" };
+
+  collection.splice(idx, 1);
+
+  const row = await appendJsonStateVersion({
+    userId: input.userId,
+    visitId: input.visitId,
+    state: next,
+    createdByMessageId: input.sourceMessageId ?? null,
+  });
+
+  if (input.sourceMessageId) {
+    await appendRejectedAudit({
+      messageId: input.sourceMessageId,
+      kind: "insert",
+      payload: { collection: input.collection, entry_id: input.entryId },
+    });
+  }
+  return { status: "ok", row };
+}
+
+export interface CustomFieldOpInput {
+  userId: string;
+  visitId: string;
+  /** Section top-level (ex: "heating", "envelope.murs"). */
+  sectionPath: string;
+  /** Clé du custom_field (ex: "co2_taux"). */
+  fieldKey: string;
+  sourceMessageId?: string | null;
+}
+
+/**
+ * Valide un custom_field : passe son validation_status à "validated".
+ */
+export async function validateCustomField(
+  input: CustomFieldOpInput,
+): Promise<ValidateResult> {
+  const last = await getLatestLocalJsonState(input.visitId);
+  if (!last) return { status: "noop", reason: "no_state" };
+
+  const next = clone(last.state);
+  const list = readCustomFieldsAt(next, input.sectionPath);
+  if (!list) return { status: "noop", reason: "section_not_found" };
+
+  const cf = list.find((f) => (f as { field_key?: string }).field_key === input.fieldKey);
+  if (!cf) return { status: "noop", reason: "custom_field_not_found" };
+  if ((cf as { validation_status?: string }).validation_status === "validated") {
+    return { status: "noop", reason: "already_validated" };
+  }
+
+  const now = new Date().toISOString();
+  Object.assign(cf, {
+    validation_status: "validated",
+    validated_at: now,
+    validated_by: input.userId,
+    updated_at: now,
+  });
+
+  const row = await appendJsonStateVersion({
+    userId: input.userId,
+    visitId: input.visitId,
+    state: next,
+    createdByMessageId: input.sourceMessageId ?? null,
+  });
+  return { status: "ok", row };
+}
+
+/**
+ * Supprime un custom_field de la section. Audit dans
+ * `metadata.rejected_custom_fields[]` du message porteur.
+ */
+export async function rejectCustomField(
+  input: CustomFieldOpInput,
+): Promise<ValidateResult> {
+  const last = await getLatestLocalJsonState(input.visitId);
+  if (!last) return { status: "noop", reason: "no_state" };
+
+  const next = clone(last.state);
+  const list = readCustomFieldsAt(next, input.sectionPath);
+  if (!list) return { status: "noop", reason: "section_not_found" };
+
+  const idx = list.findIndex(
+    (f) => (f as { field_key?: string }).field_key === input.fieldKey,
+  );
+  if (idx < 0) return { status: "noop", reason: "custom_field_not_found" };
+
+  list.splice(idx, 1);
+
+  const row = await appendJsonStateVersion({
+    userId: input.userId,
+    visitId: input.visitId,
+    state: next,
+    createdByMessageId: input.sourceMessageId ?? null,
+  });
+
+  if (input.sourceMessageId) {
+    await appendRejectedAudit({
+      messageId: input.sourceMessageId,
+      kind: "custom_field",
+      payload: { section_path: input.sectionPath, field_key: input.fieldKey },
+    });
+  }
+  return { status: "ok", row };
+}
+
+// ---------------------------------------------------------------------------
+// Internals Lot A
+// ---------------------------------------------------------------------------
+
+const RESERVED_ENTRY_KEYS = new Set([
+  "id",
+  "custom_fields",
+  "created_at",
+  "related_message_id",
+]);
+
+function isFieldShape(v: unknown): boolean {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return "value" in o && "source" in o && "validation_status" in o;
+}
+
+function readArrayInState(
+  state: VisitJsonState,
+  path: string,
+): unknown[] | null {
+  const segs = path.split(".");
+  let cur: unknown = state;
+  for (const s of segs) {
+    if (!cur || typeof cur !== "object") return null;
+    cur = (cur as Record<string, unknown>)[s];
+  }
+  return Array.isArray(cur) ? cur : null;
+}
+
+function readCustomFieldsAt(
+  state: VisitJsonState,
+  sectionPath: string,
+): Array<Record<string, unknown>> | null {
+  const segs = sectionPath.split(".");
+  let cur: unknown = state;
+  for (const s of segs) {
+    if (!cur || typeof cur !== "object") return null;
+    cur = (cur as Record<string, unknown>)[s];
+  }
+  if (!cur || typeof cur !== "object") return null;
+  const list = (cur as Record<string, unknown>).custom_fields;
+  return Array.isArray(list) ? (list as Array<Record<string, unknown>>) : null;
+}
+
+async function appendRejectedAudit(input: {
+  messageId: string;
+  kind: "insert" | "custom_field";
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  const db = getDb();
+  await db.transaction("rw", db.messages, async () => {
+    const m = await db.messages.get(input.messageId);
+    if (!m) return;
+    const meta = (m.metadata ?? {}) as Record<string, unknown>;
+    const key =
+      input.kind === "insert" ? "rejected_inserts" : "rejected_custom_fields";
+    const arr = Array.isArray(meta[key])
+      ? [...(meta[key] as unknown[])]
+      : [];
+    arr.push({ ...input.payload, rejected_at: new Date().toISOString() });
+    await db.messages.update(input.messageId, {
+      metadata: { ...meta, [key]: arr },
+      local_updated_at: new Date().toISOString(),
+    });
+  });
+}
