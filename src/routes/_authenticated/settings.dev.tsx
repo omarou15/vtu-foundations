@@ -148,16 +148,16 @@ function CallInspector({ call }: { call: LocalLlmExtraction }) {
       <div className="mt-3 flex flex-col gap-2">
         <JsonAccordion label="Context bundle complet" data={bundle} defaultOpen />
         <JsonAccordion
-          label={`Historique réellement envoyé (${recent?.length ?? 0} messages — illimité par défaut, compression progressive si dépassement budget)`}
+          label="visit (identité de la VT envoyée au LLM)"
+          data={(bundle as { visit?: unknown } | null)?.visit ?? "Non disponible"}
+        />
+        <JsonAccordion
+          label="state (JSON state complet — source de vérité, structure = paths valides)"
+          data={(bundle as { state?: unknown } | null)?.state ?? "Non disponible"}
+        />
+        <JsonAccordion
+          label={`recent_messages (${recent?.length ?? 0} messages — illimité par défaut, compression progressive si dépassement budget)`}
           data={recent ?? "Non disponible dans ce dump"}
-        />
-        <JsonAccordion
-          label="Schema map (collections autorisées + entrées existantes)"
-          data={(bundle as { schema_map?: unknown } | null)?.schema_map ?? "Non disponible"}
-        />
-        <JsonAccordion
-          label="Descriptions photos incluses"
-          data={(bundle as { attachment_descriptions?: unknown } | null)?.attachment_descriptions ?? []}
         />
         <JsonAccordion
           label="raw_request_summary (résumé du prompt côté engine)"
@@ -177,9 +177,15 @@ function CallInspector({ call }: { call: LocalLlmExtraction }) {
           </p>
         )}
         <p className="font-body mt-2 text-[11px] italic text-muted-foreground">
-          Limite connue : le prompt système et le prompt utilisateur assemblé
-          ne sont pas persistés pour ce dump. Un futur lot enregistrera tout
-          dans <code className="font-ui">raw_request_summary</code>.
+          Bundle minimal (refonte avril 2026) : <code className="font-ui">schema_version</code>,{" "}
+          <code className="font-ui">visit</code>, <code className="font-ui">state</code>,{" "}
+          <code className="font-ui">recent_messages</code>. Le schéma canonique
+          (collections, champs d'item) est inscrit dans le prompt système — plus
+          de <code className="font-ui">schema_map</code> calculée. Les descriptions
+          de photos passent via les messages assistant <code className="font-ui">photo_caption</code>{" "}
+          (déjà inclus dans <code className="font-ui">recent_messages</code>) — plus
+          de <code className="font-ui">attachments_context</code> séparé. Le prompt
+          système et le prompt utilisateur assemblé ne sont pas encore persistés.
         </p>
       </div>
     </CardShell>
