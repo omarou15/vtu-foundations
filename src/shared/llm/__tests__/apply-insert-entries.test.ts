@@ -325,8 +325,8 @@ describe("applyInsertEntries — Lot A.5 dedup intra-call", () => {
   });
 });
 
-describe("applyInsertEntries — Lot A.5 entrée vide", () => {
-  it("insert avec uniquement keys réservées → entrée vide marquée is_empty", () => {
+describe("applyInsertEntries — garde anti-fantôme", () => {
+  it("insert avec uniquement keys réservées → silencieusement skippé", () => {
     const { state, map } = freshState();
     const r = applyInsertEntries({
       state,
@@ -337,13 +337,24 @@ describe("applyInsertEntries — Lot A.5 entrée vide", () => {
       sourceMessageId: MESSAGE,
       sourceExtractionId: EXTRACTION,
     });
-    expect(r.applied).toHaveLength(1);
-    expect(r.applied[0]!.is_empty).toBe(true);
-    expect(r.applied[0]!.fields_set).toEqual([]);
-    expect(r.state.heating.installations).toHaveLength(1);
+    expect(r.applied).toHaveLength(0);
+    expect(r.state.heating.installations).toHaveLength(0);
   });
 
-  it("insert avec fields valides → pas de is_empty", () => {
+  it("insert avec fields={} → silencieusement skippé", () => {
+    const { state, map } = freshState();
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [op("heating.installations", {})],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(0);
+    expect(r.state.heating.installations).toHaveLength(0);
+  });
+
+  it("insert avec fields valides → appliqué normalement", () => {
     const { state, map } = freshState();
     const r = applyInsertEntries({
       state,
@@ -353,5 +364,6 @@ describe("applyInsertEntries — Lot A.5 entrée vide", () => {
       sourceExtractionId: EXTRACTION,
     });
     expect(r.applied[0]!.is_empty).toBeUndefined();
+    expect(r.applied[0]!.fields_set).toEqual(["type_value"]);
   });
 });
