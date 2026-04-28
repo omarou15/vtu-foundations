@@ -1,59 +1,70 @@
-# Fix géolocalisation : timeout, reverse geocoding, et ordre des champs
+# Vue satellite Mapbox haute résolution avec géoloc temps réel
 
-## Problèmes identifiés
+## Objectif
+Remplacer le stub "Coming soon" de l'onglet Mapbox par une vraie carte satellite zoomable, centrée sur le bâtiment audité, avec un mode "où je suis" mis à jour en temps réel pendant la visite.
 
-1. **Géoloc charge à l'infini** : `getCurrentPosition` est appelé automatiquement à l'ouverture du dialog (sans geste utilisateur). Dans l'iframe Lovable preview, le navigateur ignore silencieusement la requête → ni `success` ni `error` → état "loading" éternel. Le timeout de 10s ne se déclenche que si le navigateur traite la requête — pas s'il la bloque en amont.
-2. **Adresse non remplie** : aucune logique de reverse geocoding n'est branchée derrière les coordonnées GPS.
-3. **Ordre des champs** : la position GPS est actuellement après l'adresse alors qu'elle doit être avant (puisqu'elle l'alimente).
+## Pré-requis (action utilisateur, 2 min)
 
-## Changements (un seul fichier : `NewVisitDialog.tsx`)
+Tu dois créer un token public Mapbox :
+1. Va sur https://account.mapbox.com/access-tokens/
+2. Crée un compte gratuit si nécessaire (pas de CB demandée — 50 000 chargements de carte/mois inclus)
+3. Crée un nouveau token, **coche uniquement les scopes `styles:read`, `fonts:read`, `tiles:read`**
+4. **IMPORTANT — restreins le token par URL** : ajoute tes domaines (`*.lovable.app`, `*.lovableproject.com`, et ton domaine custom si tu en as un) dans "URL restrictions" pour qu'il ne puisse pas être utilisé ailleurs
+5. Copie le token (commence par `pk.…`) et donne-le moi
 
-### 1. Géolocalisation déclenchée par geste utilisateur + watchdog
+Je le stockerai en secret runtime (`MAPBOX_PUBLIC_TOKEN`) et il sera exposé au frontend via `VITE_MAPBOX_PUBLIC_TOKEN` — c'est l'usage standard et documenté pour les tokens publics Mapbox.
 
-- **Supprimer** l'appel automatique de `requestGeolocation` dans le `useEffect([open])`. État initial : `{ status: "idle" }` avec un message "Appuyez sur Localiser".
-- **Ajouter un bouton « Localiser »** dans le bloc GPS. Le clic sur ce bouton (= geste utilisateur synchrone) appelle `navigator.geolocation.getCurrentPosition` directement, sans `await` préalable. C'est la condition pour que l'API fonctionne dans l'iframe preview (cf. note browser security).
-- **Ajouter un watchdog `setTimeout(15000)`** côté JS : si aucun callback (success/error) n'est reçu sous 15s, on bascule en `{ status: "unavailable", reason: "délai dépassé" }`. Cela résout le cas où l'iframe avale la requête sans rien renvoyer.
-- **Stocker le timer dans une `ref`** pour pouvoir l'annuler à la résolution ou au démontage (évite les fuites + double set d'état).
+## Implémentation
 
-### 2. Reverse geocoding automatique → remplit l'adresse
+### 1. Dépendances
+Ajout de `mapbox-gl` (v3, pèse ~800 KB gzippé, on l'importe en lazy dans l'onglet pour ne pas alourdir le bundle initial).
 
-- Au succès de la géoloc, lancer un `fetch` vers Nominatim OpenStreetMap (gratuit, sans clé API, pas de connecteur à ajouter) :
-  ```
-  https://nominatim.openstreetmap.org/reverse?lat=...&lon=...&format=json&accept-language=fr
-  ```
-- **Headers** : `Accept: application/json` (Nominatim demande un User-Agent mais les navigateurs en imposent un par défaut, OK depuis le client).
-- **Comportement** :
-  - Pendant l'appel : badge "Recherche de l'adresse…" sous le champ adresse.
-  - Si succès et `address` actuellement vide : auto-remplir avec `data.display_name`.
-  - Si l'utilisateur a déjà tapé une adresse : NE PAS écraser, mais afficher un petit lien "Utiliser l'adresse GPS" sous le champ.
-  - Si échec/timeout : silencieux, on garde le champ vide (l'utilisateur saisit manuellement).
-- Wrap le tout dans try/catch pour ne jamais bloquer le formulaire.
+### 2. Réécriture de `MapboxTab.tsx`
+Suppression du stub. Nouveau composant qui :
+- Lit `import.meta.env.VITE_MAPBOX_PUBLIC_TOKEN` au mount
+- Si absent : affiche un message clair "Token Mapbox manquant — voir Settings"
+- Si présent : initialise une `mapboxgl.Map` avec :
+  - Style : `mapbox://styles/mapbox/satellite-streets-v12` (satellite + noms de rues/POI)
+  - Centre initial : coordonnées GPS de la visite (`visit.gps_lat / gps_lng`)
+  - Fallback : géocodage de `visit.address` via l'API Mapbox Geocoding si le GPS est absent
+  - Zoom initial : 18 (échelle bâtiment), `maxZoom: 22`
+  - Marqueur orange (`design-tokens.primary` #FF6B35) sur la position du bâtiment
+- Contrôles : zoom +/−, plein écran, échelle, sélecteur de style (satellite pur ↔ hybride)
 
-### 3. Réorganisation visuelle (ordre des champs dans le `<form>`)
+### 3. Mode "Où je suis" (géoloc temps réel)
+Bouton flottant `Crosshair` dans le coin haut-droit de la carte :
+- Premier clic : `navigator.geolocation.watchPosition` (geste utilisateur requis, comme pour le NewVisitDialog)
+- Affiche un second marqueur bleu pulsant (couleur distincte du marqueur bâtiment) qui se déplace en live
+- Recadrage doux sur la position au premier fix uniquement (pas à chaque update, sinon la carte saute)
+- Re-clic : centre à nouveau sur ma position
+- Clic long / 2e bouton : arrête le watch (économie batterie)
+- Cleanup `clearWatch` au démontage de l'onglet
+- Watchdog 15 s pour gérer le cas iframe-Lovable comme dans NewVisitDialog
 
-Nouvel ordre :
-1. Titre
-2. Date & heure (auto, lecture seule)
-3. **Position GPS** ← remontée ici
-4. **Adresse** ← descendue, alimentée par le GPS
-5. Type de mission (+ champ "Précisez" conditionnel)
-6. Typologie de bâtiment (+ champs conditionnels)
+### 4. Mise à jour de `UnifiedVisitDrawer.tsx`
+Retirer `comingSoon: true` sur la tab `mapbox`.
 
-### 4. Petits raffinements UX
+### 5. Géocodage de fallback (si GPS visite absent)
+Petit helper `geocodeAddress(address, token)` qui appelle l'endpoint Mapbox Geocoding une seule fois au mount de l'onglet et met en cache le résultat dans le composant.
 
-- Le bouton "Réessayer" devient "Localiser" tant qu'on n'a jamais réussi, puis "Réessayer" après un échec.
-- En statut `success`, afficher discrètement un bouton "Actualiser" (icône `RefreshCw`) pour relancer.
-- Annulation propre du watchdog au démontage du composant et à la fermeture du dialog.
-
-## Hors scope
-
-- Pas de changement de DB ni de schéma : les colonnes `gps_lat/lng/accuracy_m` et `address` existent déjà.
-- Pas de changement de `visits.repo.ts` : il consomme déjà `gps` et `address` depuis le formulaire.
-- Pas d'ajout de dépendance npm (Nominatim = `fetch` natif).
-- Pas de Mapbox / clé API : on garde l'approche zéro-config.
+## Hors scope (volontairement reportés)
+- 3D buildings (toggle 2D/3D) → V2
+- Outils de mesure surface/distance → V2
+- Bascule satellite ↔ vue cadastre → V2
+- Persistance des annotations sur la carte → V2
 
 ## Détails techniques
 
-- **Pourquoi Nominatim et pas Mapbox** : pas de secret à demander à l'utilisateur, usage policy OK pour un cas ponctuel (1 req par création de visite). Si abus futur → on basculera sur Mapbox via une edge function.
-- **Pourquoi le geste utilisateur est nécessaire** : Chrome/Safari/Firefox dans une iframe cross-origin (cas de la preview Lovable) ignorent les appels Permissions/Geolocation issus de code asynchrone non lié à un input handler. Le clic explicite sur "Localiser" rétablit le contexte de gesture.
-- **Tests** : mettre à jour `NewVisitDialog.test.tsx` pour refléter le nouvel ordre DOM et le bouton "Localiser" (mock de `navigator.geolocation` déjà en place).
+- **Pourquoi `VITE_…` côté front** : Mapbox impose que le token soit dans le navigateur (le SDK fait les requêtes tuiles directement). Les tokens publics `pk.…` sont conçus pour ça, et la sécurité repose sur la **restriction par URL** côté Mapbox, pas sur le secret. Pas besoin de proxy edge function.
+- **Pourquoi pas Leaflet + Esri** : tu as choisi Mapbox satellite, qui a une meilleure résolution centre-villes France et un SDK natif pour la 3D + style satellite-streets très lisible.
+- **Bundle** : `mapbox-gl` est lourd (~800 KB) → je l'importe **dynamiquement** dans `MapboxTab` pour qu'il ne soit téléchargé que si l'utilisateur ouvre cet onglet.
+- **Compat offline** : Mapbox tuiles nécessitent du réseau ; en offline, on affiche un placeholder "Connexion requise pour la carte".
+- **Tests** : pas de test unitaire de la carte elle-même (mapbox-gl ne tourne pas dans jsdom). On teste juste le branchement (token absent → message d'erreur, token présent → conteneur monté).
+
+## Étapes d'exécution
+1. Tu me donnes le token Mapbox `pk.…`
+2. Je lance `add_secret` pour stocker `MAPBOX_PUBLIC_TOKEN`
+3. J'ajoute `mapbox-gl` aux dépendances
+4. Je code `MapboxTab` + helper geocoding
+5. Je débloque l'onglet dans `UnifiedVisitDrawer`
+6. Tu vérifies dans le preview
