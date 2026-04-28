@@ -350,6 +350,14 @@ function ApplyAllButton({
 
 // ---------------------------------------------------------------------------
 
+function labelHint(path: string): string {
+  try {
+    return labelForPath(path);
+  } catch {
+    return path;
+  }
+}
+
 function readField(
   state: unknown,
   path: string,
