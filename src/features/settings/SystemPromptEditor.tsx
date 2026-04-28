@@ -1,26 +1,31 @@
 /**
- * VTU — Éditeur du prompt système LLM.
+ * VTU — Éditeur des prompts système LLM.
  *
- * Affiché en tête de `/settings/dev`. Permet au dev de modifier le prompt
- * système envoyé au LLM sans toucher au code ni redéployer.
+ * Affiché en tête de `/settings/dev`. Permet au dev de modifier les deux
+ * prompts système (chat unifié et analyse photo) sans toucher au code.
  *
  * Comportement :
- *  - Au mount : charge le prompt actif depuis la DB. Si aucun → préremplit
- *    avec la constante par défaut + badge "Défaut (non sauvegardé)".
- *  - Sauvegarder : crée une nouvelle version active (trigger désactive l'ancienne).
+ *  - Sélecteur en tête : « Prompt chat » / « Prompt analyse photo ».
+ *  - Au mount / changement d'onglet : charge le prompt actif du `kind`
+ *    sélectionné. Si aucun → préremplit avec la constante par défaut +
+ *    badge "Défaut (non sauvegardé)".
+ *  - Sauvegarder : crée une nouvelle version active (trigger désactive
+ *    l'ancienne du même kind).
  *  - Réinitialiser au défaut : repeuple la textarea avec la constante.
  *  - Annuler : recharge depuis la DB.
- *  - Historique : liste les versions, possibilité d'en réactiver une.
+ *  - Historique : liste les versions du kind courant, possibilité d'en
+ *    réactiver une.
  */
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Sparkles, RotateCcw, History, Check } from "lucide-react";
+import { Sparkles, RotateCcw, History, Check, MessageSquare, Image as ImageIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SYSTEM_UNIFIED } from "@/shared/llm/prompts/system-unified";
+import { SYSTEM_DESCRIBE_MEDIA } from "@/shared/llm/prompts/system-describe-media";
 import {
   activateSystemPrompt,
   getActiveSystemPrompt,
@@ -28,10 +33,27 @@ import {
   saveSystemPrompt,
   SYSTEM_PROMPT_MAX_LENGTH,
   SYSTEM_PROMPT_MIN_LENGTH,
+  type SystemPromptKind,
   type SystemPromptRow,
 } from "./system-prompt.repo";
 
+const KIND_META: Record<SystemPromptKind, { label: string; defaultContent: string; helper: string; Icon: typeof MessageSquare }> = {
+  unified: {
+    label: "Prompt chat",
+    defaultContent: SYSTEM_UNIFIED,
+    helper: "Envoyé à chaque message texte du thermicien (edge function vtu-llm-agent).",
+    Icon: MessageSquare,
+  },
+  describe_media: {
+    label: "Prompt analyse photo",
+    defaultContent: SYSTEM_DESCRIBE_MEDIA,
+    helper: "Envoyé pour chaque photo / plan analysé individuellement (server function describeMedia).",
+    Icon: ImageIcon,
+  },
+};
+
 export function SystemPromptEditor() {
+  const [kind, setKind] = useState<SystemPromptKind>("unified");
   const [active, setActive] = useState<SystemPromptRow | null>(null);
   const [history, setHistory] = useState<SystemPromptRow[]>([]);
   const [content, setContent] = useState<string>("");
@@ -40,16 +62,18 @@ export function SystemPromptEditor() {
   const [saving, setSaving] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  async function refresh() {
+  const meta = KIND_META[kind];
+
+  async function refresh(targetKind: SystemPromptKind = kind) {
     setLoading(true);
     try {
       const [act, list] = await Promise.all([
-        getActiveSystemPrompt(),
-        listSystemPrompts(),
+        getActiveSystemPrompt(targetKind),
+        listSystemPrompts(targetKind),
       ]);
       setActive(act);
       setHistory(list);
-      setContent(act?.content ?? SYSTEM_UNIFIED);
+      setContent(act?.content ?? KIND_META[targetKind].defaultContent);
       setLabel("");
     } catch (e) {
       toast.error((e as Error).message);
@@ -59,11 +83,12 @@ export function SystemPromptEditor() {
   }
 
   useEffect(() => {
-    void refresh();
-  }, []);
+    void refresh(kind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind]);
 
   const isDefault = active === null;
-  const isDirty = content !== (active?.content ?? SYSTEM_UNIFIED);
+  const isDirty = content !== (active?.content ?? meta.defaultContent);
   const length = content.length;
   const tooShort = length < SYSTEM_PROMPT_MIN_LENGTH;
   const tooLong = length > SYSTEM_PROMPT_MAX_LENGTH;
@@ -72,8 +97,8 @@ export function SystemPromptEditor() {
   async function handleSave() {
     setSaving(true);
     try {
-      await saveSystemPrompt(content, label || null);
-      toast.success("Prompt système mis à jour. Actif au prochain message.");
+      await saveSystemPrompt(content, label || null, kind);
+      toast.success(`${meta.label} mis à jour. Actif au prochain appel.`);
       await refresh();
     } catch (e) {
       toast.error((e as Error).message);
@@ -83,12 +108,12 @@ export function SystemPromptEditor() {
   }
 
   function handleResetToDefault() {
-    setContent(SYSTEM_UNIFIED);
+    setContent(meta.defaultContent);
     toast.message("Prompt par défaut chargé. Clique « Sauvegarder » pour activer.");
   }
 
   function handleCancel() {
-    setContent(active?.content ?? SYSTEM_UNIFIED);
+    setContent(active?.content ?? meta.defaultContent);
     setLabel("");
   }
 
@@ -109,13 +134,48 @@ export function SystemPromptEditor() {
       <div className="flex flex-col gap-1">
         <h3 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
           <Sparkles className="h-4 w-4" />
-          Prompt système (éditable)
+          Prompts système (éditables)
         </h3>
         <p className="font-body text-xs text-muted-foreground">
-          Modifie ici le prompt envoyé au LLM à chaque appel. La sauvegarde crée
-          une nouvelle version active immédiatement (pas de redéploiement).
+          Modifie ici les prompts envoyés au LLM. La sauvegarde crée une
+          nouvelle version active immédiatement (pas de redéploiement).
         </p>
       </div>
+
+      {/* Tabs kind */}
+      <div
+        className="mt-3 inline-flex self-start rounded-lg bg-muted p-0.5"
+        role="tablist"
+        aria-label="Type de prompt"
+      >
+        {(Object.keys(KIND_META) as SystemPromptKind[]).map((k) => {
+          const m = KIND_META[k];
+          const selected = k === kind;
+          return (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => setKind(k)}
+              disabled={saving}
+              className={[
+                "font-ui inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition",
+                selected
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              ].join(" ")}
+            >
+              <m.Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="font-body mt-2 text-[11px] text-muted-foreground">
+        {meta.helper}
+      </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {isDefault ? (
