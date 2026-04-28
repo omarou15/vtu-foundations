@@ -8,7 +8,12 @@
  */
 
 import { getDb } from "@/shared/db/schema";
-import type { SyncQueueEntry, MessageRow, VisitRow } from "@/shared/types";
+import type {
+  AttachmentAiDescriptionPayload,
+  SyncQueueEntry,
+  MessageRow,
+  VisitRow,
+} from "@/shared/types";
 import { appendLocalLlmExtraction } from "@/shared/db/llm-extractions.repo";
 import {
   appendLocalAttachmentAiDescription,
@@ -257,6 +262,21 @@ export async function processDescribeMedia(
     rawResponse: raw,
     status: "success",
     warnings: result.warnings,
+  });
+
+  await appendPhotoDescriptionToJsonState({
+    userId: attachment.user_id,
+    visitId: attachment.visit_id,
+    attachmentId: attachment.id,
+    messageId: attachment.message_id,
+    extractionId: extraction.id,
+    confidence: confidenceFromOverall(result.confidence_overall),
+    description: {
+      short_caption: result.short_caption,
+      detailed_description: result.detailed_description,
+      structured_observations: result.structured_observations,
+      ocr_text: result.ocr_text,
+    },
   });
 
   // It. 14 — Streaming photo-par-photo : si la photo appartient à un batch
