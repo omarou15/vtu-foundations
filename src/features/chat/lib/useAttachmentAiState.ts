@@ -28,8 +28,7 @@ export type AttachmentAiState =
     };
 
 export function useAttachmentAiState(attachment: LocalAttachment): AttachmentAiState {
-  return (
-    useLiveQuery<AttachmentAiState>(
+  const value = useLiveQuery<AttachmentAiState>(
       async () => {
         const db = getDb();
 
