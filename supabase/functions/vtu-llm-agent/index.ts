@@ -462,7 +462,8 @@ Deno.serve(async (req) => {
     // Persisté dans `raw_request_summary` côté engine pour que l'inspecteur IA
     // affiche fidèlement le contenu envoyé (system + history + user prompt).
     const requestSummary = {
-      system_prompt: SYSTEM_UNIFIED,
+      system_prompt: activeSystemPrompt,
+      system_prompt_source: systemPromptSource,
       history_messages: historyMessages,
       user_prompt: userPrompt,
       model: input.model,
