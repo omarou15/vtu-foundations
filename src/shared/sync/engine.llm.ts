@@ -515,6 +515,25 @@ async function handleExtract(
   const result = resp.result;
   const raw = resp.raw_response;
 
+  // ---- [VTU-DIAG] Étape 1 : réponse LLM brute reçue ----
+  // eslint-disable-next-line no-console
+  console.info("[VTU-DIAG] llm-response", {
+    message_id: message.id,
+    patches_count: result.patches?.length ?? 0,
+    inserts_count: result.insert_entries?.length ?? 0,
+    customs_count: result.custom_fields?.length ?? 0,
+    patches_paths: (result.patches ?? []).map((p) => p.path),
+    inserts_collections: (result.insert_entries ?? []).map((i) => ({
+      collection: i.collection,
+      fields_keys: Object.keys(i.fields ?? {}),
+      fields_empty: Object.keys(i.fields ?? {}).length === 0,
+    })),
+    customs_keys: (result.custom_fields ?? []).map(
+      (c) => `${c.section_path}.${c.field_key}`,
+    ),
+    assistant_message_preview: (result.assistant_message ?? "").slice(0, 80),
+  });
+
   // Persistance audit trail d'abord pour avoir l'extraction_id à référencer.
   const extraction = await appendLocalLlmExtraction({
     userId: message.user_id,
@@ -558,56 +577,64 @@ async function handleExtract(
     sourceExtractionId: extraction.id,
   });
 
-  // ---- DIAG TEMP — diagnostic JSON vide (à retirer après investigation) ----
+  // ---- [VTU-DIAG] Étape 2 : résultat apply-extract ----
   try {
     const stateAny = applyOut.state as unknown as Record<string, unknown>;
     const heating = (stateAny.heating ?? {}) as Record<string, unknown>;
     const ecs = (stateAny.ecs ?? {}) as Record<string, unknown>;
     const ventilation = (stateAny.ventilation ?? {}) as Record<string, unknown>;
+    const countInstallations = (sec: Record<string, unknown>): number =>
+      Array.isArray((sec as { installations?: unknown }).installations)
+        ? ((sec as { installations: unknown[] }).installations).length
+        : 0;
     // eslint-disable-next-line no-console
-    console.info("[VTU-DIAG] apply-extract result", {
-      llm_proposed: {
-        patches: result.patches?.length ?? 0,
-        inserts: result.insert_entries?.length ?? 0,
-        custom_fields: result.custom_fields?.length ?? 0,
-      },
-      llm_proposed_paths: (result.patches ?? []).map((p) => p.path),
-      llm_proposed_collections: (result.insert_entries ?? []).map((i) => i.collection),
-      applied: {
-        patches: applyOut.patches.applied.length,
-        inserts: applyOut.insertEntries.applied.length,
-        custom_fields: applyOut.customFields.applied.length,
-      },
-      applied_patch_paths: applyOut.patches.applied.map((a) => a.path),
-      applied_insert_collections: applyOut.insertEntries.applied.map((a) => a.collection),
+    console.info("[VTU-DIAG] apply-result", {
+      message_id: message.id,
       total_applied: applyOut.totalApplied,
-      state_keys_top: Object.keys(stateAny),
-      heating_keys: Object.keys(heating),
-      ecs_keys: Object.keys(ecs),
-      ventilation_keys: Object.keys(ventilation),
-      heating_installations_count: Array.isArray((heating as { installations?: unknown }).installations)
-        ? ((heating as { installations: unknown[] }).installations).length
-        : "not-array",
-      ecs_installations_count: Array.isArray((ecs as { installations?: unknown }).installations)
-        ? ((ecs as { installations: unknown[] }).installations).length
-        : "not-array",
-      ventilation_installations_count: Array.isArray((ventilation as { installations?: unknown }).installations)
-        ? ((ventilation as { installations: unknown[] }).installations).length
-        : "not-array",
+      patches_applied: applyOut.patches.applied.map((a) => a.path),
+      patches_ignored: applyOut.patches.ignored.map((i) => ({
+        path: (i as { path?: string }).path,
+        reason: (i as { reason?: string }).reason,
+      })),
+      inserts_applied: applyOut.insertEntries.applied.map((a) => ({
+        collection: a.collection,
+        entry_id: a.entryId,
+        fields_set: a.fields_set,
+        is_empty: a.fields_set.length === 0,
+      })),
+      inserts_ignored: applyOut.insertEntries.ignored,
+      customs_applied: applyOut.customFields.applied.length,
+      state_top_keys: Object.keys(stateAny),
+      heating_installations_count: countInstallations(heating),
+      ecs_installations_count: countInstallations(ecs),
+      ventilation_installations_count: countInstallations(ventilation),
     });
   } catch (diagErr) {
     // eslint-disable-next-line no-console
-    console.warn("[VTU-DIAG] log failed", diagErr);
+    console.warn("[VTU-DIAG] apply-result log failed", diagErr);
   }
-  // ---- FIN DIAG TEMP ----
 
+  // ---- [VTU-DIAG] Étape 3 : décision persist-state ----
   if (applyOut.totalApplied > 0) {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] persist-state", {
+      message_id: message.id,
+      will_persist: true,
+      total_applied: applyOut.totalApplied,
+    });
     await appendJsonStateVersion({
       userId: message.user_id,
       visitId: message.visit_id,
       state: applyOut.state,
       createdByMessageId: message.id,
       sourceExtractionId: extraction.id,
+    });
+  } else {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] persist-state", {
+      message_id: message.id,
+      will_persist: false,
+      reason: "total_applied_zero",
     });
   }
 
