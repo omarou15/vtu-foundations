@@ -4,72 +4,43 @@
  * Types partagés entre router, providers, prompts, apply.
  */
 
-import type { LlmMode } from "@/shared/types";
+import type { LlmMode, VisitJsonState } from "@/shared/types";
 
 export type { LlmMode };
 
 /**
- * ContextBundle — payload sérialisable injecté dans tous les prompts.
- * Sérialisation déterministe (clés triées) → permet caching prompt
- * Gemini (cf. KNOWLEDGE §15) et hash stable pour audit trail.
+ * ContextBundle — payload minimal envoyé au LLM.
+ *
+ * Doctrine (refonte avril 2026) : 3 blocs seulement.
+ *  1. `visit` — identité de la VT
+ *  2. `state` — JSON state complet, source de vérité (sa structure dit
+ *     tout : champs vides, entrées existantes, paths valides).
+ *  3. `recent_messages` — historique chronologique (compression
+ *     progressive si dépassement budget tokens).
+ *
+ * Le SCHÉMA CANONIQUE (sections + collections + champs d'item) est
+ * désormais inscrit en dur dans le prompt système — plus besoin de
+ * `schema_map` calculée par bundle. Les descriptions de photos passent
+ * via les messages assistant `photo_caption` (déjà dans
+ * `recent_messages`), plus besoin de `attachments_context` séparé.
  */
 export interface ContextBundle {
-  /** schema_version IS injecté tel quel (informatif, pas exécutable). */
+  /** schema_version (informatif). */
   schema_version: number;
   visit: {
     id: string;
     mission_type: string | null;
     building_type: string | null;
   };
-  /** Snapshot des sections clés (filtré, 5-passes compressables). */
-  state_summary: Record<string, unknown>;
-  /** Historique récent (textes courts, ordre chronologique). */
+  /** JSON state complet — le LLM lit la structure pour comprendre quels paths existent. */
+  state: VisitJsonState;
+  /** Historique récent (ordre chronologique). */
   recent_messages: Array<{
     role: "user" | "assistant" | "system";
     kind: string;
     content: string | null;
     created_at: string;
   }>;
-  /** Descriptions IA déjà calculées pour les attachments cités. */
-  attachments_context: Array<{
-    id: string;
-    media_profile: string | null;
-    short_caption: string | null;
-    detailed_description: string | null;
-    ocr_text: string | null;
-  }>;
-  /**
-   * It. 14.1 — Attachments mentionnés (recent_messages ou message courant)
-   * dont l'analyse visuelle n'a PAS encore produit de description.
-   * Le LLM doit explicitement refuser d'inventer leur contenu.
-   */
-  pending_attachments: Array<{
-    id: string;
-    media_profile: string | null;
-    reason: "no_description_yet" | "ai_disabled_when_sent";
-  }>;
-  /**
-   * It. 11.6 — Schema map du JSON state. Le LLM s'appuie dessus pour
-   * choisir entre :
-   *   - `set_field` (path ∈ object_fields OU collection.[id=…].field)
-   *   - `insert_entry` (collection ∈ schema_map.collections)
-   *   - `custom_field` (le reste)
-   * Format compact : entries listées avec id court + summary, pas le state
-   * complet. Le state_summary porte la donnée brute en parallèle.
-   */
-  schema_map: {
-    object_fields: string[];
-    collections: Record<
-      string,
-      {
-        item_fields: string[];
-        entries_count: number;
-        entries_summary: string[];
-      }
-    >;
-  };
-  /** Nomenclature pertinente (paths déterminés via mission_type). */
-  nomenclature_hints: Record<string, unknown>;
 }
 
 /**
