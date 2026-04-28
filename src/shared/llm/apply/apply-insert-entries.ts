@@ -106,8 +106,9 @@ export function applyInsertEntries(
           mergedIgnored.push(k);
           continue;
         }
-        // Ne pas écraser un Field<T> déjà posé.
-        if (isFieldShape(mergeTarget[k])) continue;
+        // Ne pas écraser un Field<T> déjà rempli (source != init OU value != null).
+        const cur = mergeTarget[k];
+        if (isFieldShape(cur) && !isEmptyInitField(cur)) continue;
         mergeTarget[k] = aiInferField({
           value: v,
           confidence: op.confidence,
@@ -178,6 +179,10 @@ function isFieldShape(node: unknown): node is Field<unknown> {
   if (!node || typeof node !== "object") return false;
   const o = node as Record<string, unknown>;
   return "value" in o && "source" in o && "validation_status" in o;
+}
+
+function isEmptyInitField(f: Field<unknown>): boolean {
+  return f.source === "init" && (f.value === null || f.value === undefined);
 }
 
 function ensureArrayAtPath(
