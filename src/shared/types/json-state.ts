@@ -23,6 +23,7 @@ import {
   fieldSchema,
 } from "./json-state.field";
 import {
+  AttachmentsLogSchema,
   BuildingSchema,
   CustomObservationsSchema,
   EcsSchema,
@@ -30,6 +31,7 @@ import {
   EnvelopeSchema,
   HeatingSchema,
   IndustrielProcessesSchema,
+  makeEmptyAttachmentsLog,
   makeEmptyBuilding,
   makeEmptyCustomObservations,
   makeEmptyEcs,
@@ -94,6 +96,9 @@ export const VisitJsonStateSchema = z.object({
   custom_observations: CustomObservationsSchema.default(
     makeEmptyCustomObservations(),
   ),
+  // Doctrine "JSON = Cerveau" — voir AttachmentsLogSchema pour le rationale.
+  // .default() => rétrocompat automatique des states v2 sans cette section.
+  attachments_log: AttachmentsLogSchema.default(makeEmptyAttachmentsLog()),
 });
 export type VisitJsonState = z.infer<typeof VisitJsonStateSchema>;
 
@@ -181,5 +186,6 @@ export function createInitialVisitJsonState(
     preconisations: makeEmptyPreconisations(),
     notes: makeEmptyNotes(),
     custom_observations: makeEmptyCustomObservations(),
+    attachments_log: makeEmptyAttachmentsLog(),
   };
 }
