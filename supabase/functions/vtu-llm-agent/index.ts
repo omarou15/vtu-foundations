@@ -371,9 +371,42 @@ Deno.serve(async (req) => {
       { role: "user", content: userPrompt },
     ];
 
+    // ------------------------------------------------------------------
+    // BYOK lookup : si l'utilisateur a une clé OpenRouter active, on
+    // route vers OpenRouter avec sa clé + son model_id custom. Sinon,
+    // on garde le gateway Lovable AI standard.
+    // ------------------------------------------------------------------
+    let useByok = false;
+    let byokKey: string | null = null;
+    let resolvedModel = input.model;
+    let providerLabel: "lovable_gemini" | "openrouter" = "lovable_gemini";
+    try {
+      const { data: byokRow } = await supabase
+        .from("user_llm_keys")
+        .select("encrypted_key, model_id, enabled")
+        .eq("user_id", userData.user.id)
+        .eq("provider", "openrouter")
+        .eq("enabled", true)
+        .maybeSingle();
+      if (
+        byokRow &&
+        typeof byokRow.encrypted_key === "string" &&
+        byokRow.encrypted_key.length > 0 &&
+        typeof byokRow.model_id === "string"
+      ) {
+        useByok = true;
+        byokKey = byokRow.encrypted_key;
+        resolvedModel = byokRow.model_id;
+        providerLabel = "openrouter";
+      }
+    } catch (err) {
+      console.warn("[vtu-llm-agent] byok_lookup_failed", (err as Error).message);
+    }
+
     console.log("[vtu-llm-agent] llm_request", JSON.stringify({
       mode: input.mode,
-      model: input.model,
+      model: resolvedModel,
+      provider: providerLabel,
       history_count: historyMessages.length,
       user_message_preview: input.messageText.slice(0, 200),
     }));
@@ -381,17 +414,27 @@ Deno.serve(async (req) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
 
+    const targetUrl = useByok ? OPENROUTER_URL : GATEWAY_URL;
+    const targetAuth = useByok ? `Bearer ${byokKey}` : `Bearer ${LOVABLE_API_KEY}`;
+    const extraHeaders: Record<string, string> = useByok
+      ? {
+          "HTTP-Referer": "https://vtu.lovable.app",
+          "X-Title": "VTU — Visites Techniques Universelles",
+        }
+      : {};
+
     let gw: Response;
     try {
-      gw = await fetch(GATEWAY_URL, {
+      gw = await fetch(targetUrl, {
         method: "POST",
         signal: ctrl.signal,
         headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          Authorization: targetAuth,
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: JSON.stringify({
-          model: input.model,
+          model: resolvedModel,
           messages: llmMessages,
           tools: [PROPOSE_VISIT_PATCHES_TOOL],
           tool_choice: {
@@ -403,12 +446,12 @@ Deno.serve(async (req) => {
     } catch (err) {
       clearTimeout(timer);
       if ((err as Error).name === "AbortError") {
-        return errorResp(504, "timeout", "AI gateway timeout (60s)");
+        return errorResp(504, "timeout", `${providerLabel} timeout (60s)`);
       }
       return errorResp(
         502,
         "network",
-        `AI gateway fetch failed: ${(err as Error).message}`,
+        `${providerLabel} fetch failed: ${(err as Error).message}`,
       );
     }
     clearTimeout(timer);
