@@ -5,16 +5,14 @@
  *   - `building.wall_material_value`               (object field plat)
  *   - `envelope.murs.material_value`               (sous-objet)
  *   - `heating.installations[id=abc-123].type`     (entrée de collection par UUID)
- *
- * Syntaxe REJETÉE :
- *   - `heating.installations[0].type_value`        (index positionnel)
- *     → forcer le LLM à utiliser `insert_entry` pour créer ou
- *       `[id=…]` pour cibler une entrée existante.
+ *   - `heating.installations[0].type_value`        (entrée positionnelle legacy)
  */
 
 import { parseEntryPath } from "@/shared/types/json-state.schema-map";
 
 type JsonObject = Record<string, unknown>;
+
+const POSITIONAL_RE = /^([a-z0-9_.]+)\[(\d+)\]\.([a-z0-9_]+)$/;
 
 export interface PathTarget {
   parent: JsonObject | null;
@@ -27,6 +25,7 @@ export interface PathTarget {
  *
  * Détecte automatiquement la syntaxe :
  *   - `collection[id=…].field` → walkEntryPath
+ *   - `collection[N].field` → walkPositionPath
  *   - sinon → walkObjectPath (path dot-notation simple)
  *
  * Renvoie `{ parent: null, key: null }` si le path n'est pas résoluble.
@@ -41,6 +40,15 @@ export function walkJsonPath(
   const entry = parseEntryPath(path);
   if (entry) {
     return walkEntryPath(root, entry.collection, entry.entryId, entry.field);
+  }
+  const positional = parsePositionPath(path);
+  if (positional) {
+    return walkPositionPath(
+      root,
+      positional.collection,
+      positional.index,
+      positional.field,
+    );
   }
   return walkObjectPath(root, path);
 }
