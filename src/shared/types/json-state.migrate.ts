@@ -30,6 +30,7 @@ import {
   type Field,
 } from "./json-state.field";
 import {
+  makeEmptyAttachmentsLog,
   makeEmptyBuilding,
   makeEmptyCustomObservations,
   makeEmptyEcs,
@@ -193,6 +194,7 @@ export function migrateVisitJsonState(raw: unknown): VisitJsonState {
     preconisations: makeEmptyPreconisations(),
     notes: makeEmptyNotes(),
     custom_observations: makeEmptyCustomObservations(),
+    attachments_log: makeEmptyAttachmentsLog(),
   };
 
   return VisitJsonStateSchema.parse(migrated);
