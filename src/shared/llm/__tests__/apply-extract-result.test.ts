@@ -78,7 +78,7 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
     );
     expect(
       out.state.building.custom_fields.some(
-        (cf) => cf.field_key === "annee_renovation",
+        (cf) => (cf as unknown as { field_key?: string }).field_key === "annee_renovation",
       ),
     ).toBe(true);
   });

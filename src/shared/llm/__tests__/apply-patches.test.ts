@@ -291,6 +291,7 @@ describe("applyPatches — paths stricts (It. 11.6)", () => {
       fuel_other: emptyField<string>(),
       power_kw: emptyField<number>(),
       installation_year: emptyField<number>(),
+      brand: emptyField<string>(),
       efficiency_pct: emptyField<number>(),
       custom_fields: [],
     });
@@ -326,6 +327,7 @@ describe("applyPatches — paths stricts (It. 11.6)", () => {
       fuel_other: emptyField<string>(),
       power_kw: emptyField<number>(),
       installation_year: emptyField<number>(),
+      brand: emptyField<string>(),
       efficiency_pct: emptyField<number>(),
       custom_fields: [],
     });

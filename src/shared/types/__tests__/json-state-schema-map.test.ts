@@ -79,6 +79,7 @@ describe("buildSchemaMap — object_fields", () => {
       fuel_other: emptyField<string>(),
       power_kw: emptyField<number>(),
       installation_year: emptyField<number>(),
+      brand: emptyField<string>(),
       efficiency_pct: emptyField<number>(),
       custom_fields: [],
     });
@@ -161,6 +162,7 @@ describe("buildSchemaMap — collections", () => {
         fuel_other: emptyField<string>(),
         power_kw: initField<number>(8),
         installation_year: initField<number>(2024),
+        brand: emptyField<string>(),
         efficiency_pct: emptyField<number>(),
         custom_fields: [],
       },
@@ -172,6 +174,7 @@ describe("buildSchemaMap — collections", () => {
         fuel_other: emptyField<string>(),
         power_kw: emptyField<number>(),
         installation_year: emptyField<number>(),
+        brand: emptyField<string>(),
         efficiency_pct: emptyField<number>(),
         custom_fields: [],
       },
