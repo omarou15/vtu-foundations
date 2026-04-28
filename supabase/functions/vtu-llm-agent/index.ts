@@ -569,11 +569,13 @@ function parseInput(body: unknown): ParsedInput | { error: string } {
   };
 }
 
-function buildUserPrompt(
+interface ChatMessage { role: "user" | "assistant"; content: string }
+
+function buildPromptAndHistory(
   mode: "extract" | "conversational",
   messageText: string,
   bundle: Record<string, unknown>,
-): string {
+): { userPrompt: string; historyMessages: ChatMessage[] } {
   const header =
     mode === "extract" ? "## MESSAGE DU THERMICIEN" : "## QUESTION DU THERMICIEN";
 
@@ -599,10 +601,52 @@ function buildUserPrompt(
         ].join("\n")
       : "";
 
-  return [
+  // It. 14.x — promouvoir recent_messages en messages multi-tour. Ainsi
+  // une référence pronominale ("ajoute ça") résout vraiment le tour
+  // précédent au lieu d'être noyée dans le JSON dump du bundle.
+  const recent = Array.isArray((bundle as { recent_messages?: unknown }).recent_messages)
+    ? ((bundle as { recent_messages: Array<{ role?: unknown; content?: unknown; kind?: unknown }> }).recent_messages)
+    : [];
+  // On garde au plus 8 tours, kind=text uniquement, sans le tout dernier
+  // message user (qui est messageText, déjà ajouté en dernier).
+  const historyMessages: ChatMessage[] = recent
+    .filter((m) => {
+      if (!m || typeof m !== "object") return false;
+      const kind = typeof m.kind === "string" ? m.kind : "text";
+      const role = m.role;
+      const content = m.content;
+      return (
+        kind === "text" &&
+        (role === "user" || role === "assistant") &&
+        typeof content === "string" &&
+        content.length > 0
+      );
+    })
+    .slice(-8)
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: String(m.content).slice(0, 1000),
+    }));
+  // Si le dernier message historique est exactement le messageText courant
+  // (cas où le client a déjà inclus le tour en cours dans recent_messages),
+  // on le retire pour éviter le doublon.
+  if (
+    historyMessages.length > 0 &&
+    historyMessages[historyMessages.length - 1].role === "user" &&
+    historyMessages[historyMessages.length - 1].content === messageText
+  ) {
+    historyMessages.pop();
+  }
+
+  // Bundle minus recent_messages (déjà promu en multi-tour) — réduit la
+  // duplication et le bruit.
+  const bundleForPrompt = { ...bundle };
+  delete (bundleForPrompt as { recent_messages?: unknown }).recent_messages;
+
+  const userPrompt = [
     "## CONTEXT BUNDLE",
     "```json",
-    JSON.stringify(bundle, null, 2),
+    JSON.stringify(bundleForPrompt, null, 2),
     "```",
     guardBlock,
     header,
@@ -610,7 +654,10 @@ function buildUserPrompt(
     "",
     "Produis le tool-call propose_visit_patches.",
   ].join("\n");
+
+  return { userPrompt, historyMessages };
 }
+
 
 function errorResp(status: number, code: string, message: string): Response {
   return new Response(
