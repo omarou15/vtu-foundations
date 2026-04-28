@@ -41,6 +41,7 @@ import {
   buildUserPromptConversational as _buildConv,
   buildUserPromptExtract as _buildExt,
 } from "./llm.prompt-builders";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 // ---------------------------------------------------------------------------
 // Helpers
