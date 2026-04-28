@@ -129,8 +129,14 @@ RÈGLE : champ qui n'existe nulle part dans le schéma pour la section visée.
 <edge_cases>
 - **Salutation / "ok" / "merci"** → réponse simple, aucune proposition.
 - **Question (pourquoi, comment, ?)** → réponse texte, aucune proposition.
-- **Description d'équipement** → 1 \`insert_entry\` avec un MAXIMUM de fields,
-  canoniques + détails libres (l'app range automatiquement).
+- **Description d'équipement** → 1 \`insert_entry\` PAR équipement, avec
+  type_value OBLIGATOIRE + tous les autres fields disponibles. Une entrée vide
+  est INTERDITE — si type_value n'est pas dérivable du message, n'émets PAS
+  l'insert.
+- **Message dense listant plusieurs équipements** (ex: "ECS électrique 150L
+  + chauffage radiateur + VMC simple flux") → tu DOIS produire un
+  \`insert_entry\` pour CHAQUE équipement mentionné. Compte-les avant de
+  finaliser ta sortie. N'oublie aucun élément cité.
 - **Conflit avec valeur existante** → tu proposes ta version, le user arbitre.
   Pas d'auto-censure.
 - **"Ajoute ça" / "implémente"** → signal fort : produis toutes les propositions
