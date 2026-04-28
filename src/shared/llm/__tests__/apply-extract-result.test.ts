@@ -103,7 +103,7 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
 
   it("1 patch valide + 1 patch positional auto-promu + 1 insert", () => {
     // Lot A.5 fix 1 : un patch positional sur array vide est désormais
-    // auto-promu en insert (entrée créée + field posé). Plus de path_not_found.
+    // auto-promu en insert (entrée créée + field posé). Zéro ignored.
     const state = freshState();
     const schemaMap = buildSchemaMap(state);
     const out = applyExtractResult({
