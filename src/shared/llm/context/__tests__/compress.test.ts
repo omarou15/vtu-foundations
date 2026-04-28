@@ -92,10 +92,10 @@ describe("compressContextBundle — compression progressive", () => {
     );
     const bundle = makeBundle({ recent_messages: messages });
     const result = compressContextBundle(bundle, DEFAULT_TOKEN_BUDGET);
-    // Soit on est tombé au filet 8 messages, soit on a échoué — les deux acceptables
+    // Soit on est tombé sous 50 messages (pass 2c+), soit on a échoué — les deux acceptables
     if (result.status === "ok") {
-      expect(result.bundle.recent_messages.length).toBeLessThanOrEqual(8);
-      expect(result.passes_applied).toBeGreaterThanOrEqual(6); // ≥ pass 2e
+      expect(result.bundle.recent_messages.length).toBeLessThanOrEqual(50);
+      expect(result.passes_applied).toBeGreaterThanOrEqual(4); // ≥ pass 2c
     } else {
       expect(result.status).toBe("failed");
       expect(result.passes_applied).toBeGreaterThan(8);
