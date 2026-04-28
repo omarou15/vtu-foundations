@@ -19,7 +19,7 @@
  * mais il est toujours vide.
  */
 
-import { aiInferField, type Field } from "@/shared/types/json-state.field";
+import { aiInferField } from "@/shared/types/json-state.field";
 import type { VisitJsonState } from "@/shared/types";
 import {
   buildEmptyCollectionEntry,
@@ -71,9 +71,7 @@ export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
 // Internals
 // ---------------------------------------------------------------------------
 
-type ResolveResult =
-  | { reason: "ok"; parent: Record<string, unknown>; key: string }
-  | { reason: ApplyPatchIgnoreReason };
+type ResolveResult = { parent: Record<string, unknown>; key: string };
 
 function resolvePatchTarget(
   root: Record<string, unknown>,
@@ -82,8 +80,7 @@ function resolvePatchTarget(
   // 1. Path d'entrée par UUID : `collection[id=…].field`
   const entry = parseEntryPath(path);
   if (entry) {
-    const arr = ensureArrayAtPath(root, entry.collection);
-    if (!arr) return { reason: "path_not_found" };
+    const arr = forceArrayAtPath(root, entry.collection);
     let item = arr.find(
       (e): e is Record<string, unknown> =>
         !!e && typeof e === "object" && (e as Record<string, unknown>).id === entry.entryId,
@@ -97,7 +94,7 @@ function resolvePatchTarget(
       arr.push(skeleton);
       item = skeleton;
     }
-    return { reason: "ok", parent: item, key: entry.field };
+    return { parent: item, key: entry.field };
   }
 
   // 2. Index positionnel `collection[N].field` — auto-promote en insert si
@@ -105,28 +102,30 @@ function resolvePatchTarget(
   const m = path.match(POSITIONAL_RE);
   if (m) {
     const [, collection, indexStr, field] = m;
-    const arr = ensureArrayAtPath(root, collection!);
-    if (!arr) return { reason: "path_not_found" };
+    const arr = forceArrayAtPath(root, collection!);
     const idx = Number(indexStr);
+    while (arr.length <= idx) {
+      const filler =
+        buildEmptyCollectionEntry(collection!) ??
+        ({ id: uuidv4(), custom_fields: [] } as Record<string, unknown>);
+      if (!filler.id) filler.id = uuidv4();
+      arr.push(filler);
+    }
     const item = arr[idx];
     if (!item || typeof item !== "object") {
-      // Promote : crée une nouvelle entrée minimale et l'append.
-      // L'index positionnel n'a pas de sémantique stable cross-call, donc
-      // on ne tente pas de "remplir les trous" — on append en queue.
       const skeleton =
         buildEmptyCollectionEntry(collection!) ??
         ({ id: uuidv4(), custom_fields: [] } as Record<string, unknown>);
       if (!skeleton.id) skeleton.id = uuidv4();
-      arr.push(skeleton);
-      return { reason: "ok", parent: skeleton, key: field! };
+      arr[idx] = skeleton;
+      return { parent: skeleton, key: field! };
     }
-    return { reason: "ok", parent: item as Record<string, unknown>, key: field! };
+    return { parent: item as Record<string, unknown>, key: field! };
   }
 
   // 3. Path d'object field plat — auto-vivify les conteneurs intermédiaires.
   const t = ensureObjectPath(root, path);
-  if (!t.parent || !t.key) return { reason: "path_not_found" };
-  return { reason: "ok", parent: t.parent, key: t.key };
+  return { parent: t.parent, key: t.key };
 }
 
 /**
