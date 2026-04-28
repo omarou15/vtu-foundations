@@ -51,6 +51,7 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
+  const { pending: llmPending, lastUserMessageId } = useLlmPending(visitId);
 
   // Auto-resize : on ajuste la hauteur en fonction du scrollHeight, plafonné.
   useEffect(() => {
