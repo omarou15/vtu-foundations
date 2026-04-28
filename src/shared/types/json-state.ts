@@ -109,7 +109,10 @@ export type VisitJsonState = z.infer<typeof VisitJsonStateSchema>;
 const BUILDING_TYPE_TO_TYPOLOGY: Record<string, string | null> = {
   maison_individuelle: "maison",
   appartement: "appartement",
-  immeuble: null, // → needs_reclassification
+  copropriete: "copropriete",
+  monopropriete: "monopropriete",
+  industrie: "industrie",
+  immeuble: null, // legacy → needs_reclassification
   tertiaire: "tertiaire",
   autre: "autre",
 };
@@ -125,14 +128,9 @@ interface CreateInitialVisitJsonStateInput {
   /**
    * Phase 1 building_type (du dialog). Mappé en interne vers building_typology.
    * Si "immeuble" → typology null + needs_reclassification = true.
+   * Accepte aussi les nouvelles valeurs étendues (copropriete, monopropriete, industrie).
    */
-  buildingType?:
-    | "maison_individuelle"
-    | "appartement"
-    | "immeuble"
-    | "tertiaire"
-    | "autre"
-    | null;
+  buildingType?: string | null;
 }
 
 /**
