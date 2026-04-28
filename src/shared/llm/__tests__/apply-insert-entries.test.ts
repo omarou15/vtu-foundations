@@ -155,6 +155,24 @@ describe("applyInsertEntries — permissif", () => {
     expect(r.ignored).toHaveLength(0);
   });
 
+  it("collection qui traverse un primitif → écrase, force array, entrée créée", () => {
+    const { state, map } = freshState();
+    (state as unknown as Record<string, unknown>).fictif = "primitive";
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [op("fictif.section", { x: 1 })],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
+    const arr = (r.state as unknown as Record<string, { section: unknown[] }>)
+      .fictif.section;
+    expect(arr).toHaveLength(1);
+    expect((arr[0] as Record<string, { value: unknown }>).x.value).toBe(1);
+  });
+
   it("aucun field valide : entrée créée vide quand même (user arbitre)", () => {
     const { state, map } = freshState();
     const r = applyInsertEntries({
@@ -245,6 +263,32 @@ describe("applyInsertEntries — Lot A.5 dedup intra-call", () => {
     expect(entry.power_kw.value).toBe(12);
     expect((entry as unknown as Record<string, { value: unknown }>).brand?.value)
       .toBe("Daikin");
+  });
+
+  it("3 variantes PAC avec field commun → 1 seule entrée mergée", () => {
+    const { state, map } = freshState();
+    const r = applyInsertEntries({
+      state,
+      schemaMap: map,
+      insertEntries: [
+        op("heating.installations", { type_value: "PAC", power_kw: 12 }),
+        op("heating.installations", { type_value: "PAC", brand: "Hitachi" }),
+        op("heating.installations", { type_value: "PAC", fuel_value: "électricité" }),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(3);
+    expect(r.ignored).toHaveLength(0);
+    expect(r.state.heating.installations).toHaveLength(1);
+    const entry = r.state.heating.installations[0] as unknown as Record<
+      string,
+      { value: unknown }
+    >;
+    expect(entry.type_value.value).toBe("PAC");
+    expect(entry.power_kw.value).toBe(12);
+    expect(entry.brand.value).toBe("Hitachi");
+    expect(entry.fuel_value.value).toBe("électricité");
   });
 
   it("2 inserts SANS field commun → 2 entrées distinctes (pas de dedup)", () => {
