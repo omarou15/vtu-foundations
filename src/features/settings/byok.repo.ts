@@ -70,7 +70,9 @@ export async function updateByokToggle(input: {
   enabled: boolean;
   modelId?: string;
 }): Promise<void> {
-  const patch: Record<string, unknown> = { enabled: input.enabled };
+  const patch: { enabled: boolean; model_id?: string } = {
+    enabled: input.enabled,
+  };
   if (input.modelId) patch.model_id = input.modelId;
   const { error } = await supabase
     .from("user_llm_keys")
