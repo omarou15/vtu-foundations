@@ -2,14 +2,12 @@
  * apply-extract-result : orchestrateur des 3 verbes d'une réponse
  * `extract_from_message`.
  *
- * Doctrine It. 11.6 — l'apply layer est strict :
- *   1. `patches[]`        → applyPatches (set_field sur object/entry connu)
- *   2. `insert_entries[]` → applyInsertEntries (création UUID dans collection connue)
+ * Doctrine Lot A.5 durcissement — l'apply layer est permissif total :
+ *   1. `patches[]`        → applyPatches (set_field + auto-vivify/overwrite)
+ *   2. `insert_entries[]` → applyInsertEntries (création UUID + array forcé)
  *   3. `custom_fields[]`  → applyCustomFields (vocabulaire émergent → registry)
  *
- * Aucune auto-vivify. Aucun fail silencieux. Toute opération qui ne
- * passe pas un gate produit une ligne dans `ignored` avec une raison
- * explicite, surfacée dans la PendingActionsCard.
+ * Pour patches et inserts : zéro rejet, `ignored` reste vide en permanence.
  *
  * Ordre d'exécution : patches → insert_entries → custom_fields.
  * Les opérations sont indépendantes (pas de dépendance entre verbes
