@@ -107,3 +107,35 @@ export function walkEntryPath(
   if (!entry || typeof entry !== "object") return { parent: null, key: null };
   return { parent: entry, key: field };
 }
+
+export function parsePositionPath(
+  path: string,
+): { collection: string; index: number; field: string } | null {
+  const m = path.match(POSITIONAL_RE);
+  if (!m) return null;
+  const [, collection, indexStr, field] = m;
+  if (!collection || !indexStr || !field) return null;
+  return { collection, index: Number(indexStr), field };
+}
+
+export function walkPositionPath(
+  root: JsonObject,
+  collection: string,
+  index: number,
+  field: string,
+): PathTarget {
+  const segments = collection.split(".");
+  let cur: unknown = root;
+  for (const seg of segments) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+      return { parent: null, key: null };
+    }
+    cur = (cur as JsonObject)[seg];
+  }
+  if (!Array.isArray(cur)) return { parent: null, key: null };
+  const entry = (cur as unknown[])[index];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return { parent: null, key: null };
+  }
+  return { parent: entry as JsonObject, key: field };
+}
