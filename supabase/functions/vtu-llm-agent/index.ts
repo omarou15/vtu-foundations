@@ -1,45 +1,32 @@
 /**
- * VTU — Edge Function `vtu-llm-agent` (It. 10.5 + It. 11.6 — 3 verbes)
+ * VTU — Edge Function `vtu-llm-agent` (refonte avril 2026)
  *
- * Remplace les server functions TanStack `extractFromMessage` et
- * `conversationalQuery`. Latence cible <8s perçus (vs ~50s en TanStack).
+ * Version "minimal context + total trust".
  *
  * Input (JSON) :
  *  {
  *    mode: "extract" | "conversational",
  *    messageText: string,
- *    contextBundle: ContextBundle  // sérialisé tel quel (inclut schema_map)
+ *    contextBundle: { schema_version, visit, state, recent_messages },
+ *    model?: string
  *  }
  *
  * Output (JSON) sur 200 :
  *  {
  *    ok: true,
  *    result: {
- *      assistant_message: string,
- *      patches: AiFieldPatch[],         // set_field (path connu)
- *      insert_entries: AiInsertEntry[], // création d'entrée de collection
- *      custom_fields: AiCustomField[],  // vocabulaire émergent
- *      warnings: string[],
- *      confidence_overall: number
+ *      assistant_message, patches, insert_entries, custom_fields,
+ *      warnings, confidence_overall
  *    },
  *    meta: ProviderMeta,
  *    raw_response: object
  *  }
  *
- * Erreurs :
- *  - 401 auth manquante / invalide
- *  - 429 rate_limited
- *  - 402 payment_required
- *  - 504 timeout
- *  - 502 provider error
- *  - 400 input invalide
- *
- * Sécurité : verify_jwt = true via supabase/config.toml. Le user_id est
- * extrait du JWT côté Edge mais n'est pas re-validé contre le visit_id
- * du context (RLS s'en charge côté `llm_extractions` insert client-side).
+ * Plus de coalescePositionalPatches, plus de dropDiags, plus de
+ * hallucinationTag : on fait confiance au LLM. Toute proposition est
+ * forwardée à l'app, qui la présente sur la carte d'actions au user.
  */
 
-// Deno deploy — pas de bundler local. Utilise les imports HTTPS standard.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -48,10 +35,6 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
 const DEFAULT_MODEL = "google/gemini-3-flash-preview";
 
-/**
- * Allowlist des modèles utilisables (alignée sur src/features/settings/models-catalog.ts).
- * Toute valeur reçue hors de cette liste retombe sur DEFAULT_MODEL avec un warn.
- */
 const ALLOWED_MODELS = new Set<string>([
   "google/gemini-2.5-flash-lite",
   "google/gemini-3-flash-preview",
@@ -73,106 +56,140 @@ const corsHeaders = {
 // Doit rester aligné avec src/shared/llm/prompts/system-unified.ts
 // ---------------------------------------------------------------------------
 
-const SYSTEM_UNIFIED = `# VTU — Cerveau IA Thermicien (mode unifié, 3 verbes)
+const SYSTEM_UNIFIED = `# VTU — Cerveau IA Thermicien (mode unifié)
 
 Tu es le **collègue IA** d'un thermicien expert en visite terrain. Tu
 réponds toujours comme un humain qui parle à un humain — pas comme une
-API. Le ContextBundle te donne l'état actuel de la VT, les derniers
-messages, les descriptions des médias rattachés, et la \`schema_map\`
-qui te dit EXACTEMENT quels paths/collections sont valides.
+API. Le ContextBundle te donne :
+- \`schema_version\` (numéro de version du schéma JSON)
+- \`visit\` (id, mission_type, building_type)
+- \`state\` (la VisitJsonState COMPLÈTE — source de vérité)
+- \`recent_messages\` (historique chat, y compris légendes de photos
+  émises par l'IA)
 
-## TA SORTIE (TOUJOURS via le tool propose_visit_patches)
+Tu ne reçois PAS de schema_map ni de descriptions de pièces jointes
+séparées : la structure du \`state\` te montre les sections existantes,
+et les descriptions photos sont déjà dans les messages récents (rôle
+\`assistant\`, kind \`photo_caption\` ou contenu d'analyse).
 
-1. **assistant_message** (string, ≤300 chars) — OBLIGATOIRE, JAMAIS vide.
-   - Extraction → annonce : "J'ai relevé une PAC air-eau et 2 pathologies, vérifie les propositions."
-   - Question (résume, explique, comment, ?) → réponse ≤2 phrases factuelles.
-   - Salutation / message court → réponse de collègue ("Bonjour ! Décris ce que tu observes et je structurerai tes infos.").
-   - INTERDIT : "Aucun champ mis à jour", "Je n'ai rien extrait", "Veuillez fournir plus d'informations".
-   - **INTERDIT SYMÉTRIQUE — RÈGLE DE NON-MENSONGE** : tu N'AS PAS LE DROIT
-     d'écrire "j'ai ajouté/noté/enregistré/complété/inséré/créé X" sans
-     produire EN MÊME TEMPS le patches/insert_entries/custom_fields
-     correspondant. Si tu n'arrives pas à structurer une opération valide,
-     dis-le honnêtement ("Je n'arrive pas à le structurer, peux-tu préciser…").
+## SCHÉMA CANONIQUE DU JSON STATE
 
-2. **patches** (array) — set_field sur un Field<T> EXISTANT du schéma.
-   - Path syntaxe acceptée :
-     a) Object field plat : path ∈ schema_map.object_fields
-        Ex: "building.wall_material_value", "envelope.murs.material_value"
-     b) Field d'une entrée existante : path = "<collection>[id=<UUID>].<field>"
-        L'UUID DOIT figurer dans schema_map.collections[<c>].entries_summary.
-        Ex: "heating.installations[id=abc-1234].fuel_value"
-   - INTERDIT ABSOLU — TON ERREUR LA PLUS FRÉQUENTE :
-     • "heating.installations[0].type_value" → REJETÉ. JAMAIS d'index numérique.
-     • Si entries_summary est VIDE pour une collection, tu NE PEUX PAS patcher
-       d'entrée — tu DOIS produire un insert_entries.
-     • Path absent de schema_map → REJETÉ. Utilise custom_fields.
-   - INTERDIT GATE HUMAIN : si state_summary[path].source ∈ {user, voice,
-     photo_ocr, import} ET state_summary[path].value !== null → ne pas patcher.
-   - Champs : path, value, confidence ∈ {low, medium, high}, evidence_refs.
+### Sections plates (Field<T> à modifier via patches)
+
+- **meta** : title, mission_type_value, building_type_value,
+  surface_total_m2, year_built, address, postal_code, city, etc.
+- **building** : wall_material_value, roof_type_value, floors_count,
+  occupants_count, etc.
+- **envelope** : sous-objets \`murs\`, \`toiture\`, \`plancher_bas\`,
+  \`menuiseries\`, chacun avec material_value, thickness_cm,
+  insulation_value, condition_value.
+- **heating** / **ecs** / **ventilation** / **energy_production** /
+  **industriel_processes** / **tertiaire_hors_cvc** : contiennent
+  chacun une **collection** \`installations\` (voir ci-dessous).
+- **pathologies** / **preconisations** / **notes** /
+  **custom_observations** : contiennent chacun une **collection**
+  \`items\`.
+
+### Collections (10) — création via insert_entries
+
+Chaque entrée a un \`id\` (UUID, généré côté serveur) + les champs
+listés. Les champs en \`*_value\` sont des Field<string> sémantiques ;
+les \`*_other\` permettent une valeur libre hors enum.
+
+1. \`heating.installations\` — type_value, fuel_value, brand,
+   power_kw, installation_year, efficiency_pct
+2. \`ecs.installations\` — type_value, fuel_value, brand, capacity_l,
+   installation_year
+3. \`ventilation.installations\` — type_value, brand,
+   installation_year, flow_rate_m3_h
+4. \`energy_production.installations\` — type_value, power_kw,
+   installation_year
+5. \`industriel_processes.installations\` — process_value, power_kw
+6. \`tertiaire_hors_cvc.installations\` — category_value, power_kw
+7. \`pathologies.items\` — category_value, description, severity_value
+8. \`preconisations.items\` — category_value, description,
+   priority_value, estimated_cost_eur
+9. \`notes.items\` — content (Field<string>)
+10. \`custom_observations.items\` — topic, content
+
+## TA SORTIE (TOUJOURS via le tool \`propose_visit_patches\`)
+
+1. **assistant_message** (string ≤300 chars) — OBLIGATOIRE, jamais vide.
+   - Si tu produis des opérations : annonce-les naturellement
+     ("J'ai noté une PAC air-eau et 2 pathologies, à toi de valider").
+   - Si question / conversationnel : réponds en ≤2 phrases factuelles.
+   - INTERDIT : "Aucun champ mis à jour", "Veuillez fournir plus".
+   - INTERDIT SYMÉTRIQUE : ne dis pas "j'ai ajouté X" sans produire
+     l'opération correspondante. Le user voit la carte d'actions.
+
+2. **patches** (array) — set_field sur un Field<T>.
+   - Path syntaxe :
+     a) Object field plat : ex \`building.wall_material_value\`,
+        \`envelope.murs.thickness_cm\`
+     b) Field d'une entrée existante par UUID :
+        \`<collection>[id=<UUID>].<field>\`
+        Ex: \`heating.installations[id=abc-1234].fuel_value\`
+   - **PRÉFÈRE** \`[id=<UUID>]\` à \`[N]\`. Si tu utilises \`[N]\`,
+     l'app fera de son mieux pour résoudre l'index, mais c'est
+     fragile.
+   - Champs : \`path\`, \`value\`, \`confidence\` ∈ {low, medium, high},
+     \`evidence_refs\` (optionnel).
 
 3. **insert_entries** (array) — création d'entrée dans une collection.
-   - **RÈGLE DE DÉCISION** : si l'utilisateur décrit un équipement/pathologie/
-     préconisation ET que entries_summary[collection] est VIDE
-     (ou que rien n'y correspond), → produis UN insert_entries qui groupe
-     TOUS les champs de cette entité, PAS plusieurs patches [0].
+   - À utiliser quand l'utilisateur décrit un équipement / pathologie
+     / préconisation / note NOUVEAU.
    - Champs :
-     • collection : ∈ schema_map.collections (ex "heating.installations")
-     • fields : { <key>: <value>, … } — chaque key DOIT ∈
-       schema_map.collections[collection].item_fields.
-       **OBLIGATOIRE : au moins 1 key.** Un insert_entries avec
-       fields:{} est REJETÉ par l'apply layer.
-     • confidence, evidence_refs
-   - L'app génère l'UUID, pose tous les champs en source="ai_infer",
+     • \`collection\` : un des 10 paths listés ci-dessus.
+     • \`fields\` : { <key>: <value>, … } — au moins 1 clé.
+     • \`confidence\`, \`evidence_refs\`.
+   - L'app génère l'UUID et pose chaque champ en source="ai_infer",
      validation_status="unvalidated".
-   - **EXEMPLE CANONIQUE** — message: "PAC air-eau de 8kW électrique, marque Daikin"
-     → schema_map.collections["heating.installations"].entries_summary == []
-     → tu produis 1 SEUL insert_entries:
-       { collection:"heating.installations",
-         fields:{ type_value:"pac_air_eau", power_kw:8, fuel_value:"electricite",
-                  brand:"Daikin" },
-         confidence:"high" }
-     → tu NE produis PAS de patches "heating.installations[0].xxx".
+   - **Exemple canonique** — message: "PAC air-eau 8 kW Daikin"
+     → 1 SEUL insert_entries :
+     { collection: "heating.installations",
+       fields: { type_value: "pac_air_eau", power_kw: 8,
+                 fuel_value: "electricite", brand: "Daikin" },
+       confidence: "high" }
 
 4. **custom_fields** (array) — vocabulaire ÉMERGENT, hors schéma.
-   - field_key snake_case [a-z0-9_]+. À utiliser SEULEMENT si le concept
-     n'est pas couvert par schema_map.
+   - À utiliser SEULEMENT si le concept n'est pas couvert par le
+     schéma ci-dessus. \`field_key\` snake_case [a-z0-9_]+.
 
 5. **warnings** (array de strings ≤200 chars).
 
-6. **confidence_overall** ∈ [0,1].
+6. **confidence_overall** ∈ [0, 1].
 
 ## RÈGLES DURES
 
 - Pas d'invention. Pas de moyenne sectorielle pour combler un trou.
 - Si la donnée est explicite → opération adéquate, même en low.
 - Unités SI obligatoires (m², kW, kWh, °C, %).
-- Tone direct, factuel, pro, en français. Maximum 1 émoji discret si pertinent.
-- **RÉFÉRENCE PRONOMINALE** : si le user dit "ajoute ça", "note-le", "valide",
-  les tours précédents sont fournis comme messages séparés AVANT le bundle.
-  Tu DOIS résoudre le référent depuis ces tours et produire l'opération
-  structurée correspondante. Si la référence est vraiment ambiguë, demande
-  une clarification — ne fabrique pas un contenu plausible.
+- Tone direct, factuel, pro, en français. Maximum 1 émoji discret.
+- **RÉFÉRENCE PRONOMINALE** : si le user dit "ajoute ça", "note-le",
+  les tours précédents sont fournis comme messages séparés. Tu DOIS
+  résoudre le référent depuis ces tours. Si vraiment ambigu, demande
+  une clarification — ne fabrique pas.
 
+## CARTE D'ACTIONS (ce que voit le user)
 
-## ANTI-HALLUCINATION ATTACHMENTS (CRITIQUE)
+L'utilisateur reçoit toutes tes propositions sur une carte. Il peut
+accepter ou refuser chacune. Ton job : proposer ce qui te semble
+juste avec une confidence honnête. C'est lui qui arbitre, pas toi.
+- Si tu n'es pas sûr, propose en \`low\` plutôt que de t'abstenir.
+- Si tu écrases peut-être une saisie humaine, propose quand même
+  honnêtement — la carte préviendra le user.
 
-Le ContextBundle peut contenir un tableau \`pending_attachments\` listant
-des pièces jointes que tu n'as PAS vues (analyse visuelle non terminée
-ou désactivée par l'utilisateur).
+## PHOTOS
 
-- Tu n'as AUCUNE information sur leur contenu visuel.
-- Tu peux confirmer leur réception (nombre, type), JAMAIS leur contenu.
-- N'émets AUCUN patch / insert_entry / custom_field appuyé sur un \`pending_attachment\`.
-- N'inscris JAMAIS un id \`pending_attachment\` dans \`evidence_refs\`.
-- Si l'utilisateur te demande ce que tu vois sur ces fichiers, dis
-  explicitement que l'analyse est en cours (ou que l'IA était désactivée
-  à l'envoi) — JAMAIS "j'ai bien reçu et analysé".
-- Si une pièce jointe n'a ni \`short_caption\` ni \`detailed_description\`
-  ni \`ocr_text\` dans \`attachments_context\`, applique la même règle.
+Quand une photo a été analysée, sa description figure dans
+\`recent_messages\` (rôle assistant). Exploite ces descriptions pour
+proposer patches/insert_entries contextualisés. Si une photo n'a
+PAS de description dans l'historique, tu ne peux RIEN affirmer sur
+son contenu visuel — confirme la réception, jamais le contenu.
 `;
 
 // ---------------------------------------------------------------------------
-// Tool schema — UnifiedAgentOutput (cf. src/shared/llm/schemas/extract.schema.ts)
+// Tool schema — UnifiedAgentOutput
 // ---------------------------------------------------------------------------
 
 const PROPOSE_VISIT_PATCHES_TOOL = {
@@ -188,7 +205,7 @@ const PROPOSE_VISIT_PATCHES_TOOL = {
         patches: {
           type: "array",
           description:
-            "set_field — modification d'un Field<T> existant. path ∈ schema_map.object_fields OU '<collection>[id=<UUID>].<field>'. PAS d'index positionnel.",
+            "set_field — modification d'un Field<T>. path = '<section>.<field>' OU '<collection>[id=<UUID>].<field>'.",
           items: {
             type: "object",
             properties: {
@@ -204,19 +221,19 @@ const PROPOSE_VISIT_PATCHES_TOOL = {
         insert_entries: {
           type: "array",
           description:
-            "insert_entry — création d'une nouvelle entrée dans une collection connue. UUID généré côté serveur.",
+            "insert_entry — création d'une nouvelle entrée dans une collection. UUID généré côté serveur.",
           items: {
             type: "object",
             properties: {
               collection: {
                 type: "string",
                 description:
-                  "Path absolu vers la collection (ex 'heating.installations'). DOIT ∈ schema_map.collections.",
+                  "Path absolu vers la collection (ex 'heating.installations').",
               },
               fields: {
                 type: "object",
                 description:
-                  "Valeurs initiales : keys DOIVENT ∈ schema_map.collections[collection].item_fields. Au moins 1 clé.",
+                  "Valeurs initiales : au moins 1 clé.",
                 minProperties: 1,
                 additionalProperties: true,
               },
@@ -282,7 +299,6 @@ Deno.serve(async (req) => {
       return errorResp(500, "config", "LOVABLE_API_KEY missing on Edge runtime");
     }
 
-    // --- Auth (verify_jwt côté config.toml mais on récupère le user)
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return errorResp(401, "unauthorized", "Missing Authorization header");
@@ -296,7 +312,6 @@ Deno.serve(async (req) => {
       return errorResp(401, "unauthorized", "Invalid JWT");
     }
 
-    // --- Input
     let body: unknown;
     try {
       body = await req.json();
@@ -308,7 +323,6 @@ Deno.serve(async (req) => {
       return errorResp(400, "bad_request", input.error);
     }
 
-    // --- Build user prompt + multi-turn history
     const { userPrompt, historyMessages } = buildPromptAndHistory(
       input.mode,
       input.messageText,
@@ -321,7 +335,6 @@ Deno.serve(async (req) => {
       { role: "user", content: userPrompt },
     ];
 
-    // Diagnostic — visible dans edge_function_logs
     console.log("[vtu-llm-agent] llm_request", JSON.stringify({
       mode: input.mode,
       model: input.model,
@@ -329,7 +342,6 @@ Deno.serve(async (req) => {
       user_message_preview: input.messageText.slice(0, 200),
     }));
 
-    // --- Call Lovable AI Gateway (timeout 60s)
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
 
@@ -398,121 +410,30 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Normalisation défensive
-    const rawPatches = Array.isArray(parsed.patches) ? parsed.patches : [];
-    const rawInserts = Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [];
-    const rawCustom = Array.isArray(parsed.custom_fields) ? parsed.custom_fields : [];
-    const rawWarnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+    // Normalisation défensive — on forward TOUT au client, sans filtre.
+    // C'est l'app qui présente les propositions sur la carte d'actions
+    // et le user qui arbitre.
+    const patches = Array.isArray(parsed.patches) ? parsed.patches : [];
+    const insertEntries = Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [];
+    const customFields = Array.isArray(parsed.custom_fields) ? parsed.custom_fields : [];
+    const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+    const assistantMessage = typeof parsed.assistant_message === "string"
+      ? parsed.assistant_message.slice(0, 400)
+      : "Bien noté.";
 
-    // Diagnostic — visible dans edge_function_logs
     console.log("[vtu-llm-agent] llm_raw_output", JSON.stringify({
-      patches_count: rawPatches.length,
-      insert_entries_count: rawInserts.length,
-      custom_fields_count: rawCustom.length,
-      assistant_message_preview: typeof parsed.assistant_message === "string"
-        ? parsed.assistant_message.slice(0, 120)
-        : null,
-      raw_insert_entries: rawInserts.slice(0, 5),
-      raw_patches_paths: rawPatches
-        .map((p) => (p && typeof p === "object" ? (p as { path?: unknown }).path : null))
-        .filter((x) => typeof x === "string")
-        .slice(0, 10),
+      patches_count: patches.length,
+      insert_entries_count: insertEntries.length,
+      custom_fields_count: customFields.length,
+      assistant_message_preview: assistantMessage.slice(0, 120),
     }));
 
-    // It. 11.6 hardening — coalesce des patches "<collection>[N].<field>" en
-    // insert_entry quand la collection existe dans schema_map. Filet de
-    // sécurité contre la confusion fréquente du LLM (préfère [0] à insert_entry
-    // quand entries_summary est vide). L'apply layer reste strict.
-    const schemaMap = (input.contextBundle as { schema_map?: { collections?: Record<string, unknown> } })
-      .schema_map;
-    const knownCollections = new Set(Object.keys(schemaMap?.collections ?? {}));
-    const { patches, insertEntries: insertEntriesAfterCoalesce, coalescedWarnings } = coalescePositionalPatches(
-      rawPatches,
-      rawInserts,
-      knownCollections,
-    );
-
-    // It. 11.6 hardening — filtrer les insert_entries avec fields vide
-    // OU collection inconnue (le LLM le fait parfois). Logger précisément
-    // la raison pour debug.
-    interface DropDiag { collection: string; reason: "fields_empty" | "collection_unknown" }
-    const dropDiags: DropDiag[] = [];
-    const insertEntries = insertEntriesAfterCoalesce.filter((e) => {
-      const collection = String((e as { collection?: unknown }).collection ?? "?");
-      const f = (e as { fields?: unknown }).fields;
-      const hasFields = !!f && typeof f === "object" && Object.keys(f as Record<string, unknown>).length > 0;
-      if (!knownCollections.has(collection)) {
-        dropDiags.push({ collection, reason: "collection_unknown" });
-        return false;
-      }
-      if (!hasFields) {
-        dropDiags.push({ collection, reason: "fields_empty" });
-        return false;
-      }
-      return true;
-    });
-
-    if (dropDiags.length > 0) {
-      console.warn("[vtu-llm-agent] insert_entries_dropped", JSON.stringify(dropDiags));
-    }
-
-    // Garde anti-hallucination réciproque, version fine :
-    // - llmProducedOps : ce que le LLM a réellement émis (avant nos filtres).
-    // - effectiveOps   : ce qui survit après filtrage.
-    // Trois cas distincts, trois messages distincts.
-    const llmProducedOps = rawPatches.length + rawInserts.length + rawCustom.length;
-    const effectiveOps = patches.length + insertEntries.length + rawCustom.length;
-    const rawMessage = typeof parsed.assistant_message === "string"
-      ? parsed.assistant_message
-      : "";
-    const claimsAction = /j['’]ai (ajouté|noté|enregistré|complété|relevé|mis|inséré|créé|sauvegardé)/i.test(rawMessage);
-
-    let safeMessage: string;
-    let hallucinationTag: string | null = null;
-    if (effectiveOps > 0) {
-      // Cas nominal : on garde le message du LLM tel quel.
-      safeMessage = rawMessage.length > 0 ? rawMessage.slice(0, 400) : "Bien noté.";
-    } else if (llmProducedOps > 0 && dropDiags.length > 0) {
-      // Le LLM a tenté d'agir mais on a tout filtré → message précis.
-      const unknownCols = dropDiags.filter((d) => d.reason === "collection_unknown").map((d) => d.collection);
-      const emptyCols = dropDiags.filter((d) => d.reason === "fields_empty").map((d) => d.collection);
-      const hints: string[] = [];
-      if (unknownCols.length > 0) hints.push(`catégorie inconnue (${[...new Set(unknownCols)].join(", ")})`);
-      if (emptyCols.length > 0) hints.push("aucun champ exploitable détecté");
-      safeMessage = `Je n'ai pas pu structurer ces infos : ${hints.join(" et ")}. Précise le type d'équipement et au moins une caractéristique (ex : 'chaudière gaz 24 kW de 2018').`;
-      hallucinationTag = "filtered_after_llm";
-    } else if (claimsAction) {
-      // Le LLM affirme avoir agi mais n'a rien émis du tout.
-      safeMessage = "Je n'ai pas pu structurer ces infos automatiquement. Reformule-les en précisant le type d'équipement et ses caractéristiques (ex : 'chaudière gaz 24 kW de 2018').";
-      hallucinationTag = "claimed_action_no_ops";
-    } else {
-      // Réponse conversationnelle légitime sans op.
-      safeMessage = rawMessage.length > 0 ? rawMessage.slice(0, 400) : "Bien noté.";
-    }
-
-    const droppedWarnings = dropDiags.map(
-      (d) => `insert_entry ignoré (collection=${d.collection}, raison=${d.reason})`,
-    );
-    const finalWarnings = hallucinationTag
-      ? [...rawWarnings, ...coalescedWarnings, ...droppedWarnings, `assistant_message_rewritten:${hallucinationTag}`]
-      : [...rawWarnings, ...coalescedWarnings, ...droppedWarnings];
-
-    if (hallucinationTag) {
-      console.warn("[vtu-llm-agent] assistant_message_rewritten", JSON.stringify({
-        tag: hallucinationTag,
-        original_message: rawMessage.slice(0, 200),
-        llm_produced_ops: llmProducedOps,
-        effective_ops: effectiveOps,
-        drop_diags: dropDiags,
-      }));
-    }
-
     const result = {
-      assistant_message: safeMessage,
+      assistant_message: assistantMessage,
       patches,
       insert_entries: insertEntries,
-      custom_fields: rawCustom,
-      warnings: finalWarnings,
+      custom_fields: customFields,
+      warnings,
       confidence_overall:
         typeof parsed.confidence_overall === "number"
           ? parsed.confidence_overall
@@ -562,7 +483,6 @@ interface ParsedInput {
   mode: "extract" | "conversational";
   messageText: string;
   contextBundle: Record<string, unknown>;
-  /** Modèle résolu (toujours un membre de ALLOWED_MODELS, ou DEFAULT_MODEL). */
   model: string;
 }
 
@@ -612,36 +532,10 @@ function buildPromptAndHistory(
   const header =
     mode === "extract" ? "## MESSAGE DU THERMICIEN" : "## QUESTION DU THERMICIEN";
 
-  // It. 14.1 — Bloc anti-hallucination explicite (en plus du system prompt).
-  const pending = Array.isArray((bundle as { pending_attachments?: unknown }).pending_attachments)
-    ? ((bundle as { pending_attachments: Array<{ id: string; media_profile: string | null; reason: string }> }).pending_attachments)
-    : [];
-  const guardBlock =
-    pending.length > 0
-      ? [
-          "",
-          "## ATTACHMENTS NON ENCORE ANALYSÉS",
-          "Les pièces jointes suivantes ont été reçues mais leur analyse",
-          "visuelle n'est PAS disponible dans ce contexte :",
-          ...pending.map(
-            (p) => `  - ${p.id} (${p.media_profile ?? "?"}) — ${p.reason}`,
-          ),
-          "RÈGLE STRICTE : tu NE DOIS PAS prétendre avoir vu, lu ou analysé",
-          "ces fichiers. Confirme leur réception (nombre, type), jamais leur",
-          "contenu. N'émets AUCUN patch / custom_field / evidence_ref qui",
-          "s'appuie sur un id ci-dessus.",
-          "",
-        ].join("\n")
-      : "";
-
-  // It. 14.x — promouvoir recent_messages en messages multi-tour. Ainsi
-  // une référence pronominale ("ajoute ça") résout vraiment le tour
-  // précédent au lieu d'être noyée dans le JSON dump du bundle.
+  // Promote recent_messages en messages multi-tour.
   const recent = Array.isArray((bundle as { recent_messages?: unknown }).recent_messages)
     ? ((bundle as { recent_messages: Array<{ role?: unknown; content?: unknown; kind?: unknown }> }).recent_messages)
     : [];
-  // On garde au plus 8 tours, kind=text uniquement, sans le tout dernier
-  // message user (qui est messageText, déjà ajouté en dernier).
   const historyMessages: ChatMessage[] = recent
     .filter((m) => {
       if (!m || typeof m !== "object") return false;
@@ -649,20 +543,17 @@ function buildPromptAndHistory(
       const role = m.role;
       const content = m.content;
       return (
-        kind === "text" &&
+        (kind === "text" || kind === "photo_caption") &&
         (role === "user" || role === "assistant") &&
         typeof content === "string" &&
         content.length > 0
       );
     })
-    .slice(-8)
+    .slice(-12)
     .map((m) => ({
       role: m.role as "user" | "assistant",
       content: String(m.content).slice(0, 1000),
     }));
-  // Si le dernier message historique est exactement le messageText courant
-  // (cas où le client a déjà inclus le tour en cours dans recent_messages),
-  // on le retire pour éviter le doublon.
   if (
     historyMessages.length > 0 &&
     historyMessages[historyMessages.length - 1].role === "user" &&
@@ -671,8 +562,7 @@ function buildPromptAndHistory(
     historyMessages.pop();
   }
 
-  // Bundle minus recent_messages (déjà promu en multi-tour) — réduit la
-  // duplication et le bruit.
+  // Bundle minus recent_messages (déjà promu en multi-tour).
   const bundleForPrompt = { ...bundle };
   delete (bundleForPrompt as { recent_messages?: unknown }).recent_messages;
 
@@ -681,7 +571,7 @@ function buildPromptAndHistory(
     "```json",
     JSON.stringify(bundleForPrompt, null, 2),
     "```",
-    guardBlock,
+    "",
     header,
     messageText,
     "",
@@ -690,7 +580,6 @@ function buildPromptAndHistory(
 
   return { userPrompt, historyMessages };
 }
-
 
 function errorResp(status: number, code: string, message: string): Response {
   return new Response(
@@ -705,114 +594,4 @@ function errorResp(status: number, code: string, message: string): Response {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     },
   );
-}
-
-// ---------------------------------------------------------------------------
-// It. 11.6 hardening — coalesce des patches positionnels en insert_entries
-// ---------------------------------------------------------------------------
-// Le LLM (Gemini Flash) confond souvent `insert_entry` avec une série de
-// patches `<collection>[N].<field>`. L'apply layer rejette ces patches
-// (`positional_index_forbidden`) avec une UX cassée. On normalise ici :
-// si plusieurs patches ciblent la même `<collection>[N]` ET que `collection`
-// est connue de `schema_map.collections`, on les regroupe en 1 insert_entry.
-// Les patches restants (path positionnel sur collection inconnue, ou patch
-// d'object_field plat) sont conservés tels quels — l'apply layer décidera.
-// ---------------------------------------------------------------------------
-
-interface RawPatch {
-  path?: unknown;
-  value?: unknown;
-  confidence?: unknown;
-  evidence_refs?: unknown;
-}
-
-interface RawInsert {
-  collection?: unknown;
-  fields?: unknown;
-  confidence?: unknown;
-  evidence_refs?: unknown;
-}
-
-const POSITIONAL_RE = /^([a-z0-9_.]+)\[(\d+)\]\.([a-z0-9_]+)$/;
-
-function coalescePositionalPatches(
-  rawPatches: unknown[],
-  rawInserts: unknown[],
-  knownCollections: Set<string>,
-): {
-  patches: RawPatch[];
-  insertEntries: RawInsert[];
-  coalescedWarnings: string[];
-} {
-  const keptPatches: RawPatch[] = [];
-  const insertEntries: RawInsert[] = rawInserts.filter(
-    (e): e is RawInsert => !!e && typeof e === "object",
-  );
-  const coalescedWarnings: string[] = [];
-
-  // Bucket : "<collection>#<index>" → { collection, fields, confidences[], evidence[] }
-  const buckets = new Map<
-    string,
-    {
-      collection: string;
-      fields: Record<string, unknown>;
-      confidences: string[];
-      evidence: string[];
-    }
-  >();
-
-  for (const raw of rawPatches) {
-    if (!raw || typeof raw !== "object") continue;
-    const p = raw as RawPatch;
-    const path = typeof p.path === "string" ? p.path : "";
-    const m = path.match(POSITIONAL_RE);
-
-    if (!m || !knownCollections.has(m[1])) {
-      // Pas une expression positionnelle sur collection connue → on garde
-      // tel quel (l'apply layer décidera).
-      keptPatches.push(p);
-      continue;
-    }
-
-    const [, collection, indexStr, field] = m;
-    const key = `${collection}#${indexStr}`;
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = {
-        collection,
-        fields: {},
-        confidences: [],
-        evidence: [],
-      };
-      buckets.set(key, bucket);
-    }
-    bucket.fields[field] = p.value;
-    if (typeof p.confidence === "string") bucket.confidences.push(p.confidence);
-    if (Array.isArray(p.evidence_refs)) {
-      for (const r of p.evidence_refs) {
-        if (typeof r === "string") bucket.evidence.push(r);
-      }
-    }
-  }
-
-  for (const bucket of buckets.values()) {
-    insertEntries.push({
-      collection: bucket.collection,
-      fields: bucket.fields,
-      confidence: pickHighestConfidence(bucket.confidences),
-      evidence_refs: Array.from(new Set(bucket.evidence)),
-    });
-    coalescedWarnings.push(
-      `Patches positionnels regroupés en insert_entry sur "${bucket.collection}" (${Object.keys(bucket.fields).length} champs).`,
-    );
-  }
-
-  return { patches: keptPatches, insertEntries, coalescedWarnings };
-}
-
-function pickHighestConfidence(values: string[]): string {
-  if (values.includes("high")) return "high";
-  if (values.includes("medium")) return "medium";
-  if (values.includes("low")) return "low";
-  return "medium";
 }
