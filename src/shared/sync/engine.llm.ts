@@ -9,7 +9,6 @@
 
 import { getDb } from "@/shared/db/schema";
 import type {
-  AttachmentAiDescriptionPayload,
   SyncQueueEntry,
   MessageRow,
   VisitRow,
