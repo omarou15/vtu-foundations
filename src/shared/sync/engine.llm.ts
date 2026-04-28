@@ -911,7 +911,7 @@ async function appendPhotoDescriptionToJsonState(args: {
     structured,
     args.description.ocr_text ? `OCR: ${args.description.ocr_text}` : "",
   ]
-    .filter((part) => part.trim().length > 0)
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
     .join("\n\n");
 
   observations.push({
@@ -920,21 +920,7 @@ async function appendPhotoDescriptionToJsonState(args: {
     content: aiPhotoField(content || "Photo analysée.", args),
     created_at: now,
     related_message_id: args.messageId,
-    custom_fields: [
-      {
-        field_key: "attachment_id",
-        label_fr: "ID pièce jointe",
-        value: args.attachmentId,
-        value_type: "string",
-        unit: null,
-        source: "ai_infer",
-        confidence: args.confidence,
-        created_at: now,
-        source_message_id: args.messageId,
-        source_extraction_id: args.extractionId,
-        evidence_refs: [args.attachmentId],
-      },
-    ],
+    custom_fields: [],
   });
 
   await appendJsonStateVersion({
@@ -944,6 +930,61 @@ async function appendPhotoDescriptionToJsonState(args: {
     createdByMessageId: args.messageId,
     sourceExtractionId: args.extractionId,
   });
+}
+
+function confidenceFromOverall(value: number | null | undefined): "low" | "medium" | "high" {
+  if (typeof value !== "number") return "medium";
+  if (value >= 0.75) return "high";
+  if (value >= 0.45) return "medium";
+  return "low";
+}
+
+function ensureCustomObservationItems(state: Record<string, unknown>): Record<string, unknown>[] {
+  const existingSection = state.custom_observations;
+  const section =
+    existingSection && typeof existingSection === "object" && !Array.isArray(existingSection)
+      ? (existingSection as Record<string, unknown>)
+      : { custom_fields: [] };
+  state.custom_observations = section;
+
+  if (!Array.isArray(section.items)) {
+    section.items = [];
+  }
+  return section.items.filter((item): item is Record<string, unknown> =>
+    item !== null && typeof item === "object" && !Array.isArray(item),
+  );
+}
+
+function photoObservationAttachmentId(item: Record<string, unknown>): string | null {
+  const topic = item.topic;
+  if (!topic || typeof topic !== "object" || Array.isArray(topic)) return null;
+  const value = (topic as Record<string, unknown>).value;
+  if (typeof value !== "string") return null;
+  const prefix = "Photo ";
+  return value.startsWith(prefix) ? value.slice(prefix.length) : null;
+}
+
+function aiPhotoField(
+  value: string,
+  args: {
+    attachmentId: string;
+    messageId: string | null;
+    extractionId: string;
+    confidence: "low" | "medium" | "high";
+  },
+): import("@/shared/types").Field<string> {
+  return {
+    value,
+    source: "ai_infer",
+    confidence: args.confidence,
+    updated_at: new Date().toISOString(),
+    source_message_id: args.messageId,
+    validation_status: "unvalidated",
+    validated_at: null,
+    validated_by: null,
+    source_extraction_id: args.extractionId,
+    evidence_refs: [args.attachmentId],
+  };
 }
 
 function buildExtractSummary(
