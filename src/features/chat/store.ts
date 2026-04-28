@@ -17,6 +17,22 @@ import {
   type ModelTier,
 } from "@/features/settings/models-catalog";
 
+/**
+ * Mode de routage IA manuel — remplace le router automatique.
+ *
+ * - "conv" : message texte → handleConversational (réponse texte, aucune
+ *   modification du JSON state).
+ * - "json" : message texte → handleExtract (peut proposer patches /
+ *   insert_entries / custom_fields validables via PendingActionsCard).
+ *
+ * Les médias (photo/audio/document) ignorent ce mode : ils suivent
+ * toujours la Phase 1 (describeMedia + extract). Cf. doctrine §15.
+ */
+export type AiRouteMode = "conv" | "json";
+
+/** Défaut intentionnel = "json" (comportement extract historique). */
+export const DEFAULT_AI_ROUTE_MODE: AiRouteMode = "json";
+
 interface ChatState {
   /** Kill-switch global IA — gouverne TOUTES les visites. Défaut: true. */
   aiGlobalEnabled: boolean;
@@ -24,15 +40,20 @@ interface ChatState {
   selectedModel: ModelTier;
   /** Map visit_id → IA activée/désactivée pour cette visite. Défaut: false. */
   aiEnabled: Record<string, boolean>;
+  /** Map visit_id → mode de routage IA manuel ("conv"|"json"). */
+  aiRouteMode: Record<string, AiRouteMode>;
   /**
    * IA effective pour cette visite = global ON ET visite ON.
    * Si le kill-switch global est OFF, toutes les visites sont OFF.
    */
   isAiEnabled: (visitId: string) => boolean;
+  /** Mode courant pour la visite (défaut DEFAULT_AI_ROUTE_MODE). */
+  getRouteMode: (visitId: string) => AiRouteMode;
   setAiGlobalEnabled: (enabled: boolean) => void;
   setSelectedModel: (tier: ModelTier) => void;
   setAiEnabled: (visitId: string, enabled: boolean) => void;
   toggleAi: (visitId: string) => void;
+  setRouteMode: (visitId: string, mode: AiRouteMode) => void;
   /** Reset complet — utile pour les tests. */
   reset: () => void;
 }
