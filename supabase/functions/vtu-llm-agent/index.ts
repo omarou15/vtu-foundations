@@ -85,17 +85,20 @@ qui te dit EXACTEMENT quels paths/collections sont valides.
      b) Field d'une entrée existante : path = "<collection>[id=<UUID>].<field>"
         L'UUID DOIT figurer dans schema_map.collections[<c>].entries_summary.
         Ex: "heating.installations[id=abc-1234].fuel_value"
-   - INTERDIT ABSOLU :
-     • Index positionnel : "installations[0].xxx" → REJETÉ.
-       Pour créer une entrée, utilise insert_entries.
+   - INTERDIT ABSOLU — TON ERREUR LA PLUS FRÉQUENTE :
+     • "heating.installations[0].type_value" → REJETÉ. JAMAIS d'index numérique.
+     • Si entries_summary est VIDE pour une collection, tu NE PEUX PAS patcher
+       d'entrée — tu DOIS produire un insert_entries.
      • Path absent de schema_map → REJETÉ. Utilise custom_fields.
    - INTERDIT GATE HUMAIN : si state_summary[path].source ∈ {user, voice,
      photo_ocr, import} ET state_summary[path].value !== null → ne pas patcher.
    - Champs : path, value, confidence ∈ {low, medium, high}, evidence_refs.
 
 3. **insert_entries** (array) — création d'entrée dans une collection.
-   - À utiliser quand l'utilisateur décrit un équipement / pathologie /
-     préconisation NOUVEAU (pas dans entries_summary de schema_map).
+   - **RÈGLE DE DÉCISION** : si l'utilisateur décrit un équipement/pathologie/
+     préconisation ET que entries_summary[collection] est VIDE
+     (ou que rien n'y correspond), → produis UN insert_entries qui groupe
+     TOUS les champs de cette entité, PAS plusieurs patches [0].
    - Champs :
      • collection : ∈ schema_map.collections (ex "heating.installations")
      • fields : { <key>: <value>, … } — chaque key DOIT ∈
@@ -103,9 +106,14 @@ qui te dit EXACTEMENT quels paths/collections sont valides.
      • confidence, evidence_refs
    - L'app génère l'UUID, pose tous les champs en source="ai_infer",
      validation_status="unvalidated".
-   - Exemples :
-     • collection="heating.installations", fields={ type_value:"PAC air-eau", power_kw:8 }
-     • collection="pathologies.items", fields={ category_value:"humidité", description:"trace cave" }
+   - **EXEMPLE CANONIQUE** — message: "PAC air-eau de 8kW électrique, marque Daikin"
+     → schema_map.collections["heating.installations"].entries_summary == []
+     → tu produis 1 SEUL insert_entries:
+       { collection:"heating.installations",
+         fields:{ type_value:"pac_air_eau", power_kw:8, fuel_value:"electricite",
+                  brand:"Daikin" },
+         confidence:"high" }
+     → tu NE produis PAS de patches "heating.installations[0].xxx".
 
 4. **custom_fields** (array) — vocabulaire ÉMERGENT, hors schéma.
    - field_key snake_case [a-z0-9_]+. À utiliser SEULEMENT si le concept
@@ -355,15 +363,32 @@ Deno.serve(async (req) => {
     }
 
     // Normalisation défensive
+    const rawPatches = Array.isArray(parsed.patches) ? parsed.patches : [];
+    const rawInserts = Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [];
+    const rawWarnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+
+    // It. 11.6 hardening — coalesce des patches "<collection>[N].<field>" en
+    // insert_entry quand la collection existe dans schema_map. Filet de
+    // sécurité contre la confusion fréquente du LLM (préfère [0] à insert_entry
+    // quand entries_summary est vide). L'apply layer reste strict.
+    const schemaMap = (input.contextBundle as { schema_map?: { collections?: Record<string, unknown> } })
+      .schema_map;
+    const knownCollections = new Set(Object.keys(schemaMap?.collections ?? {}));
+    const { patches, insertEntries, coalescedWarnings } = coalescePositionalPatches(
+      rawPatches,
+      rawInserts,
+      knownCollections,
+    );
+
     const result = {
       assistant_message:
         typeof parsed.assistant_message === "string" && parsed.assistant_message.length > 0
           ? parsed.assistant_message.slice(0, 400)
           : "Bien noté.",
-      patches: Array.isArray(parsed.patches) ? parsed.patches : [],
-      insert_entries: Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [],
+      patches,
+      insert_entries: insertEntries,
       custom_fields: Array.isArray(parsed.custom_fields) ? parsed.custom_fields : [],
-      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+      warnings: [...rawWarnings, ...coalescedWarnings],
       confidence_overall:
         typeof parsed.confidence_overall === "number"
           ? parsed.confidence_overall
@@ -495,4 +520,114 @@ function errorResp(status: number, code: string, message: string): Response {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     },
   );
+}
+
+// ---------------------------------------------------------------------------
+// It. 11.6 hardening — coalesce des patches positionnels en insert_entries
+// ---------------------------------------------------------------------------
+// Le LLM (Gemini Flash) confond souvent `insert_entry` avec une série de
+// patches `<collection>[N].<field>`. L'apply layer rejette ces patches
+// (`positional_index_forbidden`) avec une UX cassée. On normalise ici :
+// si plusieurs patches ciblent la même `<collection>[N]` ET que `collection`
+// est connue de `schema_map.collections`, on les regroupe en 1 insert_entry.
+// Les patches restants (path positionnel sur collection inconnue, ou patch
+// d'object_field plat) sont conservés tels quels — l'apply layer décidera.
+// ---------------------------------------------------------------------------
+
+interface RawPatch {
+  path?: unknown;
+  value?: unknown;
+  confidence?: unknown;
+  evidence_refs?: unknown;
+}
+
+interface RawInsert {
+  collection?: unknown;
+  fields?: unknown;
+  confidence?: unknown;
+  evidence_refs?: unknown;
+}
+
+const POSITIONAL_RE = /^([a-z0-9_.]+)\[(\d+)\]\.([a-z0-9_]+)$/;
+
+function coalescePositionalPatches(
+  rawPatches: unknown[],
+  rawInserts: unknown[],
+  knownCollections: Set<string>,
+): {
+  patches: RawPatch[];
+  insertEntries: RawInsert[];
+  coalescedWarnings: string[];
+} {
+  const keptPatches: RawPatch[] = [];
+  const insertEntries: RawInsert[] = rawInserts.filter(
+    (e): e is RawInsert => !!e && typeof e === "object",
+  );
+  const coalescedWarnings: string[] = [];
+
+  // Bucket : "<collection>#<index>" → { collection, fields, confidences[], evidence[] }
+  const buckets = new Map<
+    string,
+    {
+      collection: string;
+      fields: Record<string, unknown>;
+      confidences: string[];
+      evidence: string[];
+    }
+  >();
+
+  for (const raw of rawPatches) {
+    if (!raw || typeof raw !== "object") continue;
+    const p = raw as RawPatch;
+    const path = typeof p.path === "string" ? p.path : "";
+    const m = path.match(POSITIONAL_RE);
+
+    if (!m || !knownCollections.has(m[1])) {
+      // Pas une expression positionnelle sur collection connue → on garde
+      // tel quel (l'apply layer décidera).
+      keptPatches.push(p);
+      continue;
+    }
+
+    const [, collection, indexStr, field] = m;
+    const key = `${collection}#${indexStr}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        collection,
+        fields: {},
+        confidences: [],
+        evidence: [],
+      };
+      buckets.set(key, bucket);
+    }
+    bucket.fields[field] = p.value;
+    if (typeof p.confidence === "string") bucket.confidences.push(p.confidence);
+    if (Array.isArray(p.evidence_refs)) {
+      for (const r of p.evidence_refs) {
+        if (typeof r === "string") bucket.evidence.push(r);
+      }
+    }
+  }
+
+  for (const bucket of buckets.values()) {
+    insertEntries.push({
+      collection: bucket.collection,
+      fields: bucket.fields,
+      confidence: pickHighestConfidence(bucket.confidences),
+      evidence_refs: Array.from(new Set(bucket.evidence)),
+    });
+    coalescedWarnings.push(
+      `Patches positionnels regroupés en insert_entry sur "${bucket.collection}" (${Object.keys(bucket.fields).length} champs).`,
+    );
+  }
+
+  return { patches: keptPatches, insertEntries, coalescedWarnings };
+}
+
+function pickHighestConfidence(values: string[]): string {
+  if (values.includes("high")) return "high";
+  if (values.includes("medium")) return "medium";
+  if (values.includes("low")) return "low";
+  return "medium";
 }
