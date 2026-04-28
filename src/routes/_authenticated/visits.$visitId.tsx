@@ -333,6 +333,8 @@ function VisitChatPage() {
         initialTab={drawerInitialTab}
         jsonInitialMode={jsonInitialMode}
       />
+
+      <VisitDebugPanel visitId={visit.id} />
     </div>
   );
 }
