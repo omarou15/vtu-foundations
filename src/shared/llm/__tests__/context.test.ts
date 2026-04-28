@@ -95,7 +95,7 @@ describe("hashContext", () => {
 });
 
 describe("buildContextBundle", () => {
-  it("tronque les recent_messages au cap (default 20)", () => {
+  it("ne tronque PAS par défaut (historique illimité, compression déléguée)", () => {
     const messages: MessageRow[] = Array.from({ length: 30 }, (_, i) =>
       msg(`m${i}`, `content ${i}`, `2026-01-01T00:00:${String(i).padStart(2, "0")}.000Z`),
     );
@@ -105,10 +105,9 @@ describe("buildContextBundle", () => {
       recentMessages: messages,
       attachmentDescriptions: [],
     });
-    expect(bundle.recent_messages).toHaveLength(20);
-    // garde les 20 derniers (par created_at asc → slice(-20))
-    expect(bundle.recent_messages[0]?.content).toBe("content 10");
-    expect(bundle.recent_messages[19]?.content).toBe("content 29");
+    expect(bundle.recent_messages).toHaveLength(30);
+    expect(bundle.recent_messages[0]?.content).toBe("content 0");
+    expect(bundle.recent_messages[29]?.content).toBe("content 29");
   });
 
   it("respecte maxRecentMessages custom (8 pour LLM dispatch)", () => {
