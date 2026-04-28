@@ -46,7 +46,18 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-const MODEL = "google/gemini-3-flash-preview";
+const DEFAULT_MODEL = "google/gemini-3-flash-preview";
+
+/**
+ * Allowlist des modèles utilisables (alignée sur src/features/settings/models-catalog.ts).
+ * Toute valeur reçue hors de cette liste retombe sur DEFAULT_MODEL avec un warn.
+ */
+const ALLOWED_MODELS = new Set<string>([
+  "google/gemini-2.5-flash-lite",
+  "google/gemini-3-flash-preview",
+  "google/gemini-2.5-pro",
+  "openai/gpt-5",
+]);
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const TIMEOUT_MS = 60_000;
 
@@ -313,6 +324,7 @@ Deno.serve(async (req) => {
     // Diagnostic — visible dans edge_function_logs
     console.log("[vtu-llm-agent] llm_request", JSON.stringify({
       mode: input.mode,
+      model: input.model,
       history_count: historyMessages.length,
       user_message_preview: input.messageText.slice(0, 200),
     }));
@@ -331,7 +343,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: MODEL,
+          model: input.model,
           messages: llmMessages,
           tools: [PROPOSE_VISIT_PATCHES_TOOL],
           tool_choice: {
@@ -550,6 +562,8 @@ interface ParsedInput {
   mode: "extract" | "conversational";
   messageText: string;
   contextBundle: Record<string, unknown>;
+  /** Modèle résolu (toujours un membre de ALLOWED_MODELS, ou DEFAULT_MODEL). */
+  model: string;
 }
 
 function parseInput(body: unknown): ParsedInput | { error: string } {
@@ -569,10 +583,22 @@ function parseInput(body: unknown): ParsedInput | { error: string } {
   if (!b.contextBundle || typeof b.contextBundle !== "object") {
     return { error: "contextBundle required (object)" };
   }
+  let resolvedModel = DEFAULT_MODEL;
+  if (typeof b.model === "string" && b.model.length > 0) {
+    if (ALLOWED_MODELS.has(b.model)) {
+      resolvedModel = b.model;
+    } else {
+      console.warn(
+        "[vtu-llm-agent] model_not_allowed_falling_back",
+        JSON.stringify({ requested: b.model, fallback: DEFAULT_MODEL }),
+      );
+    }
+  }
   return {
     mode: b.mode,
     messageText: b.messageText,
     contextBundle: b.contextBundle as Record<string, unknown>,
+    model: resolvedModel,
   };
 }
 
