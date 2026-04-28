@@ -50,6 +50,7 @@ function VisitChatPage() {
   const navigate = useNavigate();
   const userId = useAuth((s) => s.user?.id);
   const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
+  const aiGlobalEnabled = useChatStore((s) => s.aiGlobalEnabled);
   const setAiEnabled = useChatStore((s) => s.setAiEnabled);
   const isOnline = useConnectionStore((s) => s.isOnline);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -244,14 +245,16 @@ function VisitChatPage() {
               <Switch
                 id={`ai-toggle-${visit.id}`}
                 checked={aiEnabled}
+                disabled={!aiGlobalEnabled}
                 onCheckedChange={(v) => setAiEnabled(visit.id, v)}
                 aria-label="Activer l'IA pour cette visite"
               />
               <Label
                 htmlFor={`ai-toggle-${visit.id}`}
                 className="font-ui cursor-pointer text-xs"
+                title={!aiGlobalEnabled ? "IA désactivée globalement — activez-la dans Paramètres" : undefined}
               >
-                IA
+                IA{!aiGlobalEnabled ? " (désactivée globalement)" : ""}
               </Label>
             </div>
             <div className="flex items-center gap-2">
