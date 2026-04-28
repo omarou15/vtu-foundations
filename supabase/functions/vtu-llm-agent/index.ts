@@ -315,8 +315,27 @@ Deno.serve(async (req) => {
       input.contextBundle,
     );
 
+    // Lecture du prompt système actif en DB pour cet utilisateur.
+    // Fallback sur la constante inline (= défaut Energyco) si rien en DB.
+    let activeSystemPrompt = SYSTEM_UNIFIED;
+    let systemPromptSource: "db" | "default" = "default";
+    try {
+      const { data: promptRow } = await supabase
+        .from("llm_system_prompts")
+        .select("content")
+        .eq("user_id", userData.user.id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (promptRow && typeof promptRow.content === "string" && promptRow.content.length > 0) {
+        activeSystemPrompt = promptRow.content;
+        systemPromptSource = "db";
+      }
+    } catch (err) {
+      console.warn("[vtu-llm-agent] system_prompt_db_read_failed", (err as Error).message);
+    }
+
     const llmMessages = [
-      { role: "system", content: SYSTEM_UNIFIED },
+      { role: "system", content: activeSystemPrompt },
       ...historyMessages,
       { role: "user", content: userPrompt },
     ];
