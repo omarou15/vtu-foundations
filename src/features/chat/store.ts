@@ -64,9 +64,13 @@ export const useChatStore = create<ChatState>()(
       aiGlobalEnabled: true,
       selectedModel: DEFAULT_MODEL_TIER,
       aiEnabled: {},
+      aiRouteMode: {},
 
       isAiEnabled: (visitId) =>
         get().aiGlobalEnabled && Boolean(get().aiEnabled[visitId]),
+
+      getRouteMode: (visitId) =>
+        get().aiRouteMode[visitId] ?? DEFAULT_AI_ROUTE_MODE,
 
       setAiGlobalEnabled: (enabled) => set({ aiGlobalEnabled: enabled }),
 
@@ -80,11 +84,15 @@ export const useChatStore = create<ChatState>()(
           aiEnabled: { ...s.aiEnabled, [visitId]: !s.aiEnabled[visitId] },
         })),
 
+      setRouteMode: (visitId, mode) =>
+        set((s) => ({ aiRouteMode: { ...s.aiRouteMode, [visitId]: mode } })),
+
       reset: () =>
         set({
           aiGlobalEnabled: true,
           selectedModel: DEFAULT_MODEL_TIER,
           aiEnabled: {},
+          aiRouteMode: {},
         }),
     }),
     {
@@ -96,6 +104,7 @@ export const useChatStore = create<ChatState>()(
         aiEnabled: s.aiEnabled,
         aiGlobalEnabled: s.aiGlobalEnabled,
         selectedModel: s.selectedModel,
+        aiRouteMode: s.aiRouteMode,
       }),
     },
   ),
