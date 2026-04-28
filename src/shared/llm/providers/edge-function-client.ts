@@ -31,12 +31,26 @@ export interface UnifiedAgentResult {
   confidence_overall: number;
 }
 
+/**
+ * Résumé de la requête réellement envoyée au LLM (system + history + user
+ * prompt assemblé). Persisté dans `raw_request_summary` côté engine pour
+ * que l'inspecteur IA affiche fidèlement le wire.
+ */
+export interface LlmRequestSummary {
+  system_prompt: string;
+  history_messages: Array<{ role: "user" | "assistant"; content: string }>;
+  user_prompt: string;
+  model: string;
+  mode: "extract" | "conversational";
+}
+
 export type CallVtuLlmAgentResponse =
   | {
       ok: true;
       result: UnifiedAgentResult;
       meta: ProviderMeta;
       raw_response: Record<string, unknown>;
+      request_summary: LlmRequestSummary | null;
     }
   | {
       ok: false;
@@ -132,6 +146,7 @@ export async function callVtuLlmAgent(
     result?: UnifiedAgentResult;
     meta?: ProviderMeta;
     raw_response?: Record<string, unknown>;
+    request_summary?: LlmRequestSummary;
   };
   if (!b.ok || !b.result || !b.meta) {
     return {
@@ -147,5 +162,6 @@ export async function callVtuLlmAgent(
     result: b.result,
     meta: b.meta,
     raw_response: b.raw_response ?? {},
+    request_summary: b.request_summary ?? null,
   };
 }
