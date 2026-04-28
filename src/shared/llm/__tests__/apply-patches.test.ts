@@ -184,7 +184,26 @@ describe("applyPatches — paths permissifs", () => {
     expect(sec.new_field.value).toBe(42);
   });
 
-  it("index positionnel sur entrée inexistante → path_not_found", () => {
+  it("index positionnel sur array vide → auto-promote, entrée créée avec field initial", () => {
+    const { state, map } = freshState();
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch("ventilation.installations[0].type_value", "vmc_double_flux", "high")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
+    expect(r.state.ventilation.installations).toHaveLength(1);
+    const inst = r.state.ventilation.installations[0] as
+      | (Record<string, Field<unknown>> & { id: string })
+      | undefined;
+    expect(inst?.type_value.value).toBe("vmc_double_flux");
+    expect(inst?.id).toBeDefined();
+  });
+
+  it("index positionnel sur entrée inexistante (collection heating) → auto-promote", () => {
     const { state, map } = freshState();
     const r = applyPatches({
       state,
@@ -193,8 +212,10 @@ describe("applyPatches — paths permissifs", () => {
       sourceMessageId: MESSAGE,
       sourceExtractionId: EXTRACTION,
     });
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored[0]?.reason).toBe("path_not_found");
+    expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
+    expect(r.state.heating.installations).toHaveLength(1);
+    expect(r.state.heating.installations[0]?.fuel_value.value).toBe("gaz");
   });
 
   it("entry path UUID inexistant : auto-vivify l'entrée et applique", () => {
