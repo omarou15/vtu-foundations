@@ -18,6 +18,7 @@ import { useSyncEngine, useConnectionPing } from "@/shared/sync";
  */
 
 export const Route = createFileRoute("/_authenticated")({
+  codeSplitGroupings: [],
   component: AuthenticatedLayout,
   ssr: false,
 });

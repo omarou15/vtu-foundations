@@ -1,8 +1,33 @@
+import { useEffect } from "react";
 import { createRouter, useRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
+import { RouteSkeleton } from "@/shared/ui/RouteSkeleton";
+import { isChunkLoadError } from "@/shared/ui/ChunkReloadGuard";
+
+const RELOAD_FLAG = "__vtu_chunk_reload__";
+
+function ChunkReloadFallback() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (sessionStorage.getItem(RELOAD_FLAG) === "1") return;
+      sessionStorage.setItem(RELOAD_FLAG, "1");
+    } catch {
+      /* noop */
+    }
+    const t = window.setTimeout(() => window.location.reload(), 400);
+    return () => window.clearTimeout(t);
+  }, []);
+  return <RouteSkeleton label="Mise à jour de l'application…" />;
+}
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
+
+  // Échec d'import dynamique → on affiche un skeleton et on recharge tout seul.
+  if (isChunkLoadError(error?.message)) {
+    return <ChunkReloadFallback />;
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -61,6 +86,7 @@ export const getRouter = () => {
     scrollRestoration: true,
     defaultPreloadStaleTime: 0,
     defaultErrorComponent: DefaultErrorComponent,
+    defaultPendingComponent: () => <RouteSkeleton />,
   });
 
   return router;
