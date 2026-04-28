@@ -390,16 +390,30 @@ Deno.serve(async (req) => {
     const schemaMap = (input.contextBundle as { schema_map?: { collections?: Record<string, unknown> } })
       .schema_map;
     const knownCollections = new Set(Object.keys(schemaMap?.collections ?? {}));
-    const { patches, insertEntries, coalescedWarnings } = coalescePositionalPatches(
+    const { patches, insertEntries: insertEntriesAfterCoalesce, coalescedWarnings } = coalescePositionalPatches(
       rawPatches,
       rawInserts,
       knownCollections,
     );
 
+    // It. 11.6 hardening — filtrer les insert_entries avec fields vide
+    // (le LLM le fait parfois quand il "veut" insérer mais ne sait pas
+    // quoi mettre). L'apply layer renvoie no_valid_fields → 0 op effective
+    // → l'utilisateur voit un message qui prétend avoir agi sans rien faire.
+    const droppedEmptyInserts: string[] = [];
+    const insertEntries = insertEntriesAfterCoalesce.filter((e) => {
+      const f = (e as { fields?: unknown }).fields;
+      const hasFields = !!f && typeof f === "object" && Object.keys(f as Record<string, unknown>).length > 0;
+      if (!hasFields) {
+        droppedEmptyInserts.push(String((e as { collection?: unknown }).collection ?? "?"));
+      }
+      return hasFields;
+    });
+
     // Garde anti-hallucination réciproque : si le LLM affirme avoir agi
-    // mais n'a produit AUCUNE opération, on réécrit l'assistant_message
-    // pour ne pas mentir à l'utilisateur. Symétrique de la règle "jamais
-    // dire 'aucun champ mis à jour'".
+    // mais n'a produit AUCUNE opération effective, on réécrit
+    // l'assistant_message pour ne pas mentir à l'utilisateur. Symétrique
+    // de la règle "jamais dire 'aucun champ mis à jour'".
     const totalOps = patches.length + insertEntries.length + rawCustom.length;
     const rawMessage = typeof parsed.assistant_message === "string"
       ? parsed.assistant_message
@@ -409,9 +423,12 @@ Deno.serve(async (req) => {
     const safeMessage = hallucinatedAction
       ? "Je n'ai pas pu structurer ces infos automatiquement. Reformule-les en précisant le type d'équipement et ses caractéristiques (ex : 'PAC air-eau Daikin 8 kW électrique')."
       : (rawMessage.length > 0 ? rawMessage.slice(0, 400) : "Bien noté.");
+    const droppedWarnings = droppedEmptyInserts.map(
+      (c) => `insert_entry sans fields ignoré (collection=${c})`,
+    );
     const finalWarnings = hallucinatedAction
-      ? [...rawWarnings, ...coalescedWarnings, "hallucinated_action_message_rewritten"]
-      : [...rawWarnings, ...coalescedWarnings];
+      ? [...rawWarnings, ...coalescedWarnings, ...droppedWarnings, "hallucinated_action_message_rewritten"]
+      : [...rawWarnings, ...coalescedWarnings, ...droppedWarnings];
 
     if (hallucinatedAction) {
       console.warn("[vtu-llm-agent] hallucinated_action_detected", JSON.stringify({
