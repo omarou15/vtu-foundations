@@ -664,6 +664,9 @@ async function markLocalRowFailed(
 }
 
 function extractErrorMessage(err: unknown): string {
+  if (typeof Response !== "undefined" && err instanceof Response) {
+    return `HTTP ${err.status} ${err.statusText}`;
+  }
   if (err instanceof Error) return err.message;
   if (err && typeof err === "object") {
     const m = (err as { message?: unknown }).message;
