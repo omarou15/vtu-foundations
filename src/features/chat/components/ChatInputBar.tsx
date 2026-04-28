@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Mic, Plus, Send, Sparkles } from "lucide-react";
+import { Plus, Send, Sparkles, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AttachmentSheet } from "./AttachmentSheet";
@@ -15,6 +15,7 @@ import { listDraftMedia, attachPendingMediaToMessage } from "@/shared/photo";
 import type { LocalAttachment } from "@/shared/db/schema";
 import type { MessageKind } from "@/shared/types";
 import { useChatStore } from "../store";
+import { useLlmPending, cancelLlmForMessage } from "../lib/useLlmPending";
 
 interface ChatInputBarProps {
   visitId: string;
