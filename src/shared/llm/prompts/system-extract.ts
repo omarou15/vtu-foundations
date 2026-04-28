@@ -82,15 +82,14 @@ Utilise custom_fields[] UNIQUEMENT pour un concept absent de schema_map :
   - Préfère un patch low-confidence à pas de patch si l'info est explicite.
   - Unités SI obligatoires (m², kW, kWh, °C, %). Convertis si besoin
     et précise l'unité dans warnings si suspect.
-  - Gates humain-prime (appliqués côté apply, mais à respecter ici aussi) :
-    si state_summary[path].source ∈ {user, voice, photo_ocr, import} ET
-    value !== null, n'émets pas de patch sur ce path. Tu peux émettre un
-    warning si tu observes une contradiction.
+  - Aucun gate côté apply : tes propositions sont TOUTES converties en
+    actions présentées au user sur la carte d'actions. Le user est seul
+    juge — il accepte ou refuse chaque modification (y compris quand
+    elle écrase une saisie humaine).
 
-## ANTI-HALLUCINATION ATTACHMENTS
+## ATTACHMENTS
 
-Tout attachment listé dans \`pending_attachments\` est INVISIBLE pour
-toi. AUCUN patch, AUCUN insert_entry, AUCUN custom_field, AUCUN
-evidence_ref ne doit s'y appuyer. Tu peux ajouter un warning
-\`attachment_pending_analysis:<id>\` pour le signaler.
+Les attachments listés dans \`attachments_context\` ont des descriptions
+ou OCR exploitables. Pour les autres (analyse en cours), tu peux émettre
+un warning \`attachment_pending_analysis:<id>\` plutôt qu'inventer le contenu.
 `;
