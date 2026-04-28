@@ -1,46 +1,28 @@
 /**
  * Builder du ContextBundle. Pure (pas d'I/O Dexie ici — on lui passe les
- * matériaux pré-chargés). Permet de tester sans setup IndexedDB.
+ * matériaux pré-chargés).
  *
- * Les call sites (server function + sync engine) passeront eux-mêmes les
- * matériaux issus de Dexie (ou Supabase côté server function).
+ * Refonte avril 2026 — bundle minimal :
+ *   { schema_version, visit, state, recent_messages }
+ *
+ * Le SCHÉMA CANONIQUE est dans le prompt système. Les descriptions de
+ * photos passent via les messages assistant `photo_caption` (déjà dans
+ * recent_messages). Plus de `schema_map`, `attachments_context`,
+ * `pending_attachments`, `nomenclature_hints`, `state_summary` séparé.
  */
 
 import type {
-  AttachmentAiDescriptionRow,
   MessageRow,
   VisitJsonState,
   VisitJsonStateRow,
   VisitRow,
 } from "@/shared/types";
-import {
-  buildSchemaMap,
-  compactSchemaMap,
-} from "@/shared/types/json-state.schema-map";
 import type { ContextBundle } from "../types";
 
 export interface BuildContextInput {
   visit: VisitRow;
   latestState: VisitJsonStateRow;
   recentMessages: MessageRow[];
-  /** Descriptions IA des attachments cités (par message ou par visite). */
-  attachmentDescriptions: Array<{
-    attachment_id: string;
-    media_profile: string | null;
-    description: AttachmentAiDescriptionRow["description"];
-  }>;
-  /**
-   * It. 14.1 — Attachments mentionnés sans description IA disponible.
-   * Calculé par le call site (engine.llm.ts ou UI) à partir des
-   * messages récents + Dexie. Anti-hallucination dans le prompt.
-   */
-  pendingAttachments?: Array<{
-    id: string;
-    media_profile: string | null;
-    reason: "no_description_yet" | "ai_disabled_when_sent";
-  }>;
-  /** Hints de nomenclature filtrés par mission_type. */
-  nomenclatureHints?: Record<string, unknown>;
   /**
    * Limite optionnelle de messages récents inclus.
    * Par défaut : illimité (Number.POSITIVE_INFINITY) — la compression
@@ -72,30 +54,7 @@ export function buildContextBundle(input: BuildContextInput): ContextBundle {
       mission_type: input.visit.mission_type,
       building_type: input.visit.building_type,
     },
-    state_summary: summarizeState(state),
+    state,
     recent_messages: recent,
-    attachments_context: input.attachmentDescriptions.map((d) => ({
-      id: d.attachment_id,
-      media_profile: d.media_profile,
-      short_caption: d.description.short_caption ?? null,
-      detailed_description: d.description.detailed_description,
-      ocr_text: d.description.ocr_text,
-    })),
-    pending_attachments: input.pendingAttachments ?? [],
-    schema_map: compactSchemaMap(buildSchemaMap(state)),
-    nomenclature_hints: input.nomenclatureHints ?? {},
   };
-}
-
-/**
- * Projette le state en un summary plat compatible LLM.
- *
- * Note : on ne retire pas les `Field<T>` — au contraire on garde
- * `value`, `source`, `validation_status` parce que c'est ce qui permet
- * à l'IA d'appliquer le gate "humain prime".
- */
-function summarizeState(state: VisitJsonState): Record<string, unknown> {
-  // Pour Phase 2 on injecte le state tel quel (post-migration v2). Le
-  // compresseur réduit en passes successives si trop gros.
-  return state as unknown as Record<string, unknown>;
 }
