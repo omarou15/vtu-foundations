@@ -21,9 +21,11 @@ import {
   Sparkles,
   ListFilter,
   ChevronDown,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PhotoAnalysisPanel } from "./PhotoAnalysisPanel";
 import { getDb, getLatestLocalJsonState, type LocalMessage } from "@/shared/db";
 import {
   rejectSectionPatches,
