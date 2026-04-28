@@ -27,6 +27,7 @@ import type { LocalVisitJsonState } from "@/shared/db/schema";
 import type { VisitJsonState } from "@/shared/types";
 import type { AiFieldPatch } from "@/shared/llm";
 import { getDb } from "@/shared/db/schema";
+import { walkJsonPath } from "@/shared/llm/apply/path-utils";
 
 export interface ValidatePatchInput {
   userId: string;
@@ -52,7 +53,7 @@ export async function validateFieldPatch(
   if (!last) return { status: "noop", reason: "no_state" };
 
   const next = clone(last.state);
-  const { parent, key } = walk(next as Record<string, unknown>, input.path);
+  const { parent, key } = walkJsonPath(next as Record<string, unknown>, input.path);
   if (!parent || !key) return { status: "noop", reason: "path_not_found" };
 
   const cur = parent[key] as Field<unknown> | undefined;
@@ -92,7 +93,7 @@ export async function rejectFieldPatch(
   if (!last) return { status: "noop", reason: "no_state" };
 
   const next = clone(last.state);
-  const { parent, key } = walk(next as Record<string, unknown>, input.path);
+  const { parent, key } = walkJsonPath(next as Record<string, unknown>, input.path);
   if (!parent || !key) return { status: "noop", reason: "path_not_found" };
 
   const cur = parent[key] as Field<unknown> | undefined;
@@ -140,30 +141,12 @@ function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }
 
-function walk(
-  root: Record<string, unknown>,
-  path: string,
-): { parent: Record<string, unknown> | null; key: string | null } {
-  const segments = path.split(".");
-  if (segments.length < 2) return { parent: null, key: null };
-  let cur: unknown = root;
-  for (let i = 0; i < segments.length - 1; i++) {
-    if (!cur || typeof cur !== "object") return { parent: null, key: null };
-    cur = (cur as Record<string, unknown>)[segments[i]!];
-  }
-  if (!cur || typeof cur !== "object") return { parent: null, key: null };
-  return {
-    parent: cur as Record<string, unknown>,
-    key: segments[segments.length - 1]!,
-  };
-}
-
 /** Helper utilisé par les tests pour inspecter un Field<T>. */
 export function readFieldAtPath(
   state: VisitJsonState,
   path: string,
 ): Field<unknown> | null {
-  const { parent, key } = walk(state as Record<string, unknown>, path);
+  const { parent, key } = walkJsonPath(state as Record<string, unknown>, path);
   if (!parent || !key) return null;
   const cur = parent[key];
   if (!cur || typeof cur !== "object" || !("value" in (cur as object))) {
@@ -215,7 +198,7 @@ export async function validateSectionPatches(
   const now = new Date().toISOString();
 
   for (const { path } of candidates) {
-    const { parent, key } = walk(next as Record<string, unknown>, path);
+    const { parent, key } = walkJsonPath(next as Record<string, unknown>, path);
     if (!parent || !key) continue;
     const cur = parent[key] as Field<unknown> | undefined;
     if (!cur || cur.validation_status !== "unvalidated") continue;
@@ -259,7 +242,7 @@ export async function rejectSectionPatches(
   const now = new Date().toISOString();
 
   for (const { path } of candidates) {
-    const { parent, key } = walk(next as Record<string, unknown>, path);
+    const { parent, key } = walkJsonPath(next as Record<string, unknown>, path);
     if (!parent || !key) continue;
     const cur = parent[key] as Field<unknown> | undefined;
     if (!cur) continue;
@@ -315,7 +298,7 @@ export async function overrideWithAiPatch(
   if (!last) return { status: "noop", reason: "no_state" };
 
   const next = clone(last.state);
-  const { parent, key } = walk(next as Record<string, unknown>, input.path);
+  const { parent, key } = walkJsonPath(next as Record<string, unknown>, input.path);
   if (!parent || !key) return { status: "noop", reason: "path_not_found" };
 
   const now = new Date().toISOString();

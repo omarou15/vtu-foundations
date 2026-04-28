@@ -193,6 +193,7 @@ export const HeatingInstallationSchema = z.object({
   type_other: fieldSchema(z.string()),
   fuel_value: fieldSchema(z.string()),
   fuel_other: fieldSchema(z.string()),
+  brand: fieldSchema(z.string()),
   power_kw: fieldSchema(POSITIVE_NUMBER),
   installation_year: fieldSchema(makeYearBound(1800)),
   efficiency_pct: fieldSchema(EFFICIENCY_PCT_BOUND),
@@ -220,6 +221,7 @@ export const EcsInstallationSchema = z.object({
   type_other: fieldSchema(z.string()),
   fuel_value: fieldSchema(z.string()),
   fuel_other: fieldSchema(z.string()),
+  brand: fieldSchema(z.string()),
   capacity_l: fieldSchema(POSITIVE_NUMBER), // ballons tertiaires 200-500 m³ → en litres : pas de borne max
   installation_year: fieldSchema(makeYearBound(1800)),
   custom_fields: customFieldsArray,
@@ -244,6 +246,7 @@ export const VentilationInstallationSchema = z.object({
   id: z.string().uuid(),
   type_value: fieldSchema(z.string()),
   type_other: fieldSchema(z.string()),
+  brand: fieldSchema(z.string()),
   installation_year: fieldSchema(makeYearBound(1800)),
   flow_rate_m3_h: fieldSchema(POSITIVE_NUMBER),
   custom_fields: customFieldsArray,

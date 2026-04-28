@@ -221,6 +221,30 @@ describe("applyPatches — gates IA", () => {
     expect(["path_not_found", "not_a_field"]).toContain(r.ignored[0]?.reason);
   });
 
+  it("crée le premier équipement quand le patch vise installations[0]", () => {
+    const state = makeMinimalState({});
+    const r = applyPatches({
+      state,
+      patches: [patch("heating.installations[0].type_value", "chaudiere_gaz", "high")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.state.heating.installations[0]?.type_value.value).toBe("chaudiere_gaz");
+  });
+
+  it("accepte la marque sur chauffage/ECS/ventilation", () => {
+    const state = makeMinimalState({});
+    const r = applyPatches({
+      state,
+      patches: [patch("ventilation.installations[0].brand", "Aldes", "medium")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.state.ventilation.installations[0]?.brand.value).toBe("Aldes");
+  });
+
   it("plusieurs patches : applied et ignored coexistent", () => {
     const state = makeMinimalState({
       fuel_type: {

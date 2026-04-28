@@ -22,6 +22,7 @@ import {
 } from "@/shared/types/json-state.field";
 import type { VisitJsonState } from "@/shared/types";
 import type { AiFieldPatch } from "../types";
+import { ensureKnownPatchTarget, parseJsonPath, walkJsonPath } from "./path-utils";
 
 export interface ApplyPatchesInput {
   state: VisitJsonState;
@@ -51,13 +52,18 @@ export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
   const ignored: ApplyPatchesResult["ignored"] = [];
 
   for (const patch of input.patches) {
-    const segments = patch.path.split(".");
+    const segments = parseJsonPath(patch.path);
     if (segments.length < 2) {
       ignored.push({ path: patch.path, reason: "invalid_path" });
       continue;
     }
 
-    const target = walk(next, segments);
+    if (!ensureKnownPatchTarget(next as unknown as Record<string, unknown>, segments)) {
+      ignored.push({ path: patch.path, reason: "path_not_found" });
+      continue;
+    }
+
+    const target = walkJsonPath(next as unknown as Record<string, unknown>, segments);
     if (!target.parent || !target.key) {
       ignored.push({ path: patch.path, reason: "path_not_found" });
       continue;
@@ -114,20 +120,4 @@ export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
-}
-
-function walk(
-  root: Record<string, unknown>,
-  segments: string[],
-): { parent: Record<string, unknown> | null; key: string | null } {
-  let cur: unknown = root;
-  for (let i = 0; i < segments.length - 1; i++) {
-    if (!cur || typeof cur !== "object") return { parent: null, key: null };
-    cur = (cur as Record<string, unknown>)[segments[i]!];
-  }
-  if (!cur || typeof cur !== "object") return { parent: null, key: null };
-  return {
-    parent: cur as Record<string, unknown>,
-    key: segments[segments.length - 1]!,
-  };
 }

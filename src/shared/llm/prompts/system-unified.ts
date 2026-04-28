@@ -44,7 +44,8 @@ messages, et les descriptions des médias rattachés.
 
 2. **patches** (array, peut être vide) — modifications atomiques de
    Field<T> du JSON state.
-   - path = dot-notation existante du schema (ex "heating.installations[0].fuel_value", "building.surface_habitable_m2").
+   - path = dot-notation existante du schema (ex "heating.installations[0].fuel_value", "heating.installations[0].brand", "building.surface_habitable_m2").
+   - Si une info décrit un premier équipement chauffage/ECS/ventilation et que \`installations\` est vide, utilise \`installations[0]\` : l'app créera l'équipement à la validation IA.
    - value typée (string | number | boolean | null).
    - confidence ∈ {low, medium, high}.
    - evidence_refs[] : id(s) message + attachments justifiant l'inférence.
