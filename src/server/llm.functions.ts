@@ -41,7 +41,10 @@ import {
   buildUserPromptConversational as _buildConv,
   buildUserPromptExtract as _buildExt,
 } from "./llm.prompt-builders";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+// NOTE : pas de middleware d'auth ici — les server functions TanStack Start
+// ne propagent pas automatiquement le JWT Supabase. La lecture du prompt
+// `describe_media` éditable se fait côté Edge Function `vtu-llm-agent`
+// pour le chat ; ici on retombe sur la constante par défaut.
 
 // ---------------------------------------------------------------------------
 // Helpers
