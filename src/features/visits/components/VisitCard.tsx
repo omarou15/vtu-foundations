@@ -1,7 +1,25 @@
-import { Image as ImageIcon, FileText, AlertTriangle } from "lucide-react";
+import { Image as ImageIcon, FileText, AlertTriangle, MoreVertical, Trash2 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "@tanstack/react-router";
 import { getDb, type LocalVisit } from "@/shared/db";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import {
   BUILDING_ICON,
   BUILDING_LABEL,
@@ -12,6 +30,7 @@ import {
 interface VisitCardProps {
   visit: LocalVisit;
   active?: boolean;
+  onDelete?: (visit: LocalVisit) => Promise<void> | void;
 }
 
 /**
@@ -21,7 +40,7 @@ interface VisitCardProps {
  * Pas de hardcode 0 : si la VT n'a aucun message encore, useLiveQuery
  * retourne 0 légitimement, et se met à jour dès qu'un message arrive.
  */
-export function VisitCard({ visit, active }: VisitCardProps) {
+export function VisitCard({ visit, active, onDelete }: VisitCardProps) {
   const photoCount = useLiveQuery(
     () =>
       getDb()
@@ -66,14 +85,18 @@ export function VisitCard({ visit, active }: VisitCardProps) {
     : "Type ?";
 
   return (
-    <Link
-      to="/visits/$visitId"
-      params={{ visitId: visit.id }}
-      className={`group flex w-full gap-3 rounded-md border border-transparent p-3 text-left transition-colors hover:bg-sidebar-accent ${
-        active ? "bg-sidebar-accent" : ""
-      }`}
-      aria-current={active ? "page" : undefined}
-    >
+    <AlertDialog>
+      <div
+        className={`group relative rounded-md border border-transparent transition-colors hover:bg-sidebar-accent ${
+          active ? "bg-sidebar-accent" : ""
+        }`}
+      >
+        <Link
+          to="/visits/$visitId"
+          params={{ visitId: visit.id }}
+          className="flex w-full gap-3 p-3 pr-11 text-left"
+          aria-current={active ? "page" : undefined}
+        >
       <div
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground"
         aria-hidden="true"
@@ -123,6 +146,56 @@ export function VisitCard({ visit, active }: VisitCardProps) {
           </span>
         </div>
       </div>
-    </Link>
+        </Link>
+
+        {onDelete ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1 h-9 w-9 text-muted-foreground hover:text-foreground"
+                aria-label={`Actions pour ${visit.title}`}
+              >
+                <MoreVertical className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <AlertDialogTriggerItem />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Supprimer ce projet ?</AlertDialogTitle>
+          <AlertDialogDescription>
+            « {visit.title} » sera retiré de la liste sur cet appareil puis synchronisé.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => void onDelete?.(visit)}
+          >
+            Supprimer
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function AlertDialogTriggerItem() {
+  return (
+    <AlertDialogTrigger asChild>
+      <DropdownMenuItem className="text-destructive focus:text-destructive">
+        <Trash2 className="h-4 w-4" aria-hidden="true" />
+        Supprimer
+      </DropdownMenuItem>
+    </AlertDialogTrigger>
   );
 }

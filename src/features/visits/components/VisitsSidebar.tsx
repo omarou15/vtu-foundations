@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
 import { useDebouncedValue } from "@/shared/hooks";
-import { createLocalVisit, listLocalVisitsByUser } from "@/shared/db";
+import { createLocalVisit, deleteLocalVisitProject, listLocalVisitsByUser, type LocalVisit } from "@/shared/db";
 import { groupVisitsByDate } from "../lib/grouping";
 import { filterVisitsByQuery } from "../lib/search";
 import { VisitCard } from "./VisitCard";
@@ -76,6 +76,20 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur inconnue";
       toast.error("Impossible de créer la visite", { description: message });
+    }
+  }
+
+  async function handleDelete(visit: LocalVisit) {
+    try {
+      await deleteLocalVisitProject(visit.id);
+      toast.success("Projet supprimé", { description: visit.title });
+      if (visit.id === activeVisitId) {
+        navigate({ to: "/" });
+        onClose?.();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur inconnue";
+      toast.error("Suppression impossible", { description: message });
     }
   }
 
@@ -165,7 +179,11 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
                 <ul className="space-y-1" aria-labelledby={`group-${group.bucket}`}>
                   {group.visits.map((v) => (
                     <li key={v.id}>
-                      <VisitCard visit={v} active={v.id === activeVisitId} />
+                      <VisitCard
+                        visit={v}
+                        active={v.id === activeVisitId}
+                        onDelete={handleDelete}
+                      />
                     </li>
                   ))}
                 </ul>

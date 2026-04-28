@@ -137,16 +137,58 @@ export async function createLocalVisit(
 /** Liste les visites d'un user, plus récentes en premier. */
 export async function listLocalVisitsByUser(userId: string): Promise<LocalVisit[]> {
   const db = getDb();
-  return db.visits
+  const visits = await db.visits
     .where("[user_id+updated_at]")
     .between([userId, ""], [userId, "\uffff"])
     .reverse()
     .toArray();
+  return visits.filter((visit) => visit.status !== "archived");
 }
 
 export async function getLocalVisit(id: string): Promise<LocalVisit | undefined> {
   const db = getDb();
   return db.visits.get(id);
+}
+
+/**
+ * Supprime un projet côté UX via soft-delete offline-first.
+ *
+ * On utilise `status="archived"` plutôt qu'un DELETE physique pour conserver
+ * l'audit trail append-only et propager correctement la suppression aux autres
+ * appareils via le pull `updated_at`.
+ */
+export async function deleteLocalVisitProject(visitId: string): Promise<void> {
+  const db = getDb();
+  const existing = await db.visits.get(visitId);
+  if (!existing) return;
+
+  const now = new Date().toISOString();
+  const archived: LocalVisit = {
+    ...existing,
+    status: "archived",
+    version: existing.version + 1,
+    updated_at: now,
+    sync_status: "pending",
+    sync_attempts: 0,
+    sync_last_error: null,
+    local_updated_at: now,
+  };
+
+  const queueEntry: SyncQueueEntry = {
+    table: "visits",
+    op: "update",
+    row_id: archived.id,
+    payload: serializeVisitForSync(archived),
+    attempts: 0,
+    last_error: null,
+    created_at: now,
+    next_attempt_at: now,
+  };
+
+  await db.transaction("rw", db.visits, db.sync_queue, async () => {
+    await db.visits.put(archived);
+    await db.sync_queue.add(queueEntry);
+  });
 }
 
 /**
