@@ -174,41 +174,49 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
             aria-label="Saisir un message"
           />
 
-          {/* Bouton micro — stub Phase 2 */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="touch-target shrink-0 rounded-full"
-            onClick={() =>
-              toast.message("Dictée vocale", {
-                description:
-                  "Bientôt — utilisez la dictée clavier iOS pour l'instant.",
-              })
-            }
-            aria-label="Dictée vocale (bientôt disponible)"
-          >
-            <Mic className="h-5 w-5" />
-          </Button>
-
-          {/* Bouton submit — toujours en bas droite (loi de Fitts) */}
+          {/* Bouton submit / stop — toggle selon l'état IA.
+              Pendant que llm_route_and_dispatch est en queue, on affiche
+              un carré (style ChatGPT/Claude) avec pulse pour signaler
+              "IA en cours". Click → cancelLlmForMessage (retire les
+              entries de la queue) → l'UI revient à "envoyer". */}
           <div className="relative shrink-0">
-            <Button
-              type="button"
-              size="icon"
-              className="touch-target rounded-full"
-              onClick={() => void handleSubmit()}
-              disabled={!canSubmit}
-              aria-label={
-                aiEnabled
-                  ? "Envoyer le message"
-                  : "Envoyer le message (IA désactivée — capture seule)"
-              }
-              data-testid="chat-submit"
-            >
-              <Send className="h-5 w-5" />
-            </Button>
-            {!aiEnabled ? (
+            {llmPending && lastUserMessageId ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="touch-target rounded-full animate-pulse"
+                onClick={async () => {
+                  const removed = await cancelLlmForMessage(lastUserMessageId);
+                  if (removed > 0) {
+                    toast.message("IA interrompue", {
+                      description: "La requête en cours a été annulée.",
+                    });
+                  }
+                }}
+                aria-label="Interrompre la réponse de l'IA"
+                data-testid="chat-stop"
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="icon"
+                className="touch-target rounded-full"
+                onClick={() => void handleSubmit()}
+                disabled={!canSubmit}
+                aria-label={
+                  aiEnabled
+                    ? "Envoyer le message"
+                    : "Envoyer le message (IA désactivée — capture seule)"
+                }
+                data-testid="chat-submit"
+              >
+                <Send className="h-5 w-5" />
+              </Button>
+            )}
+            {!aiEnabled && !llmPending ? (
               <span
                 className="pointer-events-none absolute -right-0.5 -top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-muted text-muted-foreground border border-card shadow-sm"
                 aria-hidden="true"
