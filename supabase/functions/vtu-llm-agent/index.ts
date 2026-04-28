@@ -365,7 +365,18 @@ Deno.serve(async (req) => {
     // Normalisation défensive
     const rawPatches = Array.isArray(parsed.patches) ? parsed.patches : [];
     const rawInserts = Array.isArray(parsed.insert_entries) ? parsed.insert_entries : [];
+    const rawCustom = Array.isArray(parsed.custom_fields) ? parsed.custom_fields : [];
     const rawWarnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+
+    // Diagnostic — visible dans edge_function_logs
+    console.log("[vtu-llm-agent] llm_raw_output", JSON.stringify({
+      patches_count: rawPatches.length,
+      insert_entries_count: rawInserts.length,
+      custom_fields_count: rawCustom.length,
+      assistant_message_preview: typeof parsed.assistant_message === "string"
+        ? parsed.assistant_message.slice(0, 120)
+        : null,
+    }));
 
     // It. 11.6 hardening — coalesce des patches "<collection>[N].<field>" en
     // insert_entry quand la collection existe dans schema_map. Filet de
@@ -380,15 +391,35 @@ Deno.serve(async (req) => {
       knownCollections,
     );
 
+    // Garde anti-hallucination réciproque : si le LLM affirme avoir agi
+    // mais n'a produit AUCUNE opération, on réécrit l'assistant_message
+    // pour ne pas mentir à l'utilisateur. Symétrique de la règle "jamais
+    // dire 'aucun champ mis à jour'".
+    const totalOps = patches.length + insertEntries.length + rawCustom.length;
+    const rawMessage = typeof parsed.assistant_message === "string"
+      ? parsed.assistant_message
+      : "";
+    const claimsAction = /j['’]ai (ajouté|noté|enregistré|complété|relevé|mis|inséré|créé|sauvegardé)/i.test(rawMessage);
+    const hallucinatedAction = totalOps === 0 && claimsAction;
+    const safeMessage = hallucinatedAction
+      ? "Je n'ai pas pu structurer ces infos automatiquement. Reformule-les en précisant le type d'équipement et ses caractéristiques (ex : 'PAC air-eau Daikin 8 kW électrique')."
+      : (rawMessage.length > 0 ? rawMessage.slice(0, 400) : "Bien noté.");
+    const finalWarnings = hallucinatedAction
+      ? [...rawWarnings, ...coalescedWarnings, "hallucinated_action_message_rewritten"]
+      : [...rawWarnings, ...coalescedWarnings];
+
+    if (hallucinatedAction) {
+      console.warn("[vtu-llm-agent] hallucinated_action_detected", JSON.stringify({
+        original_message: rawMessage.slice(0, 200),
+      }));
+    }
+
     const result = {
-      assistant_message:
-        typeof parsed.assistant_message === "string" && parsed.assistant_message.length > 0
-          ? parsed.assistant_message.slice(0, 400)
-          : "Bien noté.",
+      assistant_message: safeMessage,
       patches,
       insert_entries: insertEntries,
-      custom_fields: Array.isArray(parsed.custom_fields) ? parsed.custom_fields : [],
-      warnings: [...rawWarnings, ...coalescedWarnings],
+      custom_fields: rawCustom,
+      warnings: finalWarnings,
       confidence_overall:
         typeof parsed.confidence_overall === "number"
           ? parsed.confidence_overall
