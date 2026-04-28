@@ -49,18 +49,56 @@ export type ValidateResult =
 export async function validateFieldPatch(
   input: ValidatePatchInput,
 ): Promise<ValidateResult> {
+  // eslint-disable-next-line no-console
+  console.info("[VTU-DIAG] validate-field-start", {
+    visit_id: input.visitId,
+    path: input.path,
+    source_message_id: input.sourceMessageId ?? null,
+  });
+
   const last = await getLatestLocalJsonState(input.visitId);
-  if (!last) return { status: "noop", reason: "no_state" };
+  if (!last) {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] validate-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "no_state",
+    });
+    return { status: "noop", reason: "no_state" };
+  }
 
   const next = clone(last.state);
   const { parent, key } = walkJsonPath(next as Record<string, unknown>, input.path);
-  if (!parent || !key) return { status: "noop", reason: "path_not_found" };
+  if (!parent || !key) {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] validate-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "path_not_found_in_walker",
+    });
+    return { status: "noop", reason: "path_not_found" };
+  }
 
   const cur = parent[key] as Field<unknown> | undefined;
   if (!cur || typeof cur !== "object" || !("value" in cur)) {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] validate-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "not_a_field",
+      cur_type: typeof cur,
+      cur_keys:
+        cur && typeof cur === "object" ? Object.keys(cur as object) : null,
+    });
     return { status: "noop", reason: "not_a_field" };
   }
   if (cur.validation_status === "validated") {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] validate-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "already_validated",
+    });
     return { status: "noop", reason: "already_validated" };
   }
 
@@ -79,6 +117,12 @@ export async function validateFieldPatch(
     state: next,
     createdByMessageId: input.sourceMessageId ?? null,
   });
+  // eslint-disable-next-line no-console
+  console.info("[VTU-DIAG] validate-field-end", {
+    path: input.path,
+    status: "ok",
+    new_version: row.version,
+  });
   return { status: "ok", row };
 }
 
@@ -89,18 +133,56 @@ export async function validateFieldPatch(
 export async function rejectFieldPatch(
   input: ValidatePatchInput,
 ): Promise<ValidateResult> {
+  // eslint-disable-next-line no-console
+  console.info("[VTU-DIAG] reject-field-start", {
+    visit_id: input.visitId,
+    path: input.path,
+    source_message_id: input.sourceMessageId ?? null,
+  });
+
   const last = await getLatestLocalJsonState(input.visitId);
-  if (!last) return { status: "noop", reason: "no_state" };
+  if (!last) {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] reject-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "no_state",
+    });
+    return { status: "noop", reason: "no_state" };
+  }
 
   const next = clone(last.state);
   const { parent, key } = walkJsonPath(next as Record<string, unknown>, input.path);
-  if (!parent || !key) return { status: "noop", reason: "path_not_found" };
+  if (!parent || !key) {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] reject-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "path_not_found_in_walker",
+    });
+    return { status: "noop", reason: "path_not_found" };
+  }
 
   const cur = parent[key] as Field<unknown> | undefined;
   if (!cur || typeof cur !== "object" || !("value" in cur)) {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] reject-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "not_a_field",
+      cur_type: typeof cur,
+      cur_keys:
+        cur && typeof cur === "object" ? Object.keys(cur as object) : null,
+    });
     return { status: "noop", reason: "not_a_field" };
   }
   if (cur.validation_status === "rejected") {
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] reject-field-end", {
+      path: input.path,
+      status: "noop",
+      reason: "already_rejected",
+    });
     return { status: "noop", reason: "already_rejected" };
   }
 
@@ -131,6 +213,12 @@ export async function rejectFieldPatch(
     visitId: input.visitId,
     state: next,
     createdByMessageId: input.sourceMessageId ?? null,
+  });
+  // eslint-disable-next-line no-console
+  console.info("[VTU-DIAG] reject-field-end", {
+    path: input.path,
+    status: "ok",
+    new_version: row.version,
   });
   return { status: "ok", row };
 }
