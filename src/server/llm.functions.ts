@@ -220,6 +220,7 @@ const ROUTER_TOOL_PARAMS = {
 // ---------------------------------------------------------------------------
 
 export const describeMedia = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator(
     (data: {
       imageUrl?: string;
@@ -229,7 +230,7 @@ export const describeMedia = createServerFn({ method: "POST" })
       model?: GeminiModel;
     }) => data,
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     // PDFs : skipped en amont du sync engine (cf. Q2). Sécurité ici aussi.
     if (data.mediaProfile === "pdf") {
       const skippedResult = {
@@ -260,6 +261,31 @@ export const describeMedia = createServerFn({ method: "POST" })
       };
     }
 
+    // Lecture du prompt actif (kind=describe_media) en DB pour cet
+    // utilisateur. Fallback sur la constante par défaut si rien sauvegardé.
+    let activeSystemPrompt = SYSTEM_DESCRIBE_MEDIA;
+    try {
+      const { data: promptRow } = await context.supabase
+        .from("llm_system_prompts")
+        .select("content")
+        .eq("user_id", context.userId)
+        .eq("kind", "describe_media")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (
+        promptRow &&
+        typeof promptRow.content === "string" &&
+        promptRow.content.length > 0
+      ) {
+        activeSystemPrompt = promptRow.content;
+      }
+    } catch (err) {
+      console.warn(
+        "[describeMedia] system_prompt_db_read_failed",
+        (err as Error).message,
+      );
+    }
+
     const model = data.model ?? DEFAULT_MODEL;
     const userPrompt = `Décris cette image (mediaProfile=${data.mediaProfile}). Suis le schéma de sortie strict.`;
     const stable = await hashContext({
@@ -267,13 +293,14 @@ export const describeMedia = createServerFn({ method: "POST" })
       model,
       mediaProfile: data.mediaProfile,
       userPrompt,
+      systemHash: hashSystem(activeSystemPrompt),
     });
 
     try {
       const out = await callGemini({
         apiKey: getApiKey(),
         model,
-        systemPrompt: SYSTEM_DESCRIBE_MEDIA,
+        systemPrompt: activeSystemPrompt,
         userPrompt,
         imageUrl: data.imageDataUrl ?? data.imageUrl,
         imageMimeType: data.mimeType,
