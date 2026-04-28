@@ -205,7 +205,8 @@ const PROPOSE_VISIT_PATCHES_TOOL = {
               fields: {
                 type: "object",
                 description:
-                  "Valeurs initiales : keys DOIVENT ∈ schema_map.collections[collection].item_fields.",
+                  "Valeurs initiales : keys DOIVENT ∈ schema_map.collections[collection].item_fields. Au moins 1 clé.",
+                minProperties: 1,
                 additionalProperties: true,
               },
               confidence: { type: "string", enum: ["low", "medium", "high"] },
