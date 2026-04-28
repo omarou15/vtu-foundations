@@ -31,6 +31,7 @@ import {
   type DescribeMediaResult,
   type ProviderMeta,
 } from "@/shared/llm";
+import { appendAttachmentLogEntry } from "@/shared/llm/apply/append-attachment-log";
 import { buildSchemaMap } from "@/shared/types/json-state.schema-map";
 import { describeMedia } from "@/server/llm.functions";
 import {
