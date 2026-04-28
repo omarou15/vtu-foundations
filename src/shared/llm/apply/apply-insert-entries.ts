@@ -6,19 +6,17 @@
  *   - Si la collection est connue du registre → squelette construit via
  *     `buildEmptyCollectionEntry` puis override avec les keys du LLM.
  *   - Si la collection est INCONNUE → on crée quand même un array à ce
- *     path et on pose une entrée minimale `{ id, custom_fields, …LLM keys
- *     converties en Field<T>… }`. Le user pourra refuser via la card.
- *   - Plus de filtre `item_fields` : toute key fournie devient un Field<T>
- *     (sauf keys réservées id/custom_fields/created_at/related_message_id).
- *   - `fields: {}` accepté : on crée juste l'entrée vide. Le user pourra
- *     la refuser.
+ *     path et on pose une entrée minimale.
+ *   - `fields: {}` accepté : entrée créée vide marquée `is_empty`.
  *
- * Sortie : `applied` liste les entrées créées (avec leurs keys posées).
- * `ignored` est désormais quasi-toujours vide — ne reste que `collection_not_array`
- * dans le cas où un conteneur intermédiaire serait d'un type incompatible.
+ * Lot A.5 — fix 2 + fix 3 :
+ *   - Dedup intra-call : si une entrée a déjà été créée DANS CE CALL sur
+ *     la même collection avec au moins une key+value en commun, on merge
+ *     les nouveaux fields dedans au lieu de créer une 2e entrée.
+ *   - `is_empty: true` quand `validKeys.length === 0` (entrée fantôme).
  */
 
-import { aiInferField } from "@/shared/types/json-state.field";
+import { aiInferField, type Field } from "@/shared/types/json-state.field";
 import type { VisitJsonState } from "@/shared/types";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -45,6 +43,10 @@ export interface ApplyInsertEntriesResult {
     fields_set: string[];
     /** Keys ignorées car réservées (id, custom_fields, etc.). */
     ignored_keys: string[];
+    /** Lot A.5 fix 2 — entrée mergée dans une entrée existante du même call. */
+    merged_into_existing?: boolean;
+    /** Lot A.5 fix 3 — entrée créée sans aucun field valide. */
+    is_empty?: boolean;
   }>;
   ignored: Array<{
     collection: string;
@@ -62,7 +64,71 @@ export function applyInsertEntries(
   const ignored: ApplyInsertEntriesResult["ignored"] = [];
 
   for (const op of input.insertEntries) {
-    // 1. Squelette : utilise le registre si connu, sinon entrée minimale.
+    // 1. Résout l'array cible (auto-vivify si absent / collection inconnue).
+    const arr = ensureArrayAtPath(next, op.collection);
+    if (!arr) {
+      ignored.push({ collection: op.collection, reason: "collection_not_array" });
+      continue;
+    }
+
+    const opFields = op.fields ?? {};
+    const evidenceRefs = op.evidence_refs ?? [];
+
+    // 2. Lot A.5 fix 2 — Dedup intra-call : chercher une entrée déjà créée
+    //    dans CE call sur la même collection avec au moins une key+value
+    //    primitive identique.
+    const existingThisCall = applied
+      .filter((a) => a.collection === op.collection)
+      .map((a) =>
+        arr.find(
+          (e): e is Record<string, unknown> =>
+            !!e &&
+            typeof e === "object" &&
+            (e as Record<string, unknown>).id === a.entryId,
+        ),
+      )
+      .filter((e): e is Record<string, unknown> => !!e);
+
+    const mergeTarget = existingThisCall.find((entry) => {
+      for (const [k, v] of Object.entries(opFields)) {
+        if (isReservedItemKey(k)) continue;
+        const cur = entry[k];
+        if (isFieldShape(cur) && cur.value === v) return true;
+      }
+      return false;
+    });
+
+    if (mergeTarget) {
+      const mergedKeys: string[] = [];
+      const mergedIgnored: string[] = [];
+      for (const [k, v] of Object.entries(opFields)) {
+        if (isReservedItemKey(k)) {
+          mergedIgnored.push(k);
+          continue;
+        }
+        // Ne pas écraser un Field<T> déjà rempli (source != init OU value != null).
+        const cur = mergeTarget[k];
+        if (isFieldShape(cur) && !isEmptyInitField(cur)) continue;
+        mergeTarget[k] = aiInferField({
+          value: v,
+          confidence: op.confidence,
+          sourceMessageId: input.sourceMessageId,
+          sourceExtractionId: input.sourceExtractionId,
+          evidenceRefs,
+        });
+        mergedKeys.push(k);
+      }
+      applied.push({
+        collection: op.collection,
+        entryId: mergeTarget.id as string,
+        fields_set: mergedKeys,
+        ignored_keys: mergedIgnored,
+        merged_into_existing: true,
+      });
+      continue;
+    }
+
+    // 3. Pas de merge → créer une nouvelle entrée.
     const skeleton =
       buildEmptyCollectionEntry(op.collection) ??
       ({
@@ -70,17 +136,15 @@ export function applyInsertEntries(
         custom_fields: [],
       } as Record<string, unknown>);
 
-    // 2. Pose les keys LLM en Field<T> (sauf réservées).
     const validKeys: string[] = [];
     const ignoredKeys: string[] = [];
-    const evidenceRefs = op.evidence_refs ?? [];
-    for (const key of Object.keys(op.fields ?? {})) {
+    for (const key of Object.keys(opFields)) {
       if (isReservedItemKey(key)) {
         ignoredKeys.push(key);
         continue;
       }
       skeleton[key] = aiInferField({
-        value: op.fields[key],
+        value: opFields[key],
         confidence: op.confidence,
         sourceMessageId: input.sourceMessageId,
         sourceExtractionId: input.sourceExtractionId,
@@ -89,12 +153,6 @@ export function applyInsertEntries(
       validKeys.push(key);
     }
 
-    // 3. Append à l'array (auto-vivify si absent / collection inconnue).
-    const arr = ensureArrayAtPath(next, op.collection);
-    if (!arr) {
-      ignored.push({ collection: op.collection, reason: "collection_not_array" });
-      continue;
-    }
     arr.push(skeleton);
 
     applied.push({
@@ -102,6 +160,7 @@ export function applyInsertEntries(
       entryId: skeleton.id as string,
       fields_set: validKeys,
       ignored_keys: ignoredKeys,
+      ...(validKeys.length === 0 ? { is_empty: true } : {}),
     });
   }
 
@@ -115,6 +174,16 @@ export function applyInsertEntries(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+function isFieldShape(node: unknown): node is Field<unknown> {
+  if (!node || typeof node !== "object") return false;
+  const o = node as Record<string, unknown>;
+  return "value" in o && "source" in o && "validation_status" in o;
+}
+
+function isEmptyInitField(f: Field<unknown>): boolean {
+  return f.source === "init" && (f.value === null || f.value === undefined);
+}
 
 function ensureArrayAtPath(
   root: Record<string, unknown>,

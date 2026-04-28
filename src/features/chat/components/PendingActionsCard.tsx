@@ -523,19 +523,26 @@ function InsertRowItem({
           label={`entrée ${sectionLabel}`}
         />
       </div>
-      {open && row.values.length > 0 ? (
-        <ul className="mt-1.5 ml-4 space-y-0.5">
-          {row.values.map((v) => (
-            <li key={v.key} className="font-body text-foreground text-[12px]">
-              <span className="text-muted-foreground">{v.label} :</span>{" "}
-              <span
-                className={isRejected ? "line-through opacity-60" : ""}
-              >
-                {v.value}
-              </span>
-            </li>
-          ))}
-        </ul>
+      {open ? (
+        row.values.length > 0 ? (
+          <ul className="mt-1.5 ml-4 space-y-0.5">
+            {row.values.map((v) => (
+              <li key={v.key} className="font-body text-foreground text-[12px]">
+                <span className="text-muted-foreground">{v.label} :</span>{" "}
+                <span
+                  className={isRejected ? "line-through opacity-60" : ""}
+                >
+                  {v.value}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="font-body text-muted-foreground mt-1.5 ml-4 text-[12px] italic">
+            Entrée créée sans champ détecté — l'IA n'a rien réussi à structurer.
+            Tu peux la rejeter ou la garder vide.
+          </p>
+        )
       ) : null}
     </li>
   );

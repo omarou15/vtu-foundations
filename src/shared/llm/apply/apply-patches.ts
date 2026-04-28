@@ -33,6 +33,7 @@ import {
   parseEntryPath,
   type SchemaMap,
 } from "@/shared/types/json-state.schema-map";
+import { v4 as uuidv4 } from "uuid";
 import type { AiFieldPatch } from "../types";
 import { walkObjectPath } from "./path-utils";
 
@@ -126,7 +127,8 @@ function resolvePatchTarget(
     return { reason: "ok", parent: item, key: entry.field };
   }
 
-  // 2. Index positionnel `collection[N].field` — résolu si N existe.
+  // 2. Index positionnel `collection[N].field` — auto-promote en insert si
+  //    l'entrée à l'index N n'existe pas (Lot A.5 fix 1).
   const m = path.match(POSITIONAL_RE);
   if (m) {
     const [, collection, indexStr, field] = m;
@@ -135,7 +137,15 @@ function resolvePatchTarget(
     const idx = Number(indexStr);
     const item = arr[idx];
     if (!item || typeof item !== "object") {
-      return { reason: "path_not_found" };
+      // Promote : crée une nouvelle entrée minimale et l'append.
+      // L'index positionnel n'a pas de sémantique stable cross-call, donc
+      // on ne tente pas de "remplir les trous" — on append en queue.
+      const skeleton =
+        buildEmptyCollectionEntry(collection!) ??
+        ({ id: uuidv4(), custom_fields: [] } as Record<string, unknown>);
+      if (!skeleton.id) skeleton.id = uuidv4();
+      arr.push(skeleton);
+      return { reason: "ok", parent: skeleton, key: field! };
     }
     return { reason: "ok", parent: item as Record<string, unknown>, key: field! };
   }
