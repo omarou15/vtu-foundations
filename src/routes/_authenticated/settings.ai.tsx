@@ -7,8 +7,12 @@
  */
 
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { ArrowLeft, Bot, Copy, FileCode, MessageSquare, Wrench } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/features/chat";
 import {
   AiToggleCard,
@@ -16,6 +20,7 @@ import {
   getModelByTier,
   type ModelTier,
 } from "@/features/settings";
+import { getDb, type LocalLlmExtraction } from "@/shared/db/schema";
 
 export const Route = createFileRoute("/_authenticated/settings/ai")({
   component: AiSettingsPage,
