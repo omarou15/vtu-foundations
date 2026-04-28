@@ -205,7 +205,8 @@ const PROPOSE_VISIT_PATCHES_TOOL = {
               fields: {
                 type: "object",
                 description:
-                  "Valeurs initiales : keys DOIVENT ∈ schema_map.collections[collection].item_fields.",
+                  "Valeurs initiales : keys DOIVENT ∈ schema_map.collections[collection].item_fields. Au moins 1 clé.",
+                minProperties: 1,
                 additionalProperties: true,
               },
               confidence: { type: "string", enum: ["low", "medium", "high"] },
@@ -466,11 +467,11 @@ Deno.serve(async (req) => {
       const hints: string[] = [];
       if (unknownCols.length > 0) hints.push(`catégorie inconnue (${[...new Set(unknownCols)].join(", ")})`);
       if (emptyCols.length > 0) hints.push("aucun champ exploitable détecté");
-      safeMessage = `Je n'ai pas pu structurer ces infos : ${hints.join(" et ")}. Précise le type d'équipement et au moins une caractéristique (ex : 'PAC air-eau Daikin 8 kW électrique').`;
+      safeMessage = `Je n'ai pas pu structurer ces infos : ${hints.join(" et ")}. Précise le type d'équipement et au moins une caractéristique (ex : 'chaudière gaz 24 kW de 2018').`;
       hallucinationTag = "filtered_after_llm";
     } else if (claimsAction) {
       // Le LLM affirme avoir agi mais n'a rien émis du tout.
-      safeMessage = "Je n'ai pas pu structurer ces infos automatiquement. Reformule-les en précisant le type d'équipement et ses caractéristiques (ex : 'PAC air-eau Daikin 8 kW électrique').";
+      safeMessage = "Je n'ai pas pu structurer ces infos automatiquement. Reformule-les en précisant le type d'équipement et ses caractéristiques (ex : 'chaudière gaz 24 kW de 2018').";
       hallucinationTag = "claimed_action_no_ops";
     } else {
       // Réponse conversationnelle légitime sans op.
