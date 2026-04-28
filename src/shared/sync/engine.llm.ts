@@ -601,13 +601,9 @@ async function handleExtract(
         entry_id: a.entryId,
         fields_set: a.fields_set,
       })),
-      // Ignored ne contient plus que des bugs structurels (pas de conflit
-      // métier). On les expose tout de même pour debug via /settings/dev.
-      ignored_paths: applyOut.patches.ignored.map((i) => ({
-        path: i.path,
-        reason: i.reason,
-      })),
-      ignored_inserts: applyOut.insertEntries.ignored,
+      // Doctrine permissive totale : l'apply layer ne rejette plus rien.
+      ignored_paths: [],
+      ignored_inserts: [],
     },
   });
 

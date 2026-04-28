@@ -51,9 +51,8 @@ export interface ContextBundle {
  *   - `envelope.murs.material_value` (sous-objet)
  *   - `heating.installations[id=abc-123].type_value` (entrée collection par UUID)
  *
- * REJETÉ par l'apply layer (plus jamais accepté) :
- *   - `heating.installations[0].type_value` (index positionnel) →
- *     forcer le LLM à utiliser `insert_entry` ou `[id=…]`.
+ * Legacy également matérialisé par l'apply layer permissif :
+ *   - `heating.installations[0].type_value` (index positionnel)
  */
 export interface AiFieldPatch {
   path: string;
@@ -75,7 +74,8 @@ export interface AiInsertEntry {
   collection: string;
   /**
    * Valeurs initiales pour les champs de l'item, ex: { type_value: "PAC", power_kw: 8 }.
-   * Les keys doivent être ∈ schema_map.collections[collection].item_fields.
+   * Les keys libres sont matérialisées aussi ; les keys réservées sont ignorées
+   * dans l'entrée mais auditables via `ignored_keys`.
    */
   fields: Record<string, unknown>;
   confidence: "low" | "medium" | "high";

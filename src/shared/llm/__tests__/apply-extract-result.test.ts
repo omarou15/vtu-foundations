@@ -103,7 +103,7 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
 
   it("1 patch valide + 1 patch positional auto-promu + 1 insert", () => {
     // Lot A.5 fix 1 : un patch positional sur array vide est désormais
-    // auto-promu en insert (entrée créée + field posé). Plus de path_not_found.
+    // auto-promu en insert (entrée créée + field posé). Zéro ignored.
     const state = freshState();
     const schemaMap = buildSchemaMap(state);
     const out = applyExtractResult({
@@ -169,5 +169,43 @@ describe("applyExtractResult — orchestrateur 3 verbes", () => {
       out.state.heating.installations.find((i) => i.id === "fake-uuid")
         ?.type_value.value,
     ).toBe("PAC");
+  });
+
+  it("PAC Hitachi via patches positionnels → 1 entrée avec marque + type", () => {
+    const state = freshState();
+    const schemaMap = buildSchemaMap(state);
+    const out = applyExtractResult({
+      state,
+      schemaMap,
+      patches: [
+        {
+          path: "heating.installations[0].brand",
+          value: "Hitachi",
+          confidence: "high",
+          evidence_refs: [MESSAGE],
+        },
+        {
+          path: "heating.installations[0].type_value",
+          value: "pompe_a_chaleur_air_eau",
+          confidence: "high",
+          evidence_refs: [MESSAGE],
+        },
+      ],
+      insertEntries: [],
+      customFields: [],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+
+    expect(out.totalApplied).toBe(2);
+    expect(out.patches.ignored).toHaveLength(0);
+    expect(out.insertEntries.ignored).toHaveLength(0);
+    expect(out.state.heating.installations).toHaveLength(1);
+    const entry = out.state.heating.installations[0] as unknown as Record<
+      string,
+      { value: unknown }
+    >;
+    expect(entry.brand.value).toBe("Hitachi");
+    expect(entry.type_value.value).toBe("pompe_a_chaleur_air_eau");
   });
 });

@@ -5,16 +5,14 @@
  *   - `building.wall_material_value`               (object field plat)
  *   - `envelope.murs.material_value`               (sous-objet)
  *   - `heating.installations[id=abc-123].type`     (entrée de collection par UUID)
- *
- * Syntaxe REJETÉE :
- *   - `heating.installations[0].type_value`        (index positionnel)
- *     → forcer le LLM à utiliser `insert_entry` pour créer ou
- *       `[id=…]` pour cibler une entrée existante.
+ *   - `heating.installations[0].type_value`        (entrée positionnelle legacy)
  */
 
 import { parseEntryPath } from "@/shared/types/json-state.schema-map";
 
 type JsonObject = Record<string, unknown>;
+
+const POSITIONAL_RE = /^([a-z0-9_.]+)\[(\d+)\]\.([a-z0-9_]+)$/;
 
 export interface PathTarget {
   parent: JsonObject | null;
@@ -27,6 +25,7 @@ export interface PathTarget {
  *
  * Détecte automatiquement la syntaxe :
  *   - `collection[id=…].field` → walkEntryPath
+ *   - `collection[N].field` → walkPositionPath
  *   - sinon → walkObjectPath (path dot-notation simple)
  *
  * Renvoie `{ parent: null, key: null }` si le path n'est pas résoluble.
@@ -41,6 +40,15 @@ export function walkJsonPath(
   const entry = parseEntryPath(path);
   if (entry) {
     return walkEntryPath(root, entry.collection, entry.entryId, entry.field);
+  }
+  const positional = parsePositionPath(path);
+  if (positional) {
+    return walkPositionPath(
+      root,
+      positional.collection,
+      positional.index,
+      positional.field,
+    );
   }
   return walkObjectPath(root, path);
 }
@@ -98,4 +106,36 @@ export function walkEntryPath(
   const entry = (cur as JsonObject[]).find((e) => e?.id === entryId);
   if (!entry || typeof entry !== "object") return { parent: null, key: null };
   return { parent: entry, key: field };
+}
+
+export function parsePositionPath(
+  path: string,
+): { collection: string; index: number; field: string } | null {
+  const m = path.match(POSITIONAL_RE);
+  if (!m) return null;
+  const [, collection, indexStr, field] = m;
+  if (!collection || !indexStr || !field) return null;
+  return { collection, index: Number(indexStr), field };
+}
+
+export function walkPositionPath(
+  root: JsonObject,
+  collection: string,
+  index: number,
+  field: string,
+): PathTarget {
+  const segments = collection.split(".");
+  let cur: unknown = root;
+  for (const seg of segments) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+      return { parent: null, key: null };
+    }
+    cur = (cur as JsonObject)[seg];
+  }
+  if (!Array.isArray(cur)) return { parent: null, key: null };
+  const entry = (cur as unknown[])[index];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return { parent: null, key: null };
+  }
+  return { parent: entry as JsonObject, key: field };
 }

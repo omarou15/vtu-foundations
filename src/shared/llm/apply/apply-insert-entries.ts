@@ -14,6 +14,10 @@
  *     la même collection avec au moins une key+value en commun, on merge
  *     les nouveaux fields dedans au lieu de créer une 2e entrée.
  *   - `is_empty: true` quand `validKeys.length === 0` (entrée fantôme).
+ *
+ * Lot A.5 durcissement — zéro rejet : la collection cible est toujours
+ * forcée en array, même si le path traverse un primitif. `ignored` reste
+ * dans le contrat pour compatibilité, mais il est toujours vide.
  */
 
 import { aiInferField, type Field } from "@/shared/types/json-state.field";
@@ -48,28 +52,19 @@ export interface ApplyInsertEntriesResult {
     /** Lot A.5 fix 3 — entrée créée sans aucun field valide. */
     is_empty?: boolean;
   }>;
-  ignored: Array<{
-    collection: string;
-    reason: ApplyInsertIgnoreReason;
-  }>;
+  /** Compat debug historique : toujours vide en doctrine permissive totale. */
+  ignored: [];
 }
-
-export type ApplyInsertIgnoreReason = "collection_not_array";
 
 export function applyInsertEntries(
   input: ApplyInsertEntriesInput,
 ): ApplyInsertEntriesResult {
   const next = clone(input.state) as unknown as Record<string, unknown>;
   const applied: ApplyInsertEntriesResult["applied"] = [];
-  const ignored: ApplyInsertEntriesResult["ignored"] = [];
 
   for (const op of input.insertEntries) {
-    // 1. Résout l'array cible (auto-vivify si absent / collection inconnue).
-    const arr = ensureArrayAtPath(next, op.collection);
-    if (!arr) {
-      ignored.push({ collection: op.collection, reason: "collection_not_array" });
-      continue;
-    }
+    // 1. Force l'array cible (auto-vivify/overwrite si absent ou incompatible).
+    const arr = forceArrayAtPath(next, op.collection);
 
     const opFields = op.fields ?? {};
     const evidenceRefs = op.evidence_refs ?? [];
@@ -167,7 +162,7 @@ export function applyInsertEntries(
   return {
     state: next as unknown as VisitJsonState,
     applied,
-    ignored,
+    ignored: [],
   };
 }
 
@@ -185,33 +180,31 @@ function isEmptyInitField(f: Field<unknown>): boolean {
   return f.source === "init" && (f.value === null || f.value === undefined);
 }
 
-function ensureArrayAtPath(
+function forceArrayAtPath(
   root: Record<string, unknown>,
   path: string,
-): unknown[] | null {
-  const segments = path.split(".");
+): unknown[] {
+  const segments = path.split(".").filter((s) => s.length > 0);
+  if (segments.length === 0) return [];
   let cur: Record<string, unknown> = root;
   for (let i = 0; i < segments.length - 1; i += 1) {
     const seg = segments[i]!;
     const next = cur[seg];
-    if (next === undefined || next === null) {
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
       cur[seg] = {};
       cur = cur[seg] as Record<string, unknown>;
-    } else if (typeof next === "object" && !Array.isArray(next)) {
-      cur = next as Record<string, unknown>;
     } else {
-      return null;
+      cur = next as Record<string, unknown>;
     }
   }
   const last = segments[segments.length - 1]!;
   const existing = cur[last];
-  if (existing === undefined || existing === null) {
+  if (!Array.isArray(existing)) {
     const arr: unknown[] = [];
     cur[last] = arr;
     return arr;
   }
-  if (Array.isArray(existing)) return existing;
-  return null;
+  return existing;
 }
 
 function clone<T>(v: T): T {

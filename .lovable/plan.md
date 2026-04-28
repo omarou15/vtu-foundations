@@ -1,118 +1,212 @@
-# Lot A.5 — Fixes ciblés Lot A
+Je comprends le blocage : le toast affiché vient du fait que la proposition reste adressée en path positionnel (`heating.installations[0].type_value`). Même si l’apply a commencé à créer l’entrée, il reste encore des chemins de rejet et surtout la lecture/validation UI (`walkJsonPath`) ne sait pas relire ce format positionnel, donc la card classe le champ en `missing` et affiche “champ absent du JSON state”.
 
-3 bugs résiduels après Lot A. Chaque fix est local, idempotent, et accompagné d'1 nouveau test Vitest. Aucun changement edge function, prompt, ou pipeline.
+Plan d’implémentation ciblé :
 
-## Fix 1 — `apply-patches.ts` : promote positional sur array vide en insert auto-vivified
+## 1. Durcir `apply-patches.ts` en “zéro rejet”
 
-**Fichier** : `src/shared/llm/apply/apply-patches.ts`
-
-Dans `resolvePatchTarget`, branche `POSITIONAL_RE` (lignes ~117-130) :
-- Aujourd'hui : si `arr[idx]` n'existe pas → `path_not_found`. Le patch reste fantôme dans `metadata.proposed_patches` et apparaît dans la card avec status `missing` → click ✓ déclenche toast d'erreur.
-- Après : créer une nouvelle entrée minimale (via `buildEmptyCollectionEntry(collection)` ou skeleton minimal `{ id: uuidv4(), custom_fields: [] }`), l'append dans l'array, et retourner `{ reason: "ok", parent: skeleton, key: field }`. Le patch devient appliqué normalement.
-
-Ajouter imports manquants : `import { v4 as uuidv4 } from "uuid"` et `buildEmptyCollectionEntry` (déjà importé).
-
-**Effet** : un patch `ventilation.installations[0].type_value="vmc_double_flux"` sur array vide crée une entrée Ventilation avec ce field. Plus de fantôme.
-
-## Fix 2 — `apply-insert-entries.ts` : dedup intra-call
-
-**Fichier** : `src/shared/llm/apply/apply-insert-entries.ts`
-
-Dans la boucle `for (const op of input.insertEntries)`, **avant** d'appeler `arr.push(skeleton)` :
-1. Construire la liste des entrées déjà créées dans CE call sur la même collection (lookup via `applied[].entryId` puis `arr.find(e => e.id === entryId)`).
-2. Pour chaque entrée existante, tester si au moins une key non-réservée a la même valeur primitive que dans `op.fields` (compare `entry[k].value === op.fields[k]` quand `entry[k]` est un `Field<T>`).
-3. Si match : merger les nouveaux fields dans cette entrée existante (sans écraser un `Field<T>` déjà posé), pousser un `applied` entry avec `merged_into_existing: true` et `continue`.
-4. Sinon : comportement actuel (créer une nouvelle entrée).
-
-Helper local `isFieldShape(node)` (copie de celui d'`apply-patches.ts`).
-
-Étendre le type `applied[]` avec un champ optionnel `merged_into_existing?: boolean`. Pas de breaking change pour les call-sites existants.
-
-**Effet** : pour 1 message "PAC Air/Eau 12 kW" qui produit 3 inserts variants partageant `type_value: "PAC air-eau"`, une seule entrée est créée avec les fields mergés.
-
-## Fix 3 — Entrées vides : warning + UI dédiée
-
-**Fichier 1** : `src/shared/llm/apply/apply-insert-entries.ts`
-- Étendre `applied[]` avec `is_empty?: boolean` quand `validKeys.length === 0` après filtrage (cas `fields: {}` ou seulement keys réservées).
-
-**Fichier 2** : `src/features/chat/components/PendingActionsCard.tsx`
-- Dans `InsertRowItem` (lignes 526-539), branche `open && row.values.length === 0` : afficher un paragraphe italique muted :
-  > "Entrée créée sans champ détecté — l'IA n'a rien réussi à structurer. Tu peux la rejeter ou la garder vide."
-- Ajouter une variante visuelle légère (border ou badge orange) sur la row si `values.length === 0` pour signaler à l'œil.
-
-**Effet** : plus de section dépliée vide silencieuse.
-
-## Tests Vitest
-
-**Fichier** : `src/shared/llm/__tests__/apply-patches.test.ts`
-- Ajouter test : "positional sur array vide → promu en insert (entrée créée avec field initial)".
-  - Patch : `ventilation.installations[0].type_value="vmc_double_flux"`.
-  - Attendre `applied.length === 1`, `ignored.length === 0`, et `state.ventilation.installations[0].type_value.value === "vmc_double_flux"`.
-- Mettre à jour le test existant ligne 187 ("index positionnel sur entrée inexistante → path_not_found") : il devient invalide. Le remplacer par "index positionnel sur entrée inexistante → auto-promote, entrée créée".
-
-**Fichier** : `src/shared/llm/__tests__/apply-insert-entries.test.ts`
-- Ajouter test : "2 inserts même collection avec field commun → dedup, 1 seule entrée mergée".
-  - 2 ops sur `heating.installations`, partageant `type_value: "PAC"`, avec d'autres fields différents.
-  - Attendre `applied.length === 2`, mais `state.heating.installations.length === 1`, et l'entrée contient les fields des 2 ops.
-- Ajouter test : "insert avec uniquement keys réservées → entrée vide marquée `is_empty`".
-
-## Validation manuelle (utilisateur après ship)
-
-1. Photo VMC → 0 fantôme dans la card, l'entrée Ventilation contient `type_value=vmc_double_flux` (et `location_value=combles` si extrait).
-2. Message "PAC Air/Eau 12 kW Daikin" → 1 seule "Chauffage · nouvelle entrée" avec `type_value` + `power_kw` + `brand` mergés.
-3. Si une entrée vide est créée → message "l'IA n'a rien réussi à structurer" affiché à la place du contenu déplié.
-
-## Hors-scope (confirmé)
-
-- Refonte du prompt système pour éviter les positional patches en amont.
-- Synthétiseur cross-photos.
-- Nomenclature canonique.
-- Edge function `vtu-llm-agent` : aucun changement.
-
-## Détails techniques
-
+Fichier :
 ```text
-apply-patches.ts (POSITIONAL_RE branch)
-  m matches → arr = ensureArrayAtPath(...)
-  if (!arr) → path_not_found
-  if (!arr[idx]) → 
-    skeleton = buildEmptyCollectionEntry(collection) ?? { id: uuid(), custom_fields: [] }
-    arr.push(skeleton)
-    return { ok, parent: skeleton, key: field }
-  else → { ok, parent: arr[idx], key: field }
+src/shared/llm/apply/apply-patches.ts
 ```
 
+Changements :
+- Supprimer le type `ApplyPatchIgnoreReason`.
+- Garder la propriété `ignored` dans le résultat uniquement pour compatibilité, mais elle sera toujours `[]`.
+- Supprimer tous les retours fonctionnels de rejet :
+  - `path_not_found`
+  - `not_a_field`
+- Modifier la résolution de cible pour qu’elle retourne toujours un parent + key :
+  - Path UUID : `collection[id=...].field`
+    - crée/écrase les conteneurs intermédiaires si nécessaire,
+    - force la collection en array,
+    - crée l’entrée si l’id n’existe pas,
+    - pose le field.
+  - Path positionnel : `heating.installations[0].type_value`
+    - force `heating.installations` en array,
+    - si l’entrée indexée n’existe pas : crée un skeleton et l’ajoute,
+    - si l’entrée existe mais n’est pas un objet : la remplace par un skeleton,
+    - pose le field.
+  - Path objet simple : `building.wall_material_value` ou path inventé
+    - traverse les segments,
+    - si un conteneur manque ou est primitif/array : l’écrase par `{}`,
+    - pose un `Field<T>` neuf au leaf.
+- Si la cible existe mais n’est pas un `Field<T>`, l’écraser avec `aiInferField(...)` au lieu de rejeter.
+
+Contrat final :
 ```text
-apply-insert-entries.ts (dedup loop)
-  for op in insertEntries:
-    skeleton = build(...)
-    populate validKeys
-    arr = ensureArrayAtPath(...)
-    
-    // NEW dedup
-    existingThisCall = applied
-      .filter(a => a.collection === op.collection)
-      .map(a => arr.find(e => e.id === a.entryId))
-      .filter(Boolean)
-    target = existingThisCall.find(entry =>
-      Object.entries(op.fields).some(([k, v]) =>
-        !isReservedItemKey(k) &&
-        isFieldShape(entry[k]) &&
-        entry[k].value === v
-      )
-    )
-    if target:
-      merge non-reserved keys into target (skip existing Field<T>)
-      applied.push({ ...target metadata, merged_into_existing: true })
-      continue
-    // END dedup
-    
-    arr.push(skeleton)
-    applied.push({ ..., is_empty: validKeys.length === 0 })
+patch reçu -> chemin créé/écrasé -> Field ai_infer/unvalidated posé -> ignored=[]
 ```
 
-## Risques
+## 2. Durcir `apply-insert-entries.ts` en “zéro rejet”
 
-- Le test existant ligne 187 d'`apply-patches.test.ts` doit être réécrit (changement de comportement assumé).
-- Si le LLM produit `installations[0]` ET `installations[1]` simultanément sur array vide, on créera 2 entrées dans l'ordre (correct).
-- Le dedup est conservatif : il faut au moins une key+value identique. Risque faible de fusionner 2 vraies entrées différentes.
+Fichier :
+```text
+src/shared/llm/apply/apply-insert-entries.ts
+```
+
+Changements :
+- Supprimer le type `ApplyInsertIgnoreReason`.
+- Garder `ignored` dans le résultat pour compatibilité, mais toujours `[]`.
+- Remplacer `ensureArrayAtPath` par une version qui force le chemin :
+  - si un segment intermédiaire est absent, primitif ou array : remplacé par `{}`,
+  - si le dernier segment est absent, primitif ou objet : remplacé par `[]`,
+  - puis l’entrée est ajoutée.
+- Conserver les deux fixes déjà faits :
+  - dedup intra-call,
+  - `is_empty` quand aucune key non réservée n’est posée.
+
+Contrat final :
+```text
+insert_entry reçu -> collection forcée en array -> entrée créée/mergée -> ignored=[]
+```
+
+## 3. Corriger la lecture/validation UI des paths positionnels
+
+Fichier :
+```text
+src/shared/llm/apply/path-utils.ts
+```
+
+Pourquoi c’est nécessaire : la card lit le JSON courant avec `walkJsonPath`. Aujourd’hui, ce walker ne supporte que :
+- `building.wall_material_value`
+- `collection[id=...].field`
+
+Il ne supporte pas :
+```text
+heating.installations[0].type_value
+```
+
+Donc même si `apply-patches.ts` a bien écrit dans `heating.installations[0].type_value`, la card peut encore dire “champ absent”.
+
+Changements :
+- Ajouter un parseur positionnel partagé :
+```text
+collection[N].field
+```
+- `walkJsonPath` résoudra aussi ce format :
+  - trouve la collection,
+  - lit l’entrée à l’index,
+  - retourne `{ parent: entry, key: field }`.
+- `validateFieldPatch` et `rejectFieldPatch` fonctionneront alors sur les patches positionnels déjà écrits.
+
+Contrat final :
+```text
+Card -> readField(positionnel) trouve le Field -> status unvalidated -> clic ✓ valide sans toast
+```
+
+## 4. Éviter les doublons d’entrées dans le scénario PAC Hitachi
+
+Cas concret :
+```text
+patches:
+  heating.installations[0].brand = Hitachi
+  heating.installations[0].type_value = pompe_a_chaleur_air_eau
+```
+
+Résultat attendu après apply :
+```text
+heating.installations = [
+  {
+    id: "...",
+    brand: Field(value="Hitachi", source="ai_infer", validation_status="unvalidated"),
+    type_value: Field(value="pompe_a_chaleur_air_eau", source="ai_infer", validation_status="unvalidated"),
+    ...skeleton fields
+  }
+]
+```
+
+Le deuxième patch doit utiliser l’entrée créée par le premier patch, pas créer une entrée vide séparée.
+
+## 5. Nettoyer les métadonnées de sortie côté engine
+
+Fichier :
+```text
+src/shared/sync/engine.llm.ts
+```
+
+Changements :
+- Laisser `ignored_paths` et `ignored_inserts` pour compatibilité/debug, mais ils seront toujours vides sur les nouveaux appels.
+- Mettre à jour les commentaires obsolètes qui parlent encore de bugs structurels ignorés.
+
+## 6. Mettre à jour les commentaires/types obsolètes
+
+Fichiers ciblés :
+```text
+src/shared/llm/types.ts
+src/shared/types/json-state.schema-map.ts
+src/shared/llm/apply/apply-extract-result.ts
+src/shared/llm/apply/path-utils.ts
+```
+
+Changements :
+- Retirer les commentaires disant que les paths positionnels sont rejetés.
+- Clarifier que l’apply layer est permissif total : il matérialise, l’utilisateur arbitre ensuite.
+
+## 7. Tests Vitest à réécrire/ajouter
+
+Fichier :
+```text
+src/shared/llm/__tests__/apply-patches.test.ts
+```
+
+Tests :
+- `heating.installations[0].brand` + `heating.installations[0].type_value` sur array vide :
+  - `ignored=[]`,
+  - une seule entrée heating,
+  - les deux fields sont posés.
+- Path objet qui traverse un primitif :
+  - le primitif est écrasé par `{}`,
+  - le field est posé,
+  - `ignored=[]`.
+- Cible existante non-Field :
+  - écrasée par un Field neuf,
+  - `ignored=[]`.
+- Path inconnu profond :
+  - auto-vivify complète,
+  - `ignored=[]`.
+
+Fichier :
+```text
+src/shared/llm/__tests__/apply-insert-entries.test.ts
+```
+
+Tests :
+- Collection path qui traverse un primitif :
+  - écrase le primitif,
+  - crée l’array,
+  - ajoute l’entrée,
+  - `ignored=[]`.
+- Dedup intra-call conservé : 3 variantes PAC -> 1 seule entrée mergée.
+- Entrée vide conservée avec `is_empty: true`.
+
+Fichier :
+```text
+src/shared/llm/__tests__/apply-extract-result.test.ts
+```
+
+Tests :
+- Scénario PAC Hitachi complet via orchestrateur :
+  - deux patches positionnels,
+  - une seule entrée,
+  - `brand` + `type_value`,
+  - `patches.ignored=[]`,
+  - `insertEntries.ignored=[]`.
+
+Fichier possible si déjà cohérent avec les patterns :
+```text
+src/shared/llm/__tests__/path-utils.test.ts
+```
+
+Test :
+- `walkJsonPath(state, "heating.installations[0].type_value")` retrouve bien le field après apply.
+
+## Validation attendue après implémentation
+
+- Scénario PAC Hitachi : la card ne doit plus afficher “champ absent du JSON state”.
+- `heating.installations` doit contenir une seule entrée pleine avec :
+  - `brand=Hitachi`,
+  - `type_value=pompe_a_chaleur_air_eau`.
+- Clic ✓ sur “Chauffage · Type” doit valider sans erreur.
+- Inspecteur IA bloc 1 : `ignored_paths=[]` et `ignored_inserts=[]` pour les nouveaux appels.
+- Le toggle Conv/JSON et `ai_route_mode` ne sont pas touchés.
+- La fonction IA distante n’est pas touchée.

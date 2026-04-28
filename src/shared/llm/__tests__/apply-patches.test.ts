@@ -2,10 +2,8 @@
  * Refonte avril 2026 — Tests apply-patches PERMISSIF.
  *
  * Doctrine : le LLM propose, l'apply matérialise comme ai_infer/unvalidated,
- * le user arbitre via la PendingActionsCard. Plus aucun rejet métier
- * (humain prime, confidence, schemaMap). Seuls bugs structurels rejetés :
- *   - not_a_field : la cible existe mais n'est pas un Field<T>.
- *   - path_not_found : impossible de résoudre/créer la cible.
+ * le user arbitre via la PendingActionsCard. Zéro rejet : chemins absents,
+ * primitifs intermédiaires et cibles non-Field sont écrasés/créés.
  */
 
 import { describe, expect, it } from "vitest";
@@ -216,6 +214,33 @@ describe("applyPatches — paths permissifs", () => {
     expect(r.state.heating.installations[0]?.fuel_value.value).toBe("gaz");
   });
 
+  it("PAC Hitachi : 2 patches positionnels sur array vide → 1 entrée pleine", () => {
+    const { state, map } = freshState();
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [
+        patch("heating.installations[0].brand", "Hitachi", "high"),
+        patch(
+          "heating.installations[0].type_value",
+          "pompe_a_chaleur_air_eau",
+          "high",
+        ),
+      ],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(2);
+    expect(r.ignored).toHaveLength(0);
+    expect(r.state.heating.installations).toHaveLength(1);
+    const inst = r.state.heating.installations[0] as unknown as Record<
+      string,
+      Field<unknown>
+    >;
+    expect(inst.brand.value).toBe("Hitachi");
+    expect(inst.type_value.value).toBe("pompe_a_chaleur_air_eau");
+  });
+
   it("entry path UUID inexistant : auto-vivify l'entrée et applique", () => {
     const { state, map } = freshState();
     const NEW_UUID = "abc-1234-5678";
@@ -273,22 +298,44 @@ describe("applyPatches — multi", () => {
     expect(r.ignored).toHaveLength(0);
   });
 
-  it("path mène à un non-Field existant → not_a_field", () => {
-    const { state, map } = freshState();
-    // building est un objet plat ; building.wall_material_value est un Field.
-    // Si on tape sur "building" lui-même via un sous-segment qui pointe sur
-    // un objet non-Field, on doit l'écraser sans broncher (auto-vivify).
-    // Pour déclencher not_a_field, on patch la valeur DIRECTE d'une entrée.
+  it("path object qui traverse un primitif → écrase et auto-vivify", () => {
+    const { state, map } = freshState((s) => {
+      (s as unknown as Record<string, unknown>).weird = "primitive";
+    });
     const r = applyPatches({
       state,
       schemaMap: map,
-      patches: [patch("heating.installations.0", "x")],
+      patches: [patch("weird.deep.field", "ok")],
       sourceMessageId: MESSAGE,
       sourceExtractionId: EXTRACTION,
     });
-    // installations[0] n'existe pas → path_not_found OU not_a_field selon résolution.
-    // L'important : il n'est pas appliqué.
-    expect(r.applied).toHaveLength(0);
-    expect(r.ignored).toHaveLength(1);
+    expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
+    const weird = (r.state as unknown as Record<
+      string,
+      { deep: { field: Field<string> } }
+    >).weird;
+    expect(weird.deep.field.value).toBe("ok");
+  });
+
+  it("path mène à un non-Field existant → écrase avec un Field neuf", () => {
+    const { state, map } = freshState((s) => {
+      (s as unknown as Record<string, unknown>).custom_section = {
+        leaf: { nested: true },
+      };
+    });
+    const r = applyPatches({
+      state,
+      schemaMap: map,
+      patches: [patch("custom_section.leaf", "x")],
+      sourceMessageId: MESSAGE,
+      sourceExtractionId: EXTRACTION,
+    });
+    expect(r.applied).toHaveLength(1);
+    expect(r.ignored).toHaveLength(0);
+    const leaf = (r.state as unknown as Record<string, { leaf: Field<string> }>)
+      .custom_section.leaf;
+    expect(leaf.value).toBe("x");
+    expect(leaf.source).toBe("ai_infer");
   });
 });
