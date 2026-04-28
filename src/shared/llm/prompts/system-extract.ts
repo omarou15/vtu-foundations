@@ -16,7 +16,7 @@ export const SYSTEM_EXTRACT = `# VTU — EXTRACT FROM MESSAGE (3 verbes)
 Tu reçois UN message d'un thermicien expert en visite terrain. Le
 ContextBundle contient :
   - state_summary : l'état actuel de la VT
-  - recent_messages, attachments_context, pending_attachments
+  - recent_messages, attachments_context
   - schema_map : la CARTE des paths/collections valides (ta seule
     source de vérité pour choisir un verbe)
   - nomenclature_hints
