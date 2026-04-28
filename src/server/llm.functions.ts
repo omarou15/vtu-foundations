@@ -63,7 +63,8 @@ const ContextBundleSchema = z.object({
     mission_type: z.string().nullable(),
     building_type: z.string().nullable(),
   }),
-  state_summary: z.record(z.string(), z.unknown()),
+  /** JSON state complet — validation lâche, déjà validé en amont. */
+  state: z.unknown(),
   recent_messages: z.array(
     z.object({
       role: z.enum(["user", "assistant", "system"]),
@@ -72,43 +73,6 @@ const ContextBundleSchema = z.object({
       created_at: z.string(),
     }),
   ),
-  attachments_context: z.array(
-    z.object({
-      id: z.string(),
-      media_profile: z.string().nullable(),
-      short_caption: z.string().nullable(),
-      detailed_description: z.string().nullable(),
-      ocr_text: z.string().nullable(),
-    }),
-  ),
-  pending_attachments: z
-    .array(
-      z.object({
-        id: z.string(),
-        media_profile: z.string().nullable(),
-        reason: z.enum(["no_description_yet", "ai_disabled_when_sent"]),
-      }),
-    )
-    .default([]),
-  // It. 11.6 — schema_map : carte des paths/collections valides pour les
-  // 3 verbes IA. Forme compacte (entries résumées). Validation lâche côté
-  // gateway, le contenu est consommé tel quel par le LLM.
-  schema_map: z
-    .object({
-      object_fields: z.array(z.string()).default([]),
-      collections: z
-        .record(
-          z.string(),
-          z.object({
-            item_fields: z.array(z.string()).default([]),
-            entries_count: z.number().default(0),
-            entries_summary: z.array(z.string()).default([]),
-          }),
-        )
-        .default({}),
-    })
-    .optional(),
-  nomenclature_hints: z.record(z.string(), z.unknown()),
 });
 
 // Schémas en JSON pour tool calling — version "lâche" (pas de valid Zod stricte côté gateway).

@@ -6,16 +6,15 @@
  * passe sous le budget. Si après la dernière passe on est toujours
  * hors budget, on retourne `{ status: "failed" }`.
  *
- * Ordre (du moins destructif au plus) :
- *   1   soft trim ocr_text > 500c (sur attachments_context)
- *   2a  tronquer messages assistant > 800 chars (… + suffixe)
- *   2b  tronquer messages user > 1500 chars (… + suffixe)
- *   2c  garder les 50 derniers messages
- *   2d  garder les 20 derniers messages
- *   2e  garder les 8 derniers messages (filet final messages)
- *   3   drop ocr_text complet sur attachments_context
- *   4   strip detailed_description + state non essentiel
- *   5   failed
+ * Refonte avril 2026 — le bundle ne contient plus d'`attachments_context`
+ * ni de `schema_map`. Les passes OCR ont disparu. Restent :
+ *   1   tronquer messages assistant > 800 chars
+ *   2   tronquer messages user > 1500 chars
+ *   3   garder les 50 derniers messages
+ *   4   garder les 20 derniers messages
+ *   5   garder les 8 derniers messages (filet final)
+ *   6   strip détails du state (drop notes/preconisations volumineux)
+ *   7   failed
  */
 
 import type { ContextBundle } from "../types";
@@ -24,13 +23,12 @@ import { estimateTokens } from "./tokens-estimate";
 export interface CompressResult {
   bundle: ContextBundle;
   status: "ok" | "failed";
-  /** Nombre cumulatif de passes appliquées (0 à 9). */
+  /** Nombre cumulatif de passes appliquées (0 à 6). */
   passes_applied: number;
   estimated_tokens: number;
 }
 
 export const DEFAULT_TOKEN_BUDGET = 12_000;
-const OCR_SOFT_LIMIT_CHARS = 500;
 const ASSISTANT_SOFT_LIMIT_CHARS = 800;
 const USER_SOFT_LIMIT_CHARS = 1500;
 const MESSAGES_SOFT_LIMIT_LARGE = 50;
@@ -41,14 +39,12 @@ const TRUNCATION_SUFFIX = "…";
 type Pass = (b: ContextBundle) => ContextBundle;
 
 const PASSES: Pass[] = [
-  passTrimOcr,            // 1
-  passTrimAssistant,      // 2a
-  passTrimUser,           // 2b
-  passLimitMessages50,    // 2c
-  passLimitMessages20,    // 2d
-  passLimitMessages8,     // 2e
-  passDropOcr,            // 3
-  passStripDetails,       // 4
+  passTrimAssistant,      // 1
+  passTrimUser,           // 2
+  passLimitMessages50,    // 3
+  passLimitMessages20,    // 4
+  passLimitMessages8,     // 5
+  passStripStateDetails,  // 6
 ];
 
 export function compressContextBundle(
@@ -86,19 +82,6 @@ export function compressContextBundle(
 // ---------------------------------------------------------------------------
 // Passes
 // ---------------------------------------------------------------------------
-
-function passTrimOcr(b: ContextBundle): ContextBundle {
-  return {
-    ...b,
-    attachments_context: b.attachments_context.map((a) => ({
-      ...a,
-      ocr_text:
-        a.ocr_text && a.ocr_text.length > OCR_SOFT_LIMIT_CHARS
-          ? a.ocr_text.slice(0, OCR_SOFT_LIMIT_CHARS) + TRUNCATION_SUFFIX
-          : a.ocr_text,
-    })),
-  };
-}
 
 function passTrimAssistant(b: ContextBundle): ContextBundle {
   return {
@@ -147,33 +130,30 @@ function passLimitMessages8(b: ContextBundle): ContextBundle {
   };
 }
 
-function passDropOcr(b: ContextBundle): ContextBundle {
-  return {
-    ...b,
-    attachments_context: b.attachments_context.map((a) => ({
-      ...a,
-      ocr_text: null,
-    })),
-  };
-}
-
-function passStripDetails(b: ContextBundle): ContextBundle {
-  return {
-    ...b,
-    attachments_context: b.attachments_context.map((a) => ({
-      ...a,
-      detailed_description: null,
-    })),
-    state_summary: stripStateNonEssential(b.state_summary),
-  };
-}
-
-function stripStateNonEssential(state: Record<string, unknown>): Record<string, unknown> {
-  // Garde uniquement meta + entêtes des sections (drop custom_observations,
-  // notes, preconisations).
-  const { meta, building, ...rest } = state as Record<string, unknown>;
-  void rest;
-  return { meta, building };
+/**
+ * Strip best-effort des sections les plus volumineuses du state. Garde
+ * les sections "structurelles" (meta, building, envelope, heating, ecs,
+ * ventilation) ; vide les contenus libres (notes, preconisations,
+ * pathologies descriptions, custom_observations) en cas d'overshoot.
+ *
+ * Note : c'est un mode dégradé pour éviter le `failed`. La structure
+ * du state reste cohérente (sections présentes mais items vidés).
+ */
+function passStripStateDetails(b: ContextBundle): ContextBundle {
+  const stripped = clone(b.state) as unknown as Record<string, unknown>;
+  const sectionsToEmpty = [
+    "notes",
+    "preconisations",
+    "pathologies",
+    "custom_observations",
+  ];
+  for (const sec of sectionsToEmpty) {
+    const s = stripped[sec] as Record<string, unknown> | undefined;
+    if (s && typeof s === "object" && Array.isArray(s.items)) {
+      s.items = [];
+    }
+  }
+  return { ...b, state: stripped as unknown as ContextBundle["state"] };
 }
 
 function clone<T>(v: T): T {

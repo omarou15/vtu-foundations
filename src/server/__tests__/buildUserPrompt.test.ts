@@ -1,9 +1,11 @@
 /**
- * It. 14.1 — Garde anti-hallucination dans les prompts user.
+ * Tests user-prompt builders.
+ *
+ * Refonte avril 2026 — bundle minimal, plus de bloc anti-hallucination
+ * dynamique. La garde est maintenant dans le prompt système.
  */
 import { describe, expect, it } from "vitest";
 import {
-  buildPendingAttachmentsGuard,
   buildUserPromptConversational,
   buildUserPromptExtract,
 } from "@/server/llm.prompt-builders";
@@ -11,86 +13,29 @@ import {
 const baseBundle = {
   schema_version: 2,
   visit: { id: "v1", mission_type: null, building_type: null },
-  state_summary: {},
+  state: { schema_version: 2, meta: {} },
   recent_messages: [],
-  attachments_context: [],
-  nomenclature_hints: {},
 };
 
-describe("buildPendingAttachmentsGuard", () => {
-  it("retourne '' si aucun pending", () => {
-    expect(buildPendingAttachmentsGuard({ pending_attachments: [] }, "extract")).toBe("");
-    expect(buildPendingAttachmentsGuard({}, "conversational")).toBe("");
+describe("buildUserPromptExtract", () => {
+  it("contient le header MESSAGE UTILISATEUR + le JSON bundle", () => {
+    const prompt = buildUserPromptExtract("VMC SF, R+2", baseBundle);
+    expect(prompt).toContain("MESSAGE UTILISATEUR");
+    expect(prompt).toContain("CONTEXT BUNDLE");
+    expect(prompt).toContain("VMC SF, R+2");
+    expect(prompt).toContain("\"schema_version\"");
   });
 
-  it("inclut bloc + règle stricte si ≥1 pending (conversational)", () => {
-    const out = buildPendingAttachmentsGuard(
-      {
-        pending_attachments: [
-          { id: "a1", media_profile: "photo", reason: "no_description_yet" },
-        ],
-      },
-      "conversational",
-    );
-    expect(out).toContain("ATTACHMENTS NON ENCORE ANALYSÉS");
-    expect(out).toContain("tu NE DOIS PAS prétendre");
-    expect(out).toContain("a1 (photo) — no_description_yet");
-    expect(out).toContain("[conversational]");
-  });
-
-  it("inclut interdiction patches/custom_fields en mode extract", () => {
-    const out = buildPendingAttachmentsGuard(
-      {
-        pending_attachments: [
-          { id: "a2", media_profile: null, reason: "ai_disabled_when_sent" },
-        ],
-      },
-      "extract",
-    );
-    expect(out).toContain("AUCUN patch");
-    expect(out).toContain("evidence_refs");
-    expect(out).toContain("ai_disabled_when_sent");
-  });
-});
-
-describe("buildUserPromptConversational", () => {
-  it("contient la garde si pending_attachments non vide", () => {
-    const prompt = buildUserPromptConversational("Tu as reçu mes photos ?", {
-      ...baseBundle,
-      pending_attachments: [
-        { id: "a1", media_profile: "photo", reason: "no_description_yet" },
-      ],
-    });
-    expect(prompt).toContain("ATTACHMENTS NON ENCORE ANALYSÉS");
-    expect(prompt).toContain("QUESTION DU THERMICIEN");
-  });
-
-  it("n'inclut PAS la garde si pending_attachments vide", () => {
-    const prompt = buildUserPromptConversational("ok", {
-      ...baseBundle,
-      pending_attachments: [],
-    });
+  it("ne contient plus de bloc ATTACHMENTS NON ENCORE ANALYSÉS", () => {
+    const prompt = buildUserPromptExtract("hello", baseBundle);
     expect(prompt).not.toContain("ATTACHMENTS NON ENCORE ANALYSÉS");
   });
 });
 
-describe("buildUserPromptExtract", () => {
-  it("contient la garde extract-spécifique", () => {
-    const prompt = buildUserPromptExtract("VMC SF, R+2", {
-      ...baseBundle,
-      pending_attachments: [
-        { id: "a1", media_profile: "photo", reason: "no_description_yet" },
-      ],
-    });
-    expect(prompt).toContain("AUCUN patch");
-    expect(prompt).toContain("MESSAGE UTILISATEUR");
-  });
-
-  it("absence de garde si pas de pending", () => {
-    const prompt = buildUserPromptExtract("hello", {
-      ...baseBundle,
-      pending_attachments: [],
-    });
-    expect(prompt).not.toContain("AUCUN patch");
+describe("buildUserPromptConversational", () => {
+  it("contient le header QUESTION DU THERMICIEN", () => {
+    const prompt = buildUserPromptConversational("Quel est le PCI du gaz ?", baseBundle);
+    expect(prompt).toContain("QUESTION DU THERMICIEN");
+    expect(prompt).toContain("Quel est le PCI du gaz ?");
   });
 });
