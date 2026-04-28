@@ -452,7 +452,7 @@ async function handleExtract(
   try {
     resp = await callVtuLlmAgent({
       mode: "extract",
-      messageText: message.content ?? "",
+      messageText: messageTextForLlm(message),
       contextBundle: bundle,
     });
   } catch (err) {
