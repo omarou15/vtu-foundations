@@ -6,7 +6,6 @@ import { formatRelative } from "../lib/relativeTime";
 import { PendingActionsCard } from "./PendingActionsCard";
 import { ConflictCard } from "./ConflictCard";
 import { MessageAttachments } from "./MessageAttachments";
-import { PhotoBatchProgressCard } from "./PhotoBatchProgressCard";
 
 interface MessageListProps {
   visitId: string;
@@ -49,19 +48,6 @@ export function MessageList({ visitId, userId }: MessageListProps) {
     [lastUserId],
     false,
   );
-
-  // It. 14 — Batch photo (≥ 2 attachments) → afficher progress card + skeleton.
-  const lastUserMeta =
-    (lastUserMessage?.metadata as Record<string, unknown> | undefined) ?? {};
-  const lastUserAttachmentCount =
-    typeof lastUserMeta.attachment_count === "number"
-      ? (lastUserMeta.attachment_count as number)
-      : 0;
-  const isBatchPhotoPending =
-    llmPending &&
-    lastUserMessage !== null &&
-    (lastUserMessage.kind === "photo" || lastUserMessage.kind === "document") &&
-    lastUserAttachmentCount >= 2;
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -117,9 +103,6 @@ export function MessageList({ visitId, userId }: MessageListProps) {
             }
             return <MessageBubble key={m.id} message={m} />;
           })}
-        {isBatchPhotoPending && lastUserId ? (
-          <PhotoBatchProgressCard messageId={lastUserId} />
-        ) : null}
         {llmPending ? <ThinkingSkeletonCard /> : null}
       </ul>
       <div ref={bottomRef} aria-hidden="true" />
