@@ -344,6 +344,13 @@ function PatchRowItem({
   const onApply = async () => {
     if (busy || !isClickable) return;
     setBusy(true);
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] card-click-apply", {
+      type: "patch",
+      path: row.path,
+      visit_id: visitId,
+      message_id: messageId,
+    });
     try {
       if (isMissing) {
         toast.error("Validation impossible", {
@@ -356,6 +363,13 @@ function PatchRowItem({
         visitId,
         path: row.path,
         sourceMessageId: messageId,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[VTU-DIAG] card-click-result", {
+        type: "patch",
+        path: row.path,
+        result_status: r.status,
+        result_reason: r.status === "noop" ? r.reason : null,
       });
       if (r.status === "noop" && r.reason !== "already_validated") {
         toast.error("Validation impossible", {
@@ -374,6 +388,13 @@ function PatchRowItem({
   const onIgnore = async () => {
     if (busy || !isClickable) return;
     setBusy(true);
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] card-click-ignore", {
+      type: "patch",
+      path: row.path,
+      visit_id: visitId,
+      message_id: messageId,
+    });
     try {
       if (isMissing) {
         toast.error("Rejet impossible", {
@@ -386,6 +407,13 @@ function PatchRowItem({
         visitId,
         path: row.path,
         sourceMessageId: messageId,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[VTU-DIAG] card-click-result", {
+        type: "patch",
+        path: row.path,
+        result_status: r.status,
+        result_reason: r.status === "noop" ? r.reason : null,
       });
       if (r.status === "noop" && r.reason !== "already_rejected") {
         toast.error("Rejet impossible", {
@@ -451,6 +479,14 @@ function InsertRowItem({
   const onApply = async () => {
     if (busy || !isPending) return;
     setBusy(true);
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] card-click-apply", {
+      type: "insert",
+      collection: row.collection,
+      entry_id: row.entryId,
+      visit_id: visitId,
+      message_id: messageId,
+    });
     try {
       const r = await validateInsertEntry({
         userId,
@@ -458,6 +494,14 @@ function InsertRowItem({
         collection: row.collection,
         entryId: row.entryId,
         sourceMessageId: messageId,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[VTU-DIAG] card-click-result", {
+        type: "insert",
+        collection: row.collection,
+        entry_id: row.entryId,
+        result_status: r.status,
+        result_reason: r.status === "noop" ? r.reason : null,
       });
       if (r.status === "noop" && r.reason !== "nothing_to_validate") {
         toast.error("Validation impossible", { description: r.reason });
@@ -474,6 +518,14 @@ function InsertRowItem({
   const onIgnore = async () => {
     if (busy || !isPending) return;
     setBusy(true);
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] card-click-ignore", {
+      type: "insert",
+      collection: row.collection,
+      entry_id: row.entryId,
+      visit_id: visitId,
+      message_id: messageId,
+    });
     try {
       const r = await rejectInsertEntry({
         userId,
@@ -481,6 +533,14 @@ function InsertRowItem({
         collection: row.collection,
         entryId: row.entryId,
         sourceMessageId: messageId,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[VTU-DIAG] card-click-result", {
+        type: "insert",
+        collection: row.collection,
+        entry_id: row.entryId,
+        result_status: r.status,
+        result_reason: r.status === "noop" ? r.reason : null,
       });
       if (r.status === "noop") {
         toast.error("Rejet impossible", { description: r.reason });
