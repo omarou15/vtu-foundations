@@ -17,6 +17,7 @@ import type {
   BuildingType,
   MissionType,
   SyncQueueEntry,
+  TertiaireSubtype,
   VisitRow,
 } from "@/shared/types";
 import { createInitialVisitJsonState, type VisitJsonState } from "@/shared/types";
@@ -27,7 +28,22 @@ interface CreateLocalVisitInput {
   thermicienName?: string | null;
   address?: string | null;
   missionType?: MissionType | null;
+  /** Texte libre quand missionType === "autre". */
+  missionTypeOther?: string | null;
   buildingType?: BuildingType | null;
+  /** Texte libre quand buildingType === "autre". */
+  buildingTypeOther?: string | null;
+  /** Sous-secteur tertiaire (uniquement si buildingType === "tertiaire"). */
+  tertiaireSubtype?: TertiaireSubtype | null;
+  tertiaireSubtypeOther?: string | null;
+  /** Coordonnées GPS auto-capturées à la création. */
+  gps?: {
+    lat: number;
+    lng: number;
+    accuracyM: number | null;
+  } | null;
+  /** Override pour les tests — sinon `new Date().toISOString()`. */
+  visitStartedAt?: string;
 }
 
 export interface CreateLocalVisitResult {
@@ -52,7 +68,19 @@ export async function createLocalVisit(
   const title = input.title?.trim() || "Nouvelle visite";
   const address = input.address?.trim() || null;
   const mission_type = input.missionType ?? null;
+  const mission_type_other =
+    mission_type === "autre" ? (input.missionTypeOther?.trim() || null) : null;
   const building_type = input.buildingType ?? null;
+  const building_type_other =
+    building_type === "autre"
+      ? (input.buildingTypeOther?.trim() || null)
+      : null;
+  const tertiaire_subtype =
+    building_type === "tertiaire" ? (input.tertiaireSubtype ?? null) : null;
+  const tertiaire_subtype_other =
+    tertiaire_subtype === "autre"
+      ? (input.tertiaireSubtypeOther?.trim() || null)
+      : null;
 
   const visit: LocalVisit = {
     id,
@@ -63,7 +91,15 @@ export async function createLocalVisit(
     version: 1,
     address,
     mission_type,
+    mission_type_other,
     building_type,
+    building_type_other,
+    tertiaire_subtype,
+    tertiaire_subtype_other,
+    visit_started_at: input.visitStartedAt ?? now,
+    gps_lat: input.gps?.lat ?? null,
+    gps_lng: input.gps?.lng ?? null,
+    gps_accuracy_m: input.gps?.accuracyM ?? null,
     created_at: now,
     updated_at: now,
     sync_status: "pending",
@@ -232,7 +268,15 @@ function serializeVisitForSync(v: LocalVisit): Record<string, unknown> {
     version: v.version,
     address: v.address,
     mission_type: v.mission_type,
+    mission_type_other: v.mission_type_other,
     building_type: v.building_type,
+    building_type_other: v.building_type_other,
+    tertiaire_subtype: v.tertiaire_subtype,
+    tertiaire_subtype_other: v.tertiaire_subtype_other,
+    visit_started_at: v.visit_started_at,
+    gps_lat: v.gps_lat,
+    gps_lng: v.gps_lng,
+    gps_accuracy_m: v.gps_accuracy_m,
     created_at: v.created_at,
     updated_at: v.updated_at,
   };

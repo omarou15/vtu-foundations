@@ -1,21 +1,74 @@
-import { Home, Building, Building2, Briefcase, Box } from "lucide-react";
-import type { BuildingType, VisitStatus } from "@/shared/types";
+import {
+  Home,
+  Building,
+  Building2,
+  Briefcase,
+  Box,
+  Factory,
+  Hotel,
+  GraduationCap,
+  Stethoscope,
+  ShoppingBag,
+  UtensilsCrossed,
+} from "lucide-react";
+import type {
+  BuildingType,
+  MissionType,
+  TertiaireSubtype,
+  VisitStatus,
+} from "@/shared/types";
 import type { LucideIcon } from "lucide-react";
 
 export const BUILDING_ICON: Record<BuildingType, LucideIcon> = {
   maison_individuelle: Home,
   appartement: Building,
-  immeuble: Building2,
+  copropriete: Building2,
+  monopropriete: Building2,
+  industrie: Factory,
   tertiaire: Briefcase,
+  immeuble: Building2, // legacy
   autre: Box,
 };
 
 export const BUILDING_LABEL: Record<BuildingType, string> = {
-  maison_individuelle: "Maison",
+  maison_individuelle: "Maison individuelle",
   appartement: "Appartement",
-  immeuble: "Immeuble",
+  copropriete: "Copropriété",
+  monopropriete: "Monopropriété",
+  industrie: "Industrie",
   tertiaire: "Tertiaire",
+  immeuble: "Immeuble",
   autre: "Autre",
+};
+
+export const MISSION_LABEL: Record<MissionType, string> = {
+  audit_energetique: "Audit énergétique",
+  dpe: "DPE",
+  ppt: "PPT",
+  dtg: "DTG",
+  note_dimensionnement: "Note de dimensionnement",
+  conseil: "Conseil",
+  autre: "Autre",
+};
+
+export const TERTIAIRE_SUBTYPE_LABEL: Record<TertiaireSubtype, string> = {
+  bureau: "Bureau",
+  hotellerie: "Hôtellerie",
+  sante: "Santé",
+  enseignement: "Enseignement",
+  commerce: "Commerce",
+  restauration: "Restauration",
+  autre: "Autres secteurs",
+};
+
+export const TERTIAIRE_SUBTYPE_ICON: Record<TertiaireSubtype, LucideIcon> = {
+  bureau: Briefcase,
+  hotellerie: Hotel,
+  sante: Stethoscope,
+  enseignement: GraduationCap,
+  commerce: ShoppingBag,
+  restauration: UtensilsCrossed,
+  autre: Box,
 };
 
 export const STATUS_LABEL: Record<VisitStatus, string> = {
