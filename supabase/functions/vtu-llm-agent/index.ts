@@ -395,8 +395,8 @@ Deno.serve(async (req) => {
         typeof byokRow.model_id === "string"
       ) {
         useByok = true;
-        byokKey = byokRow.encrypted_key;
-        resolvedModel = byokRow.model_id;
+        byokKey = byokRow.encrypted_key.trim();
+        resolvedModel = byokRow.model_id.trim();
         providerLabel = "openrouter";
       }
     } catch (err) {
@@ -419,7 +419,7 @@ Deno.serve(async (req) => {
     const extraHeaders: Record<string, string> = useByok
       ? {
           "HTTP-Referer": "https://vtu.lovable.app",
-          "X-Title": "VTU — Visites Techniques Universelles",
+          "X-Title": "VTU - Visites Techniques Universelles",
         }
       : {};
 
