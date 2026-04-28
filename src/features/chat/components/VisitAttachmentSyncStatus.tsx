@@ -239,7 +239,14 @@ export function VisitAttachmentSyncStatus({
       {counts.failed > 0 ? (
         <span className="text-destructive inline-flex items-center gap-1">
           <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-          {counts.failed} échec{counts.failed > 1 ? "s" : ""}
+          {counts.failed} upload échoué{counts.failed > 1 ? "s" : ""}
+        </span>
+      ) : null}
+
+      {counts.aiFailed > 0 ? (
+        <span className="text-destructive inline-flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+          {counts.aiFailed} analyse{counts.aiFailed > 1 ? "s" : ""} IA en échec
         </span>
       ) : null}
 
