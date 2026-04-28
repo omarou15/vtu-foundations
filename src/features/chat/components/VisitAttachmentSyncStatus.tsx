@@ -201,6 +201,7 @@ export function VisitAttachmentSyncStatus({
     counts.uploaded === stableTotal &&
     counts.analyzed === stableTotal &&
     counts.failed === 0 &&
+    counts.aiFailed === 0 &&
     counts.inFlight === 0;
 
   return (
