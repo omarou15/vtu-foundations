@@ -47,52 +47,12 @@ const ALLOWED_COLLECTIONS: ReadonlyArray<{ path: string; label: string }> = [
   { path: "custom_observations.items", label: "Observations personnalisées" },
 ];
 
-const REJECTION_RULES: ReadonlyArray<{
-  code: string;
-  origin: "patches" | "insert_entries";
-  fr: string;
-}> = [
-  {
-    code: "positional_index_forbidden",
-    origin: "patches",
-    fr: "Path utilise un index positionnel `[N]` — interdit. Les entrées sont identifiées par UUID.",
-  },
-  {
-    code: "path_not_in_schema",
-    origin: "patches",
-    fr: "Le path proposé ne correspond à aucun champ déclaré dans le schéma JSON.",
-  },
-  {
-    code: "entry_not_found",
-    origin: "patches",
-    fr: "Aucune entrée existante avec cet UUID dans la collection ciblée.",
-  },
-  {
-    code: "field_not_in_collection_item",
-    origin: "patches",
-    fr: "Le champ ciblé n'existe pas sur le schéma de l'item de cette collection.",
-  },
-  {
-    code: "validated_by_human",
-    origin: "patches",
-    fr: "Le champ a déjà été validé par un humain — l'IA ne peut pas l'écraser.",
-  },
-  {
-    code: "human_source_prime",
-    origin: "patches",
-    fr: "Conflit : valeur saisie humaine déjà présente. Émet une conflict_card pour arbitrage.",
-  },
-  {
-    code: "unknown_collection",
-    origin: "insert_entries",
-    fr: "La collection demandée n'existe pas dans le registre.",
-  },
-  {
-    code: "no_valid_fields",
-    origin: "insert_entries",
-    fr: "L'insert_entry ne contient aucun champ valide reconnu par le schéma de l'item.",
-  },
-];
+// Refonte avril 2026 — Plus aucune règle de rejet côté apply.
+// Toute proposition LLM (patch, insert_entry, custom_field) est convertie
+// en action et présentée au user sur la PendingActionsCard. Le user est
+// seul juge : il accepte ou refuse, y compris les overrides d'une saisie
+// manuelle. La doctrine "humain prime" est appliquée par le user, plus
+// par du code.
 
 const ROUTER_RULES: ReadonlyArray<{ order: number; name: string; route: string; doc: string }> = [
   { order: 1, name: "media", route: "extract", doc: "kind=photo|audio|document → toujours extract." },
@@ -332,34 +292,31 @@ function Block2Hardcoded() {
         </ul>
       </CardShell>
 
-      {/* Règles de rejet */}
+      {/* Doctrine pure proposition */}
       <CardShell>
         <h4 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
-          <FileWarning className="h-4 w-4 text-muted-foreground" />
-          Règles de rejet post-LLM
+          <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+          Doctrine apply — pure proposition
         </h4>
         <p className="font-body mt-1 text-xs text-muted-foreground">
-          Codes appliqués par <code className="font-ui">apply-patches.ts</code> et
-          <code className="font-ui"> apply-insert-entries.ts</code> après réception
-          de la réponse modèle. Un patch rejeté n'est jamais écrit dans le state.
+          Plus aucune règle de rejet côté <code className="font-ui">apply-patches.ts</code> /
+          <code className="font-ui"> apply-insert-entries.ts</code>. Toute proposition LLM
+          (patch, insert_entry, custom_field) est convertie en action et
+          présentée au user sur la <strong>PendingActionsCard</strong>.
         </p>
-        <ul className="mt-3 flex flex-col gap-2">
-          {REJECTION_RULES.map((r) => (
-            <li
-              key={r.code}
-              className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-2.5"
-            >
-              <div className="flex items-center gap-2">
-                <code className="font-ui text-xs font-semibold text-destructive">
-                  {r.code}
-                </code>
-                <Badge variant="outline" className="font-ui text-[10px]">
-                  {r.origin}
-                </Badge>
-              </div>
-              <p className="font-body text-xs text-muted-foreground">{r.fr}</p>
-            </li>
-          ))}
+        <ul className="mt-3 flex flex-col gap-1.5">
+          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
+            ✅ Le user accepte ou refuse chaque modification individuellement.
+          </li>
+          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
+            ✅ Auto-vivification : un path manquant est créé à la volée si la
+            proposition est acceptée.
+          </li>
+          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
+            ⚠️ Les overrides d'une saisie humaine sont autorisés mais étiquetés
+            sur la carte — la doctrine "humain prime" est appliquée par le
+            user, plus par du code.
+          </li>
         </ul>
       </CardShell>
 
