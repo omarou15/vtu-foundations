@@ -74,6 +74,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     Icon: Info,
     comingSoon: true,
   },
+  {
+    id: "dev",
+    path: "/settings/dev",
+    label: "Dev — Inspecteur IA",
+    Icon: Terminal,
+    comingSoon: false,
+  },
 ] as const;
 
 interface SettingsSidebarProps {
