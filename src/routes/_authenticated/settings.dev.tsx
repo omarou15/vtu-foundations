@@ -350,6 +350,35 @@ function Block2Hardcoded() {
         </ul>
       </CardShell>
 
+      {/* Compression progressive du context bundle */}
+      <CardShell>
+        <h4 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
+          <FileWarning className="h-4 w-4 text-muted-foreground" />
+          Compression progressive du context bundle
+        </h4>
+        <p className="font-body mt-1 text-xs text-muted-foreground">
+          L'historique est <strong>illimité par défaut</strong>. Si le bundle
+          dépasse le budget tokens (~12 000), <code className="font-ui">compress.ts</code> applique
+          ces passes dans l'ordre, en sortant dès qu'on repasse sous le budget.
+        </p>
+        <ol className="mt-3 flex flex-col gap-1.5">
+          {COMPRESSION_PASSES.map((p) => (
+            <li
+              key={p.id}
+              className="grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5"
+            >
+              <span className="font-ui text-[11px] font-semibold text-muted-foreground">
+                {p.id}
+              </span>
+              <code className="font-ui text-[11px] font-medium text-primary">
+                {p.name}
+              </code>
+              <span className="font-body text-xs text-muted-foreground">{p.doc}</span>
+            </li>
+          ))}
+        </ol>
+      </CardShell>
+
       {/* Routeur déterministe */}
       <CardShell>
         <h4 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
