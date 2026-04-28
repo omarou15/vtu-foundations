@@ -72,7 +72,13 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
         title: value.title,
         address: value.address,
         missionType: value.mission_type,
+        missionTypeOther: value.mission_type_other ?? null,
         buildingType: value.building_type,
+        buildingTypeOther: value.building_type_other ?? null,
+        tertiaireSubtype: value.tertiaire_subtype ?? null,
+        tertiaireSubtypeOther: value.tertiaire_subtype_other ?? null,
+        gps: value.gps,
+        visitStartedAt: value.visit_started_at,
       });
       setDialogOpen(false);
       toast.success("Visite créée", { description: visit.title });
