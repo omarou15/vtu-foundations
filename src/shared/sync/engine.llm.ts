@@ -606,7 +606,7 @@ async function handleConversational(
   try {
     resp = await callVtuLlmAgent({
       mode: "conversational",
-      messageText: message.content ?? "",
+      messageText: messageTextForLlm(message),
       contextBundle: bundle,
     });
   } catch (err) {
