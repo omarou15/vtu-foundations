@@ -42,6 +42,7 @@ const ALLOWED_MODELS = new Set<string>([
   "openai/gpt-5",
 ]);
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const TIMEOUT_MS = 60_000;
 
 const corsHeaders = {
