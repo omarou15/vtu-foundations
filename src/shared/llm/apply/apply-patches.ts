@@ -136,72 +136,55 @@ function resolvePatchTarget(
 function ensureObjectPath(
   root: Record<string, unknown>,
   path: string,
-): { parent: Record<string, unknown> | null; key: string | null } {
-  const segments = path.split(".");
-  if (segments.length < 2 || segments.some((s) => s.length === 0)) {
-    // Cas trivial : path à un seul segment → on essaie quand même via walkObjectPath
-    const t = walkObjectPath(root, path);
-    return { parent: t.parent, key: t.key };
-  }
+): { parent: Record<string, unknown>; key: string } {
+  const segments = path.split(".").filter((s) => s.length > 0);
+  if (segments.length === 0) return { parent: root, key: "_value" };
+  if (segments.length === 1) return { parent: root, key: segments[0]! };
   let cur: Record<string, unknown> = root;
   for (let i = 0; i < segments.length - 1; i += 1) {
     const seg = segments[i]!;
     const next = cur[seg];
-    if (next === undefined || next === null) {
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
       cur[seg] = {};
       cur = cur[seg] as Record<string, unknown>;
-    } else if (typeof next === "object" && !Array.isArray(next)) {
-      cur = next as Record<string, unknown>;
     } else {
-      // Type incompatible (array, primitif) — refuse pour ne pas corrompre.
-      return { parent: null, key: null };
+      cur = next as Record<string, unknown>;
     }
   }
   return { parent: cur, key: segments[segments.length - 1]! };
 }
 
 /**
- * Résout (ou crée) un array à un path dot-notation. Retourne null si un
- * conteneur intermédiaire est d'un type incompatible (primitif).
+ * Force un array à un path dot-notation. Tout conteneur incompatible est
+ * écrasé : doctrine permissive totale, le LLM propose, l'utilisateur arbitre.
  */
-function ensureArrayAtPath(
+function forceArrayAtPath(
   root: Record<string, unknown>,
   path: string,
-): unknown[] | null {
-  const segments = path.split(".");
+): unknown[] {
+  const segments = path.split(".").filter((s) => s.length > 0);
+  if (segments.length === 0) return [];
   let cur: Record<string, unknown> = root;
   for (let i = 0; i < segments.length - 1; i += 1) {
     const seg = segments[i]!;
     const next = cur[seg];
-    if (next === undefined || next === null) {
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
       cur[seg] = {};
       cur = cur[seg] as Record<string, unknown>;
-    } else if (typeof next === "object" && !Array.isArray(next)) {
-      cur = next as Record<string, unknown>;
     } else {
-      return null;
+      cur = next as Record<string, unknown>;
     }
   }
   const last = segments[segments.length - 1]!;
   const existing = cur[last];
-  if (existing === undefined || existing === null) {
+  if (!Array.isArray(existing)) {
     const arr: unknown[] = [];
     cur[last] = arr;
     return arr;
   }
-  if (Array.isArray(existing)) return existing;
-  return null;
-}
-
-function isFieldShape(node: unknown): node is Field<unknown> {
-  if (!node || typeof node !== "object") return false;
-  const o = node as Record<string, unknown>;
-  return "value" in o && "source" in o && "validation_status" in o;
+  return existing;
 }
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }
-
-// emptyField gardé importé pour compat éventuelle des call-sites de tests.
-void emptyField;
