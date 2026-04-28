@@ -94,6 +94,11 @@ export function useSyncEngine(): void {
             // ignore : le prochain tick retentera.
           }
         }
+      } catch (err) {
+        const message = await formatSyncTickError(err);
+        if (import.meta.env.DEV) {
+          console.warn("[sync] tick failed", message);
+        }
       } finally {
         runningRef.current = false;
         if (pendingRef.current && !cancelled) {
@@ -125,4 +130,20 @@ export function useSyncEngine(): void {
       window.removeEventListener("focus", onFocus);
     };
   }, [status, userId]);
+}
+
+async function formatSyncTickError(err: unknown): Promise<string> {
+  if (typeof Response !== "undefined" && err instanceof Response) {
+    const body = await err.clone().text().catch(() => "");
+    return `HTTP ${err.status} ${err.statusText}${body ? ` — ${body.slice(0, 300)}` : ""}`;
+  }
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  }
+  return String(err);
 }
