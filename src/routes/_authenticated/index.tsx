@@ -10,6 +10,7 @@ import { VisitsSidebar } from "@/features/visits";
  * À la sélection d'une VT, on navigue vers /visits/$visitId.
  */
 export const Route = createFileRoute("/_authenticated/")({
+  codeSplitGroupings: [],
   component: HomePage,
 });
 
