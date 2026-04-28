@@ -49,6 +49,22 @@ export interface VisitSnapshotResult {
 
 const inflight = new Map<string, Promise<VisitSnapshotResult>>();
 
+/** Diagnostic dev-only — dernier résultat par visite (succès ou échec). */
+const lastResults = new Map<
+  string,
+  { ok: boolean; at: number; error: string | null }
+>();
+
+export function isVisitSnapshotInflight(visitId: string): boolean {
+  return inflight.has(visitId);
+}
+
+export function getLastVisitSnapshotResult(
+  visitId: string,
+): { ok: boolean; at: number; error: string | null } | null {
+  return lastResults.get(visitId) ?? null;
+}
+
 /** Pull séquentiel et atomique-par-famille pour une visite donnée.
  *  Si un appel est déjà en cours pour le même `visitId`, retourne sa Promise. */
 export function syncVisitAssetsSnapshot(
@@ -58,9 +74,26 @@ export function syncVisitAssetsSnapshot(
   const existing = inflight.get(visitId);
   if (existing) return existing;
 
-  const promise = runSnapshot(visitId, supabaseClient).finally(() => {
-    inflight.delete(visitId);
-  });
+  const promise = runSnapshot(visitId, supabaseClient)
+    .then((r) => {
+      lastResults.set(visitId, {
+        ok: r.errors.length === 0,
+        at: Date.now(),
+        error: r.errors[0]?.message ?? null,
+      });
+      return r;
+    })
+    .catch((err) => {
+      lastResults.set(visitId, {
+        ok: false,
+        at: Date.now(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    })
+    .finally(() => {
+      inflight.delete(visitId);
+    });
   inflight.set(visitId, promise);
   return promise;
 }
