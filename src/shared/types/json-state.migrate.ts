@@ -88,8 +88,19 @@ export function backfillFieldValidation(node: unknown): void {
     backfillFieldIfMissing(node as Record<string, unknown>);
     return; // ne pas descendre dans .value
   }
+  hydrateEquipmentBrands(node as Record<string, unknown>);
   for (const v of Object.values(node as Record<string, unknown>)) {
     backfillFieldValidation(v);
+  }
+}
+
+function hydrateEquipmentBrands(node: Record<string, unknown>): void {
+  const list = node.installations;
+  if (!Array.isArray(list)) return;
+  for (const item of list) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obj = item as Record<string, unknown>;
+    if (!("brand" in obj)) obj.brand = emptyField<string>();
   }
 }
 
