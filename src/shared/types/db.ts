@@ -36,13 +36,32 @@ export interface SyncFields {
 
 export type VisitStatus = "draft" | "in_progress" | "done" | "archived";
 
-export type MissionType = "audit_energetique" | "dpe" | "conseil" | "autre";
+export type MissionType =
+  | "audit_energetique"
+  | "dpe"
+  | "ppt"
+  | "dtg"
+  | "note_dimensionnement"
+  | "conseil" // legacy — conservé pour rétrocompat des données existantes
+  | "autre";
 
 export type BuildingType =
   | "maison_individuelle"
   | "appartement"
-  | "immeuble"
+  | "copropriete"
+  | "monopropriete"
+  | "industrie"
   | "tertiaire"
+  | "immeuble" // legacy — conservé pour rétrocompat des données existantes
+  | "autre";
+
+export type TertiaireSubtype =
+  | "bureau"
+  | "hotellerie"
+  | "sante"
+  | "enseignement"
+  | "commerce"
+  | "restauration"
   | "autre";
 
 export interface VisitRow {
@@ -54,7 +73,20 @@ export interface VisitRow {
   version: number;
   address: string | null;
   mission_type: MissionType | null;
+  /** Texte libre quand mission_type === "autre". */
+  mission_type_other: string | null;
   building_type: BuildingType | null;
+  /** Texte libre quand building_type === "autre". */
+  building_type_other: string | null;
+  /** Sous-secteur quand building_type === "tertiaire". */
+  tertiaire_subtype: TertiaireSubtype | null;
+  /** Texte libre quand tertiaire_subtype === "autre". */
+  tertiaire_subtype_other: string | null;
+  /** Date+heure de début de la VT (auto-rempli à la création). */
+  visit_started_at: string;
+  gps_lat: number | null;
+  gps_lng: number | null;
+  gps_accuracy_m: number | null;
   created_at: string;
   updated_at: string;
 }
