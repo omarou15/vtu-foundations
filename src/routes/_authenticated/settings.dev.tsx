@@ -1,20 +1,22 @@
 /**
- * Section "Dev — Inspecteur IA" — Paramètres (Lot 1A lecture seule).
+ * Section "Dev — Inspecteur IA" — Paramètres.
  *
- * Doctrine : page volontairement dense, orientée debug du pipeline IA.
- * 100% lecture. Aucun override (chantier suivant).
+ * Doctrine VTU (refonte avril 2026) :
+ *  - Le LLM propose, le user dispose. Aucun rejet silencieux côté apply.
+ *  - Toute proposition (patches, insert_entries, custom_fields) est convertie
+ *    en action et présentée sur la PendingActionsCard. Le user accepte ou
+ *    refuse chaque modification, y compris les overrides d'une saisie humaine.
  *
- * Trois blocs :
- *  1. Ce qui est envoyé à l'IA — dernier appel (extract ou conversational)
- *     pour la dernière visite avec activité IA. Affiche context_bundle,
- *     recent messages, prompt_summary, raw_response.
- *  2. Ce qui est codé en dur — collections autorisées, rejets, routeur
- *     déterministe (catalogue documentaire en clair).
+ * Cette page est 100% lecture. Deux blocs :
+ *  1. Ce qui est envoyé à l'IA — dernier appel persisté localement
+ *     (extract_from_message, conversational_query, describe_media).
+ *     Affiche context_bundle, recent_messages, schema_map, raw_response.
+ *  2. Ce qui est codé en dur — collections autorisées, doctrine apply
+ *     (pure proposition), passes de compression, routeur déterministe
+ *     (référence interne pour le routage des médias).
  *
- * Limite assumée : pour les anciens appels, on n'affiche que ce qui a
- * été persisté dans `llm_extractions` (context_bundle + raw_request_summary
- * + raw_response). Les prompts complets ne sont pas archivés à ce jour ;
- * un futur Lot 2 enrichira l'audit.
+ * Limite assumée : le prompt système et le prompt utilisateur assemblé
+ * ne sont pas (encore) persistés. Un futur lot enrichira l'audit.
  */
 
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -125,9 +127,10 @@ function DevInspectorPage() {
             Inspecteur IA
           </h2>
           <p className="font-body text-sm text-muted-foreground">
-            Diagnostic complet du pipeline IA. Lecture seule. Sert à comprendre
-            ce qui est envoyé au modèle et pourquoi certaines propositions sont
-            ensuite filtrées côté apply.
+            Diagnostic complet du pipeline IA. Lecture seule. Doctrine
+            « pure proposition » : le LLM propose, le user dispose. Aucun
+            rejet silencieux — toute suggestion arrive sur la
+            PendingActionsCard pour arbitrage.
           </p>
         </header>
 
@@ -276,8 +279,10 @@ function Block2Hardcoded() {
         </h4>
         <p className="font-body mt-1 text-xs text-muted-foreground">
           Source : <code className="font-ui">COLLECTIONS_REGISTRY</code> dans
-          <code className="font-ui"> json-state.schema-map.ts</code>. Toute autre
-          collection sera rejetée avec <code className="font-ui">unknown_collection</code>.
+          <code className="font-ui"> json-state.schema-map.ts</code>. Si le LLM
+          propose une collection hors liste, l'auto-vivification crée
+          l'entrée et la PendingActionsCard l'étiquette « hors schéma » —
+          c'est le user qui tranche.
         </p>
         <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
           {ALLOWED_COLLECTIONS.map((c) => (
@@ -294,28 +299,35 @@ function Block2Hardcoded() {
 
       {/* Doctrine pure proposition */}
       <CardShell>
-        <h4 className="font-heading flex items-center gap-2 text-sm font-semibold text-foreground">
-          <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+        <h4 className="font-heading text-sm font-semibold text-foreground">
           Doctrine apply — pure proposition
         </h4>
         <p className="font-body mt-1 text-xs text-muted-foreground">
           Plus aucune règle de rejet côté <code className="font-ui">apply-patches.ts</code> /
-          <code className="font-ui"> apply-insert-entries.ts</code>. Toute proposition LLM
-          (patch, insert_entry, custom_field) est convertie en action et
-          présentée au user sur la <strong>PendingActionsCard</strong>.
+          <code className="font-ui"> apply-insert-entries.ts</code>. Toute proposition
+          LLM est convertie en action et présentée sur la
+          <strong> PendingActionsCard</strong>. Codes
+          <code className="font-ui"> path_not_in_schema</code>,
+          <code className="font-ui"> human_source_prime</code>,
+          <code className="font-ui"> validated_by_human</code>,
+          <code className="font-ui"> entry_not_found</code>, etc. : <strong>supprimés</strong>.
         </p>
         <ul className="mt-3 flex flex-col gap-1.5">
           <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
             ✅ Le user accepte ou refuse chaque modification individuellement.
           </li>
           <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
-            ✅ Auto-vivification : un path manquant est créé à la volée si la
-            proposition est acceptée.
+            ✅ Auto-vivification : un path absent (ou un UUID inconnu dans une
+            collection) est créé à la volée si la proposition est acceptée.
           </li>
           <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
-            ⚠️ Les overrides d'une saisie humaine sont autorisés mais étiquetés
-            sur la carte — la doctrine "humain prime" est appliquée par le
-            user, plus par du code.
+            ⚠️ Les overrides d'une saisie humaine sont autorisés mais
+            étiquetés « écrase saisie manuelle » sur la carte — la doctrine
+            « humain prime » est appliquée par le user, plus par du code.
+          </li>
+          <li className="font-body rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
+            ℹ️ Les anciens messages <code className="font-ui">conflict_card</code> historiques
+            sont rendus via la même PendingActionsCard (rétro-compat lecture).
           </li>
         </ul>
       </CardShell>
