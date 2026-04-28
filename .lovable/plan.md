@@ -1,114 +1,60 @@
-# Prompt système éditable depuis l'inspecteur IA
+# Diagnostic + correction : l'IA ne répond pas
 
-## Objectif
+## Cause racine identifiée
 
-Sortir `SYSTEM_UNIFIED` du code (hardcodé dans `system-unified.ts` + copie inline dans l'edge function) pour qu'il devienne :
-- **persisté en base** (modifiable sans redéploiement),
-- **éditable depuis `/settings/dev`** (textarea + bouton Sauvegarder + bouton Réinitialiser au défaut),
-- **envoyé à chaque appel LLM** par l'edge function (qui le lit en DB, plus en dur),
-- **versionné** (historique des modifications, possibilité de revenir en arrière).
+Capture d'écran : tu as envoyé "Bonjour" (7 caractères) et "test" (4 caractères) → aucune réponse de l'IA, aucun appel réseau capturé, aucun log côté edge function.
 
-La version actuelle (Energyco) devient le **prompt par défaut** intégré au code, utilisé en fallback si la DB est vide.
+Diagnostic complet effectué :
 
-## Architecture
+1. ✅ **Edge function `vtu-llm-agent`** : testée en direct avec `curl`, répond en 1.6s avec un tool-call Gemini valide. La nouvelle table `llm_system_prompts` est bien lue (sinon erreur 500).
+2. ✅ **Migration DB** : table créée, RLS OK, trigger « un seul actif par user » OK.
+3. ✅ **Client edge-function-client.ts** : code propre, gère bien JWT + payload.
+4. ❌ **Côté enqueue** : l'appel n'est **jamais déclenché** parce qu'une vieille gate filtre les messages courts.
 
-### 1. Nouvelle table `llm_system_prompts`
+### Le bug
 
-Stocke les versions successives du prompt système, par utilisateur (pour l'instant mono-user dev, mais scope user_id propre dès le départ).
+Dans `src/shared/db/messages.repo.ts` lignes 73-76 :
 
-Colonnes :
-- `id uuid pk`
-- `user_id uuid not null` (RLS : own only)
-- `content text not null` (le prompt complet)
-- `is_active boolean not null default false` (un seul actif par user)
-- `label text` (optionnel : "v3 — moins verbeux", etc.)
-- `created_at timestamptz default now()`
-
-Index : `(user_id, is_active) where is_active = true`.
-
-RLS : select / insert / update own (delete interdit, on garde l'historique).
-
-Trigger : avant insert/update si `is_active = true`, désactiver les autres prompts du même user (un seul actif à la fois).
-
-### 2. Edge function `vtu-llm-agent` — lecture DB du prompt
-
-Au début de chaque appel :
-1. Récupère le `user_id` depuis le JWT.
-2. Query `llm_system_prompts` where `user_id = X and is_active = true` → récupère `content`.
-3. Si aucune ligne active → fallback sur la constante `SYSTEM_UNIFIED` inline (= prompt Energyco actuel).
-4. Utilise ce contenu comme `system_prompt` dans l'appel LLM **et** dans `request_summary.system_prompt` retourné au client.
-
-Conséquence : `src/shared/llm/prompts/system-unified.ts` reste comme **valeur par défaut** (référence), mais n'est plus la source de vérité runtime.
-
-### 3. UI `/settings/dev` — bloc "Prompt système"
-
-Nouveau bloc en haut de l'inspecteur, au-dessus des 4 blocs wire actuels :
-
-```
-┌─ Prompt système (envoyé au LLM) ─────────────────┐
-│ [Label optionnel: v3 — ton plus direct       ]   │
-│                                                   │
-│ ┌───────────────────────────────────────────┐    │
-│ │ <role>                                     │    │
-│ │ Tu es l'Agent IA de VTU...                 │    │
-│ │ ...                                        │    │
-│ │ (textarea full height, ~25 lignes)         │    │
-│ └───────────────────────────────────────────┘    │
-│                                                   │
-│ Dernière modif : il y a 2h • v4 active            │
-│                                                   │
-│ [Réinitialiser au défaut] [Annuler] [Sauvegarder]│
-└───────────────────────────────────────────────────┘
-
-▾ Historique (5 versions)
-  • v4 — actif — il y a 2h
-  • v3 — il y a 1j        [Activer] [Voir]
-  • v2 — il y a 3j        [Activer] [Voir]
-  ...
+```ts
+const shouldDispatchLlm =
+  aiEnabled &&
+  input.role === "user" &&
+  (contentLen >= 10 || attachmentCount > 0);
 ```
 
-Comportement :
-- Au mount : fetch `llm_system_prompts` actif du user → préremplit la textarea. Si vide → préremplit avec la constante par défaut + badge "Défaut (non sauvegardé)".
-- **Sauvegarder** : insert nouvelle ligne avec `is_active = true` (le trigger désactive l'ancienne). Toast "Prompt système mis à jour — actif au prochain message".
-- **Réinitialiser au défaut** : remplit la textarea avec la constante du code (ne sauvegarde pas tant que l'user ne clique pas Sauvegarder).
-- **Annuler** : recharge depuis la DB.
-- **Activer** (sur une version d'historique) : passe `is_active = true` sur cette ligne.
-- **Voir** : ouvre une dialog read-only avec le contenu de la version.
+Tout message texte de **moins de 10 caractères** est silencieusement écarté du dispatch LLM. "Bonjour" (7c), "test" (4c), "ok", "merci", "oui", "non" → jamais envoyés au LLM.
 
-Validation : longueur min 100 caractères, max 50 000. Pas de validation sémantique (on fait confiance au user dev).
+C'est une gate héritée d'une époque où on craignait de surcharger le LLM avec du bavardage. Avec la doctrine actuelle :
+- toggle IA explicite par visite,
+- prompt système qui gère lui-même les salutations (`<edge_cases>` : « Salutation / "ok" / "merci" → réponse simple, aucune proposition »),
 
-### 4. Suppression de la copie inline du prompt dans l'edge function
+…cette gate est devenue **nuisible** : elle rend l'IA muette pour les messages les plus naturels en début de conversation.
 
-La constante `SYSTEM_UNIFIED` reste dans l'edge function uniquement comme **fallback** quand la DB est vide. Toute modif "officielle" passe par la DB.
+## Correction
 
-`src/shared/llm/prompts/system-unified.ts` reste exporté pour :
-- afficher "Réinitialiser au défaut" côté UI,
-- bootstrap initial.
+**Un seul fichier touché** : `src/shared/db/messages.repo.ts`.
 
-Les deux copies (TS + edge) restent bit-identiques (= défaut Energyco actuel).
+Remplacer la gate `contentLen >= 10` par : « le message a au moins quelque chose (texte non vide OU au moins 1 attachment) ». Le toggle IA + le prompt système suffisent à gérer les cas triviaux.
 
-## Fichiers touchés
+```ts
+const hasSomething =
+  (input.content ?? "").trim().length > 0 || attachmentCount > 0;
+const shouldDispatchLlm =
+  aiEnabled && input.role === "user" && hasSomething;
+```
 
-**Nouveaux**
-- Migration SQL : table `llm_system_prompts` + RLS + trigger un-seul-actif
-- `src/features/settings/system-prompt.repo.ts` : `getActiveSystemPrompt()`, `saveSystemPrompt(content, label?)`, `listSystemPrompts()`, `activateSystemPrompt(id)`
-- `src/features/settings/SystemPromptEditor.tsx` : composant éditeur (textarea + boutons + historique)
+## Validation
 
-**Modifiés**
-- `supabase/functions/vtu-llm-agent/index.ts` : lecture DB du prompt actif au lieu de la constante inline (fallback constante si vide)
-- `src/routes/_authenticated/settings.dev.tsx` : ajout du bloc `<SystemPromptEditor />` en tête, le bloc "Prompt système" actuel (lecture seule depuis `request_summary.system_prompt`) reste pour montrer ce qui a été réellement envoyé sur le dernier appel
+1. `bunx vitest run` — vérifier que les 260 tests passent toujours (aucun test ne couvre la gate `>= 10`, vérifié par grep).
+2. `supabase--curl_edge_functions` — refaire un appel direct pour reconfirmer la chaîne serveur (déjà OK, mais sanity check après build).
+3. **Test fonctionnel via la preview** : envoyer "Bonjour" depuis l'UI, vérifier qu'une réponse assistant arrive en <5s, et que l'inspecteur IA `/settings/dev` montre l'appel avec ton prompt système actif.
 
-## Détails techniques
+Je ne te recontacterai qu'une fois ces 3 étapes vertes.
 
-- **Lecture DB côté edge function** : utilise le client Supabase déjà importé, query simple avec `auth.uid()` extrait du JWT (header `Authorization`).
-- **Cache** : pas de cache dans l'edge (cold start = 1 query rapide indexée). Si problème de latence plus tard, on ajoutera un cache mémoire 30s.
-- **Migration de l'existant** : aucune. Tant qu'aucun user n'a sauvegardé, le fallback constante sert le prompt Energyco actuel → comportement identique à aujourd'hui.
-- **Inspector** : le bloc lecture seule "Prompt système" affiché sous chaque appel continue de venir de `request_summary.system_prompt` (donc montre bien la version qui a été envoyée à ce moment-là, pas la version courante en DB → utile si tu modifies le prompt entre deux messages).
-- **Sécurité** : RLS stricte par `user_id`, aucune exposition cross-user. Le prompt n'est pas un secret mais reste privé par compte.
-- **Tests** : ajouter tests Vitest sur `system-prompt.repo.ts` (insert active désactive l'ancien, fallback si vide).
+## Pourquoi c'était invisible jusqu'ici
 
-## Points hors scope (à confirmer si tu veux les ajouter)
+- Aucun log côté client ni côté edge → le message « disparaissait » silencieusement dans le `if`.
+- Les tests existants utilisent tous des messages longs (descriptions techniques) → la gate n'a jamais été déclenchée en test.
+- Les changements récents (refonte prompt, table éditable) n'ont pas touché à ce fichier → on cherchait dans la mauvaise direction.
 
-- Partage du prompt entre users d'une même organisation (aujourd'hui : per-user).
-- Diff visuel entre deux versions de l'historique.
-- A/B test entre deux prompts.
+Hors scope : ajouter un test de non-régression sur la gate (juste 1 it() qui vérifie qu'un message "ok" enqueue bien un `llm_route_and_dispatch`). Je l'ajoute aussi pendant que j'y suis, c'est trivial et ça scelle le bug.

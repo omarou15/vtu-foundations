@@ -53,7 +53,7 @@ describe("appendLocalMessage — append-only + sync_queue (Itération 5)", () =>
     expect(m.id).not.toBe(m.client_id);
   });
 
-  it("enqueue 1 sync_queue entry (table=messages, op=insert)", async () => {
+  it("enqueue insert + llm_route_and_dispatch (table=messages, op=insert/llm)", async () => {
     const m = await appendLocalMessage({
       userId: USER,
       visitId: VISIT,
@@ -62,11 +62,61 @@ describe("appendLocalMessage — append-only + sync_queue (Itération 5)", () =>
     });
 
     const queue = await getDb().sync_queue.toArray();
-    expect(queue.length).toBe(1);
-    expect(queue[0]!.table).toBe("messages");
-    expect(queue[0]!.op).toBe("insert");
-    expect(queue[0]!.row_id).toBe(m.id);
-    expect(queue[0]!.attempts).toBe(0);
+    expect(queue.length).toBe(2);
+    const insert = queue.find((q) => q.op === "insert");
+    const llm = queue.find((q) => q.op === "llm_route_and_dispatch");
+    expect(insert).toBeDefined();
+    expect(llm).toBeDefined();
+    expect(insert!.table).toBe("messages");
+    expect(insert!.row_id).toBe(m.id);
+    expect(insert!.attempts).toBe(0);
+    expect(llm!.row_id).toBe(m.id);
+  });
+
+  it("dispatch LLM même pour message court ('ok', 'Bonjour') — refonte avril 2026", async () => {
+    await appendLocalMessage({
+      userId: USER,
+      visitId: VISIT,
+      role: "user",
+      content: "ok",
+    });
+    const queueA = await getDb().sync_queue.toArray();
+    expect(queueA.some((q) => q.op === "llm_route_and_dispatch")).toBe(true);
+
+    await appendLocalMessage({
+      userId: USER,
+      visitId: VISIT,
+      role: "user",
+      content: "Bonjour",
+    });
+    const queueB = await getDb().sync_queue.toArray();
+    expect(
+      queueB.filter((q) => q.op === "llm_route_and_dispatch").length,
+    ).toBe(2);
+  });
+
+  it("PAS de dispatch LLM si toggle ai_enabled=false ou message vide sans attachment", async () => {
+    await appendLocalMessage({
+      userId: USER,
+      visitId: VISIT,
+      role: "user",
+      content: "ok",
+      metadata: { ai_enabled: false },
+    });
+    await appendLocalMessage({
+      userId: USER,
+      visitId: VISIT,
+      role: "user",
+      content: "   ",
+    });
+    await appendLocalMessage({
+      userId: USER,
+      visitId: VISIT,
+      role: "assistant",
+      content: "Réponse longue de l'assistant",
+    });
+    const queue = await getDb().sync_queue.toArray();
+    expect(queue.some((q) => q.op === "llm_route_and_dispatch")).toBe(false);
   });
 
   it("le payload sync_queue n'expose PAS les champs sync_*", async () => {

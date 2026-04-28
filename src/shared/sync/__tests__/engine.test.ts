@@ -92,6 +92,7 @@ describe("sync engine — runSyncOnce", () => {
       visitId: VISIT,
       role: "user",
       content: "hello",
+      metadata: { ai_enabled: false },
     });
 
     const { supabase, insertCalls } = makeMockSupabase();
@@ -117,6 +118,7 @@ describe("sync engine — runSyncOnce", () => {
       visitId: VISIT,
       role: "user",
       content: "boom",
+      metadata: { ai_enabled: false },
     });
 
     const { supabase } = makeMockSupabase({
@@ -144,6 +146,7 @@ describe("sync engine — runSyncOnce", () => {
       visitId: VISIT,
       role: "user",
       content: "dup",
+      metadata: { ai_enabled: false },
     });
 
     const { supabase } = makeMockSupabase({
@@ -167,6 +170,7 @@ describe("sync engine — runSyncOnce", () => {
       visitId: VISIT,
       role: "user",
       content: "die",
+      metadata: { ai_enabled: false },
     });
 
     // On force le compteur à MAX-1 puis on rejoue : ce tick déclenche
@@ -195,6 +199,7 @@ describe("sync engine — runSyncOnce", () => {
       visitId: VISIT,
       role: "user",
       content: "A",
+      metadata: { ai_enabled: false },
     });
     await new Promise((r) => setTimeout(r, 5));
     const b = await appendLocalMessage({
@@ -202,6 +207,7 @@ describe("sync engine — runSyncOnce", () => {
       visitId: VISIT,
       role: "user",
       content: "B",
+      metadata: { ai_enabled: false },
     });
 
     const { supabase, insertCalls } = makeMockSupabase();
@@ -221,6 +227,7 @@ describe("sync engine — runSyncOnce", () => {
       visitId: VISIT,
       role: "user",
       content: "later",
+      metadata: { ai_enabled: false },
     });
     const future = new Date(Date.now() + 60_000).toISOString();
     const q = await getDb().sync_queue.toArray();
