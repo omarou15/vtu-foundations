@@ -41,7 +41,10 @@ import {
   buildUserPromptConversational as _buildConv,
   buildUserPromptExtract as _buildExt,
 } from "./llm.prompt-builders";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+// NOTE : pas de middleware d'auth ici — les server functions TanStack Start
+// ne propagent pas automatiquement le JWT Supabase. La lecture du prompt
+// `describe_media` éditable se fait côté Edge Function `vtu-llm-agent`
+// pour le chat ; ici on retombe sur la constante par défaut.
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -220,7 +223,6 @@ const ROUTER_TOOL_PARAMS = {
 // ---------------------------------------------------------------------------
 
 export const describeMedia = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator(
     (data: {
       imageUrl?: string;
@@ -230,7 +232,7 @@ export const describeMedia = createServerFn({ method: "POST" })
       model?: GeminiModel;
     }) => data,
   )
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     // PDFs : skipped en amont du sync engine (cf. Q2). Sécurité ici aussi.
     if (data.mediaProfile === "pdf") {
       const skippedResult = {
@@ -261,31 +263,11 @@ export const describeMedia = createServerFn({ method: "POST" })
       };
     }
 
-    // Lecture du prompt actif (kind=describe_media) en DB pour cet
-    // utilisateur. Fallback sur la constante par défaut si rien sauvegardé.
-    let activeSystemPrompt = SYSTEM_DESCRIBE_MEDIA;
-    try {
-      const { data: promptRow } = await context.supabase
-        .from("llm_system_prompts")
-        .select("content")
-        .eq("user_id", context.userId)
-        .eq("kind", "describe_media")
-        .eq("is_active", true)
-        .maybeSingle();
-      if (
-        promptRow &&
-        typeof promptRow.content === "string" &&
-        promptRow.content.length > 0
-      ) {
-        activeSystemPrompt = promptRow.content;
-      }
-    } catch (err) {
-      console.warn(
-        "[describeMedia] system_prompt_db_read_failed",
-        (err as Error).message,
-      );
-    }
-
+    // Prompt système : constante par défaut. La version éditable par
+    // utilisateur (kind=describe_media) sera lue côté Edge Function quand
+    // l'analyse photo y migrera ; ici on garde le fallback statique pour
+    // éviter d'imposer un middleware d'auth incompatible avec l'appel client.
+    const activeSystemPrompt = SYSTEM_DESCRIBE_MEDIA;
     const model = data.model ?? DEFAULT_MODEL;
     const userPrompt = `Décris cette image (mediaProfile=${data.mediaProfile}). Suis le schéma de sortie strict.`;
     const stable = await hashContext({
