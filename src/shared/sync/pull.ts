@@ -72,6 +72,13 @@ interface PullResult {
 const PULL_LIMIT = 200;
 const HYDRATION_LIMIT = 500;
 
+/** Résultat structuré d'un pull par visite : utile pour avancer le curseur
+ *  uniquement à partir de la réponse serveur (pas via tri Dexie postérieur). */
+export interface PullVisitTableResult {
+  count: number;
+  lastCreatedAt: string | null;
+}
+
 export interface PullOnceResult {
   pulled: number;
   tables: Record<"visits" | "visit_json_state", number>;
@@ -189,7 +196,7 @@ export async function pullMessagesForVisit(
   supabase: PullSupabaseLike,
   visitId: string,
   options: { sinceIso?: string | null } = {},
-): Promise<number> {
+): Promise<PullVisitTableResult> {
   const since = options.sinceIso ?? null;
 
   let query = supabase
@@ -206,19 +213,20 @@ export async function pullMessagesForVisit(
 
   const { data, error } = await query;
   if (error) throw new Error(`pullMessagesForVisit: ${error.message}`);
-  if (!data || data.length === 0) return 0;
+  if (!data || data.length === 0) return { count: 0, lastCreatedAt: null };
 
   for (const raw of data) {
     await upsertMessageFromRemote(raw as unknown as MessageRow);
   }
-  return data.length;
+  const last = data[data.length - 1] as { created_at?: string };
+  return { count: data.length, lastCreatedAt: last?.created_at ?? null };
 }
 
 export async function pullAttachmentsForVisit(
   supabase: PullSupabaseLike,
   visitId: string,
   options: { sinceIso?: string | null } = {},
-): Promise<number> {
+): Promise<PullVisitTableResult> {
   const since = options.sinceIso ?? null;
   let query = supabase
     .from("attachments")
@@ -232,19 +240,20 @@ export async function pullAttachmentsForVisit(
 
   const { data, error } = await query;
   if (error) throw new Error(`pullAttachmentsForVisit: ${error.message}`);
-  if (!data || data.length === 0) return 0;
+  if (!data || data.length === 0) return { count: 0, lastCreatedAt: null };
 
   for (const raw of data) {
     await upsertAttachmentFromRemote(raw as unknown as AttachmentRow);
   }
-  return data.length;
+  const last = data[data.length - 1] as { created_at?: string };
+  return { count: data.length, lastCreatedAt: last?.created_at ?? null };
 }
 
 export async function pullAttachmentAiDescriptionsForVisit(
   supabase: PullSupabaseLike,
   visitId: string,
   options: { sinceIso?: string | null } = {},
-): Promise<number> {
+): Promise<PullVisitTableResult> {
   const since = options.sinceIso ?? null;
   let query = supabase
     .from("attachment_ai_descriptions")
@@ -260,12 +269,13 @@ export async function pullAttachmentAiDescriptionsForVisit(
   if (error) {
     throw new Error(`pullAttachmentAiDescriptionsForVisit: ${error.message}`);
   }
-  if (!data || data.length === 0) return 0;
+  if (!data || data.length === 0) return { count: 0, lastCreatedAt: null };
 
   for (const raw of data) {
     await upsertAttachmentAiDescriptionFromRemote(
       raw as unknown as AttachmentAiDescriptionRow,
     );
   }
-  return data.length;
+  const last = data[data.length - 1] as { created_at?: string };
+  return { count: data.length, lastCreatedAt: last?.created_at ?? null };
 }
