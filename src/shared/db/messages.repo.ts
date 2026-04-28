@@ -58,22 +58,24 @@ export async function appendLocalMessage(
     next_attempt_at: now,
   };
 
-  // It. 10 — Trigger LLM route_and_dispatch pour les messages user
-  // « substantiels » (≥10 chars OU au moins 1 attachment annoncé via metadata).
-  // It. 10.7 — Gate supplémentaire : le toggle IA de la visite (passé via
-  //   metadata.ai_enabled). Si explicitement false → aucun dispatch.
-  //   Default true pour rétrocompat tests/sync legacy.
-  // Anti-boucle : assistant/system jamais déclenchés ici.
+  // Refonte avril 2026 — Trigger LLM dès que :
+  //   - le toggle IA de la visite est ON (metadata.ai_enabled, défaut true),
+  //   - rôle = user (anti-boucle, l'assistant ne se répond pas à lui-même),
+  //   - le message a quelque chose à analyser (texte non vide OU attachment).
+  //
+  // L'ancienne gate `contentLen >= 10` filtrait silencieusement "Bonjour",
+  // "ok", "merci", "test"… → l'IA paraissait muette en début de conversation.
+  // Avec la doctrine "pure proposition" + le system prompt qui gère lui-même
+  // les salutations (<edge_cases>), c'est au LLM de décider, pas au client.
   const attachmentCount =
     typeof input.metadata?.attachment_count === "number"
       ? (input.metadata.attachment_count as number)
       : 0;
   const aiEnabled = input.metadata?.ai_enabled !== false;
-  const contentLen = (input.content ?? "").length;
+  const hasSomething =
+    (input.content ?? "").trim().length > 0 || attachmentCount > 0;
   const shouldDispatchLlm =
-    aiEnabled &&
-    input.role === "user" &&
-    (contentLen >= 10 || attachmentCount > 0);
+    aiEnabled && input.role === "user" && hasSomething;
 
   const llmDispatchEntry: SyncQueueEntry | null = shouldDispatchLlm
     ? {
