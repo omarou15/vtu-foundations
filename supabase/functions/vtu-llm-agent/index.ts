@@ -393,6 +393,11 @@ Deno.serve(async (req) => {
       assistant_message_preview: typeof parsed.assistant_message === "string"
         ? parsed.assistant_message.slice(0, 120)
         : null,
+      raw_insert_entries: rawInserts.slice(0, 5),
+      raw_patches_paths: rawPatches
+        .map((p) => (p && typeof p === "object" ? (p as { path?: unknown }).path : null))
+        .filter((x) => typeof x === "string")
+        .slice(0, 10),
     }));
 
     // It. 11.6 hardening — coalesce des patches "<collection>[N].<field>" en
@@ -409,42 +414,77 @@ Deno.serve(async (req) => {
     );
 
     // It. 11.6 hardening — filtrer les insert_entries avec fields vide
-    // (le LLM le fait parfois quand il "veut" insérer mais ne sait pas
-    // quoi mettre). L'apply layer renvoie no_valid_fields → 0 op effective
-    // → l'utilisateur voit un message qui prétend avoir agi sans rien faire.
-    const droppedEmptyInserts: string[] = [];
+    // OU collection inconnue (le LLM le fait parfois). Logger précisément
+    // la raison pour debug.
+    interface DropDiag { collection: string; reason: "fields_empty" | "collection_unknown" }
+    const dropDiags: DropDiag[] = [];
     const insertEntries = insertEntriesAfterCoalesce.filter((e) => {
+      const collection = String((e as { collection?: unknown }).collection ?? "?");
       const f = (e as { fields?: unknown }).fields;
       const hasFields = !!f && typeof f === "object" && Object.keys(f as Record<string, unknown>).length > 0;
-      if (!hasFields) {
-        droppedEmptyInserts.push(String((e as { collection?: unknown }).collection ?? "?"));
+      if (!knownCollections.has(collection)) {
+        dropDiags.push({ collection, reason: "collection_unknown" });
+        return false;
       }
-      return hasFields;
+      if (!hasFields) {
+        dropDiags.push({ collection, reason: "fields_empty" });
+        return false;
+      }
+      return true;
     });
 
-    // Garde anti-hallucination réciproque : si le LLM affirme avoir agi
-    // mais n'a produit AUCUNE opération effective, on réécrit
-    // l'assistant_message pour ne pas mentir à l'utilisateur. Symétrique
-    // de la règle "jamais dire 'aucun champ mis à jour'".
-    const totalOps = patches.length + insertEntries.length + rawCustom.length;
+    if (dropDiags.length > 0) {
+      console.warn("[vtu-llm-agent] insert_entries_dropped", JSON.stringify(dropDiags));
+    }
+
+    // Garde anti-hallucination réciproque, version fine :
+    // - llmProducedOps : ce que le LLM a réellement émis (avant nos filtres).
+    // - effectiveOps   : ce qui survit après filtrage.
+    // Trois cas distincts, trois messages distincts.
+    const llmProducedOps = rawPatches.length + rawInserts.length + rawCustom.length;
+    const effectiveOps = patches.length + insertEntries.length + rawCustom.length;
     const rawMessage = typeof parsed.assistant_message === "string"
       ? parsed.assistant_message
       : "";
     const claimsAction = /j['’]ai (ajouté|noté|enregistré|complété|relevé|mis|inséré|créé|sauvegardé)/i.test(rawMessage);
-    const hallucinatedAction = totalOps === 0 && claimsAction;
-    const safeMessage = hallucinatedAction
-      ? "Je n'ai pas pu structurer ces infos automatiquement. Reformule-les en précisant le type d'équipement et ses caractéristiques (ex : 'PAC air-eau Daikin 8 kW électrique')."
-      : (rawMessage.length > 0 ? rawMessage.slice(0, 400) : "Bien noté.");
-    const droppedWarnings = droppedEmptyInserts.map(
-      (c) => `insert_entry sans fields ignoré (collection=${c})`,
+
+    let safeMessage: string;
+    let hallucinationTag: string | null = null;
+    if (effectiveOps > 0) {
+      // Cas nominal : on garde le message du LLM tel quel.
+      safeMessage = rawMessage.length > 0 ? rawMessage.slice(0, 400) : "Bien noté.";
+    } else if (llmProducedOps > 0 && dropDiags.length > 0) {
+      // Le LLM a tenté d'agir mais on a tout filtré → message précis.
+      const unknownCols = dropDiags.filter((d) => d.reason === "collection_unknown").map((d) => d.collection);
+      const emptyCols = dropDiags.filter((d) => d.reason === "fields_empty").map((d) => d.collection);
+      const hints: string[] = [];
+      if (unknownCols.length > 0) hints.push(`catégorie inconnue (${[...new Set(unknownCols)].join(", ")})`);
+      if (emptyCols.length > 0) hints.push("aucun champ exploitable détecté");
+      safeMessage = `Je n'ai pas pu structurer ces infos : ${hints.join(" et ")}. Précise le type d'équipement et au moins une caractéristique (ex : 'PAC air-eau Daikin 8 kW électrique').`;
+      hallucinationTag = "filtered_after_llm";
+    } else if (claimsAction) {
+      // Le LLM affirme avoir agi mais n'a rien émis du tout.
+      safeMessage = "Je n'ai pas pu structurer ces infos automatiquement. Reformule-les en précisant le type d'équipement et ses caractéristiques (ex : 'PAC air-eau Daikin 8 kW électrique').";
+      hallucinationTag = "claimed_action_no_ops";
+    } else {
+      // Réponse conversationnelle légitime sans op.
+      safeMessage = rawMessage.length > 0 ? rawMessage.slice(0, 400) : "Bien noté.";
+    }
+
+    const droppedWarnings = dropDiags.map(
+      (d) => `insert_entry ignoré (collection=${d.collection}, raison=${d.reason})`,
     );
-    const finalWarnings = hallucinatedAction
-      ? [...rawWarnings, ...coalescedWarnings, ...droppedWarnings, "hallucinated_action_message_rewritten"]
+    const finalWarnings = hallucinationTag
+      ? [...rawWarnings, ...coalescedWarnings, ...droppedWarnings, `assistant_message_rewritten:${hallucinationTag}`]
       : [...rawWarnings, ...coalescedWarnings, ...droppedWarnings];
 
-    if (hallucinatedAction) {
-      console.warn("[vtu-llm-agent] hallucinated_action_detected", JSON.stringify({
+    if (hallucinationTag) {
+      console.warn("[vtu-llm-agent] assistant_message_rewritten", JSON.stringify({
+        tag: hallucinationTag,
         original_message: rawMessage.slice(0, 200),
+        llm_produced_ops: llmProducedOps,
+        effective_ops: effectiveOps,
+        drop_diags: dropDiags,
       }));
     }
 
