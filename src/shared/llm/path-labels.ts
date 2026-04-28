@@ -61,6 +61,7 @@ const FIELD_LABELS: Record<string, string> = {
   type_other: "Type (précision)",
   fuel_value: "Énergie / combustible",
   fuel_other: "Énergie (précision)",
+  brand: "Marque",
   power_kw: "Puissance (kW)",
   capacity_l: "Capacité (L)",
   installation_year: "Année d'installation",
