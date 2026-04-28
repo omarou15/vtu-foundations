@@ -11,8 +11,8 @@
  *
  * Doctrine VTU :
  *   - L'IA propose dans le cadre de cette carte. Hors carte → custom_field.
- *   - Pas d'index positionnel `[N]`. Les entrées sont identifiées par UUID.
- *   - Une nouvelle entrée passe par `insert_entry`, jamais par auto-vivify.
+ *   - Les entrées sont idéalement identifiées par UUID ; les index
+ *     positionnels legacy sont tout de même matérialisés par l'apply layer.
  *
  * Implémentation : hybride
  *   - `object_fields` est calculé en walkant l'instance state (tout leaf
@@ -160,7 +160,7 @@ export function buildSchemaMap(state: VisitJsonState): SchemaMap {
  * Format des paths supportés :
  *   - `building.wall_material_value` (object field)
  *   - `heating.installations[id=abc-123].type_value` (entry field)
- *   Pas d'index positionnel `[N]` — refusé volontairement.
+ *   Les index positionnels `[N]` sont gérés directement par l'apply layer.
  */
 export function isKnownObjectFieldPath(map: SchemaMap, path: string): boolean {
   return map.object_fields.includes(path);
@@ -187,10 +187,8 @@ export function parseEntryPath(
 }
 
 /**
- * True si le path est positionnel (`installations[0].xxx`) — ces paths
- * sont REJETÉS par l'apply layer pour forcer le LLM à utiliser :
- *   - `insert_entry` (créer)
- *   - `set_field` avec `[id=…]` (modifier existant)
+ * True si le path est positionnel (`installations[0].xxx`). Ces paths legacy
+ * sont matérialisés par l'apply layer permissif.
  */
 export function isPositionalIndexPath(path: string): boolean {
   return /\[\d+\]/.test(path);
