@@ -940,6 +940,80 @@ async function appendPhotoDescriptionToJsonState(args: {
   });
 }
 
+async function ensureVisitPhotoDescriptionsInJsonState(args: {
+  userId: string;
+  visitId: string;
+}): Promise<Awaited<ReturnType<typeof getLatestLocalJsonState>>> {
+  const db = getDb();
+  const latest = await getLatestLocalJsonState(args.visitId);
+  if (!latest) return latest;
+
+  const descriptions = await db.attachment_ai_descriptions
+    .where("visit_id")
+    .equals(args.visitId)
+    .toArray();
+  if (descriptions.length === 0) return latest;
+
+  const attachments = await db.attachments
+    .where("visit_id")
+    .equals(args.visitId)
+    .toArray();
+  const messageByAttachmentId = new Map(
+    attachments.map((attachment) => [attachment.id, attachment.message_id] as const),
+  );
+
+  const state = JSON.parse(JSON.stringify(latest.state)) as Record<string, unknown>;
+  const observations = ensureCustomObservationItems(state);
+  let changed = false;
+
+  for (const desc of descriptions.sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    if (observations.some((item) => photoObservationAttachmentId(item) === desc.attachment_id)) {
+      continue;
+    }
+    const confidence = confidenceFromOverall(desc.confidence_overall);
+    const structured = desc.description.structured_observations
+      .map((o) => `${o.section_hint}: ${o.observation}`)
+      .join("\n");
+    const content = [
+      desc.description.short_caption,
+      desc.description.detailed_description,
+      structured,
+      desc.description.ocr_text ? `OCR: ${desc.description.ocr_text}` : "",
+    ]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+      .join("\n\n");
+    const messageId = messageByAttachmentId.get(desc.attachment_id) ?? null;
+    observations.push({
+      id: crypto.randomUUID(),
+      topic: aiPhotoField(`Photo ${desc.attachment_id}`, {
+        attachmentId: desc.attachment_id,
+        messageId,
+        extractionId: desc.id,
+        confidence,
+      }),
+      content: aiPhotoField(content || "Photo analysée.", {
+        attachmentId: desc.attachment_id,
+        messageId,
+        extractionId: desc.id,
+        confidence,
+      }),
+      created_at: new Date().toISOString(),
+      related_message_id: messageId,
+      custom_fields: [],
+    });
+    changed = true;
+  }
+
+  if (!changed) return latest;
+  return appendJsonStateVersion({
+    userId: args.userId,
+    visitId: args.visitId,
+    state: state as unknown as import("@/shared/types").VisitJsonState,
+    createdByMessageId: null,
+    sourceExtractionId: null,
+  });
+}
+
 function confidenceFromOverall(value: number | null | undefined): "low" | "medium" | "high" {
   if (typeof value !== "number") return "medium";
   if (value >= 0.75) return "high";
