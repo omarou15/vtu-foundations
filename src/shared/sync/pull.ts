@@ -28,11 +28,19 @@ import {
   getLastPulledAt,
   setLastPulledAt,
   SyncStateKey,
+  upsertAttachmentAiDescriptionFromRemote,
+  upsertAttachmentFromRemote,
   upsertJsonStateFromRemote,
   upsertMessageFromRemote,
   upsertVisitFromRemote,
 } from "@/shared/db";
-import type { MessageRow, VisitJsonStateRow, VisitRow } from "@/shared/types";
+import type {
+  AttachmentAiDescriptionRow,
+  AttachmentRow,
+  MessageRow,
+  VisitJsonStateRow,
+  VisitRow,
+} from "@/shared/types";
 
 /** Type structurel minimal du sous-ensemble Supabase utilisé pour le pull. */
 export interface PullSupabaseLike {
@@ -202,6 +210,62 @@ export async function pullMessagesForVisit(
 
   for (const raw of data) {
     await upsertMessageFromRemote(raw as unknown as MessageRow);
+  }
+  return data.length;
+}
+
+export async function pullAttachmentsForVisit(
+  supabase: PullSupabaseLike,
+  visitId: string,
+  options: { sinceIso?: string | null } = {},
+): Promise<number> {
+  const since = options.sinceIso ?? null;
+  let query = supabase
+    .from("attachments")
+    .select("*")
+    .eq("visit_id", visitId)
+    .order("created_at", { ascending: true });
+
+  query = since
+    ? query.gt("created_at", since).limit(PULL_LIMIT)
+    : query.limit(HYDRATION_LIMIT);
+
+  const { data, error } = await query;
+  if (error) throw new Error(`pullAttachmentsForVisit: ${error.message}`);
+  if (!data || data.length === 0) return 0;
+
+  for (const raw of data) {
+    await upsertAttachmentFromRemote(raw as unknown as AttachmentRow);
+  }
+  return data.length;
+}
+
+export async function pullAttachmentAiDescriptionsForVisit(
+  supabase: PullSupabaseLike,
+  visitId: string,
+  options: { sinceIso?: string | null } = {},
+): Promise<number> {
+  const since = options.sinceIso ?? null;
+  let query = supabase
+    .from("attachment_ai_descriptions")
+    .select("*")
+    .eq("visit_id", visitId)
+    .order("created_at", { ascending: true });
+
+  query = since
+    ? query.gt("created_at", since).limit(PULL_LIMIT)
+    : query.limit(HYDRATION_LIMIT);
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`pullAttachmentAiDescriptionsForVisit: ${error.message}`);
+  }
+  if (!data || data.length === 0) return 0;
+
+  for (const raw of data) {
+    await upsertAttachmentAiDescriptionFromRemote(
+      raw as unknown as AttachmentAiDescriptionRow,
+    );
   }
   return data.length;
 }
