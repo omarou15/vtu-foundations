@@ -198,7 +198,7 @@ export async function validateSectionPatches(
   const now = new Date().toISOString();
 
   for (const { path } of candidates) {
-    const { parent, key } = walk(next as Record<string, unknown>, path);
+    const { parent, key } = walkJsonPath(next as Record<string, unknown>, path);
     if (!parent || !key) continue;
     const cur = parent[key] as Field<unknown> | undefined;
     if (!cur || cur.validation_status !== "unvalidated") continue;
@@ -242,7 +242,7 @@ export async function rejectSectionPatches(
   const now = new Date().toISOString();
 
   for (const { path } of candidates) {
-    const { parent, key } = walk(next as Record<string, unknown>, path);
+    const { parent, key } = walkJsonPath(next as Record<string, unknown>, path);
     if (!parent || !key) continue;
     const cur = parent[key] as Field<unknown> | undefined;
     if (!cur) continue;
@@ -298,7 +298,7 @@ export async function overrideWithAiPatch(
   if (!last) return { status: "noop", reason: "no_state" };
 
   const next = clone(last.state);
-  const { parent, key } = walk(next as Record<string, unknown>, input.path);
+  const { parent, key } = walkJsonPath(next as Record<string, unknown>, input.path);
   if (!parent || !key) return { status: "noop", reason: "path_not_found" };
 
   const now = new Date().toISOString();
