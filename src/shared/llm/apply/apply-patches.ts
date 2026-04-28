@@ -11,22 +11,15 @@
  *     auto-vivifie un array (le path devient juste un endroit où poser
  *     un Field — le user pourra rejeter via la card).
  *   - Index positionnel `[N]` : résolu à l'entrée correspondante si elle
- *     existe. Sinon ignoré (path_not_found) — pas de création silencieuse
- *     car l'index n'a pas de sémantique stable.
+ *     existe, sinon auto-promu en création d'entrée.
  *
- * Ne rejette plus que les vrais problèmes structurels :
- *   - `not_a_field` : la cible existe mais n'est pas un Field<T>.
- *   - `path_not_found` : impossible de résoudre/créer la cible.
- *
- * Ces "ignored" restent disponibles pour debug mais ne bloquent plus
- * l'utilisateur : ils n'apparaissent plus dans une carte de conflit.
+ * Lot A.5 durcissement — zéro rejet : tout patch matérialise son chemin,
+ * écrase les conteneurs incompatibles si nécessaire, puis pose un Field<T>
+ * `ai_infer/unvalidated`. `ignored` reste dans le contrat pour compatibilité,
+ * mais il est toujours vide.
  */
 
-import {
-  aiInferField,
-  emptyField,
-  type Field,
-} from "@/shared/types/json-state.field";
+import { aiInferField, type Field } from "@/shared/types/json-state.field";
 import type { VisitJsonState } from "@/shared/types";
 import {
   buildEmptyCollectionEntry,
@@ -35,7 +28,6 @@ import {
 } from "@/shared/types/json-state.schema-map";
 import { v4 as uuidv4 } from "uuid";
 import type { AiFieldPatch } from "../types";
-import { walkObjectPath } from "./path-utils";
 
 export interface ApplyPatchesInput {
   state: VisitJsonState;
@@ -49,12 +41,9 @@ export interface ApplyPatchesInput {
 export interface ApplyPatchesResult {
   state: VisitJsonState;
   applied: Array<{ path: string }>;
-  ignored: Array<{ path: string; reason: ApplyPatchIgnoreReason }>;
+  /** Compat debug historique : toujours vide en doctrine permissive totale. */
+  ignored: [];
 }
-
-export type ApplyPatchIgnoreReason =
-  | "not_a_field"
-  | "path_not_found";
 
 const POSITIONAL_RE = /^([a-z0-9_.]+)\[(\d+)\]\.([a-z0-9_]+)$/;
 
@@ -62,25 +51,9 @@ export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
   const next = clone(input.state);
   const root = next as unknown as Record<string, unknown>;
   const applied: ApplyPatchesResult["applied"] = [];
-  const ignored: ApplyPatchesResult["ignored"] = [];
 
   for (const patch of input.patches) {
     const target = resolvePatchTarget(root, patch.path);
-    if (target.reason !== "ok") {
-      ignored.push({ path: patch.path, reason: target.reason });
-      continue;
-    }
-
-    const cur = target.parent[target.key] as Field<unknown> | undefined;
-
-    // Si la cible existe mais n'est PAS un Field<T>, on ne peut rien faire.
-    if (cur !== undefined && cur !== null && !isFieldShape(cur)) {
-      ignored.push({ path: patch.path, reason: "not_a_field" });
-      continue;
-    }
-
-    // Si la cible n'existe pas (cas auto-vivified), on pose un Field neuf.
-    // Sinon on remplace par un nouvel ai_infer (le user décide via card).
     target.parent[target.key] = aiInferField({
       value: patch.value,
       confidence: patch.confidence,
@@ -91,7 +64,7 @@ export function applyPatches(input: ApplyPatchesInput): ApplyPatchesResult {
     applied.push({ path: patch.path });
   }
 
-  return { state: next, applied, ignored };
+  return { state: next, applied, ignored: [] };
 }
 
 // ---------------------------------------------------------------------------
