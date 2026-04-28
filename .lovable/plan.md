@@ -1,66 +1,123 @@
-# Plan — Historique IA illimité + compression progressive auto
+# Plan — Réduction massive du payload LLM (–~50%)
 
 ## Objectif
 
-Lever le cap actuel de 8 messages envoyés à l'IA, et le remplacer par une compression **progressive et automatique** des messages : on garde tous les messages tant qu'on tient dans le budget tokens, sinon on dégrade par étapes au lieu de tronquer brutalement.
+Ne plus envoyer au LLM que **3 choses** :
 
-## État actuel (3 caps en cascade)
+1. **Le prompt système** (statique, enrichi du schéma canonique en clair)
+2. **Le JSON state complet** (source de vérité — sa structure dit tout)
+3. **L'historique des messages** (compression progressive 9 passes déjà en place)
 
-```text
-src/shared/sync/engine.llm.ts:335     .slice(-8)                       (lecture Dexie)
-src/shared/llm/context/builder.ts:48  DEFAULT_MAX_RECENT_MESSAGES = 20 (cap builder)
-src/shared/llm/context/compress.ts:28 RECENT_MESSAGES_HARD_LIMIT = 8   (passe 2 hard cap)
+Tout le reste (`schema_map`, `attachments_context`, `pending_attachments`, `nomenclature_hints`, `state_summary` redondant) **disparaît du bundle**.
+
+## Nouveau ContextBundle
+
+```ts
+interface ContextBundle {
+  schema_version: number;
+  visit: { id; mission_type; building_type };
+  state: VisitJsonState;             // JSON state complet, tel quel
+  recent_messages: RecentMessage[];  // compression progressive existante
+}
 ```
 
-Conséquence : même si on lève les deux premiers, la passe 2 retombe à 8 dès qu'on dépasse 12k tokens. Aucune compression intermédiaire.
+Les descriptions IA des photos passent désormais via les **messages assistant `photo_caption`** (déjà émis par `maybeEmitPhotoCaption` dans `engine.llm.ts`), donc elles arrivent au LLM via `recent_messages` — plus besoin de bloc `attachments_context` dédié.
 
-## Changements
+## Changements détaillés
 
-### 1. Lecture Dexie illimitée — `src/shared/sync/engine.llm.ts`
+### 1. Types — `src/shared/llm/types.ts`
 
-Supprimer le `.slice(-8)` ligne 335. Charger tout l'historique trié chronologiquement.
+`ContextBundle` : retirer `state_summary`, `attachments_context`, `pending_attachments`, `schema_map`, `nomenclature_hints`. Ajouter `state: VisitJsonState`.
 
-### 2. Builder sans cap par défaut — `src/shared/llm/context/builder.ts`
+### 2. Builder — `src/shared/llm/context/builder.ts`
 
-`DEFAULT_MAX_RECENT_MESSAGES = Number.POSITIVE_INFINITY`. Le `.slice(-Infinity)` retourne le tableau complet. Le paramètre reste configurable pour les tests.
+- Retirer `attachmentDescriptions`, `pendingAttachments`, `nomenclatureHints` de `BuildContextInput` (ou les ignorer si call sites les passent encore).
+- Plus d'import de `buildSchemaMap` / `compactSchemaMap`.
+- Plus de `summarizeState` — on injecte le state complet sous la clé `state`.
+- Garde `maxRecentMessages` (Infinity par défaut).
 
-### 3. Refonte `compress.ts` — compression progressive des messages
+### 3. Engine — `src/shared/sync/engine.llm.ts`
 
-Remplacer la passe 2 actuelle (hard cap à 8) par **5 sous-passes graduelles** sur `recent_messages`, appliquées dans cet ordre seulement si le budget n'est pas tenu après chaque sous-passe :
+- Retirer le calcul de `attachmentDescriptions`, `pendingAttachments`, et la boucle `recentAttachments` qui n'a plus d'utilité (lignes ~339-389).
+- L'appel `buildContextBundle` se réduit à `{ visit, latestState, recentMessages }`.
+- Conserver le check de blocage `ai_description_pending` sur les attachments du **message courant** (lignes 318-326) : indispensable pour ne pas envoyer un message dont les photos n'ont pas encore généré leur `photo_caption` assistant qui sert maintenant de description IA.
 
-```text
-Pass 1   soft trim ocr_text > 500c                            (inchangé)
-Pass 2a  tronquer messages assistant > 800 chars              (… + suffixe)
-Pass 2b  tronquer messages user > 1500 chars                  (… + suffixe)
-Pass 2c  garder les 50 derniers messages
-Pass 2d  garder les 20 derniers messages
-Pass 2e  garder les 8 derniers messages (filet final)
-Pass 3   drop ocr_text complet sur attachments_context        (inchangé)
-Pass 4   strip detailed_description + state non essentiel     (inchangé)
-Pass 5   failed                                                (inchangé)
-```
+### 4. Compression — `src/shared/llm/context/compress.ts`
 
-Chaque sous-passe re-mesure les tokens via `estimateTokens` et sort dès qu'on est sous le budget. `passes_applied` devient un compteur cumulatif (0 à 9) pour conserver la traçabilité dans `llm_extractions.raw_request_summary`.
+- Plus de `attachments_context` à traiter dans les passes.
+- Réordonner les passes : OCR-related (1, 3) supprimées. Reste 2a, 2b, 2c, 2d, 2e, puis une nouvelle passe 4 = strip détails du `state` (drop `custom_fields[]`, drop sections vides) — best-effort.
+- Mettre à jour `passStripDetails` pour opérer sur `state` (retirer `notes`, `preconisations` non essentiels).
+- Adapter le test `compress.test.ts` :
+  - Supprimer cas (b) gros OCR (n'existe plus).
+  - Garder cas (a) léger, (c) historique long, (d) bundle énorme, (e) ordre chronologique.
 
-### 4. Inspecteur Dev — `src/routes/_authenticated/settings.dev.tsx`
+### 5. Prompt système — `src/shared/llm/prompts/system-unified.ts` + copie inline `supabase/functions/vtu-llm-agent/index.ts`
 
-Mettre à jour l'affichage du catalogue Bloc 2 : remplacer la mention "limite 8 messages" par la nouvelle table de passes (Pass 1 → Pass 5) avec leurs seuils, pour que le diagnostic reflète le vrai pipeline.
+Réécrire entièrement avec :
+- Suppression de toute mention `schema_map`, `attachments_context`, `pending_attachments`.
+- Nouvelle section **"## SCHÉMA CANONIQUE DU JSON STATE"** listant en dur :
+  - Sections plates : `meta`, `building`, `envelope` (avec sous-objets `murs|toiture|plancher_bas|ouvertures`).
+  - Collections (path → keys de l'item canonique) : `heating.installations`, `ecs.installations`, `ventilation.installations`, `energy_production.installations`, `industriel_processes.installations`, `tertiaire_hors_cvc.installations`, `pathologies.items`, `preconisations.items`, `notes.items`, `custom_observations.items`.
+  - Pour chaque collection : un exemple d'item vide montrant les champs canoniques (cf. `json-state.sections.ts`).
+- Règles de lecture du JSON :
+  - "Une collection à `[]` existe et attend des entrées."
+  - "Un `Field<T>` à `value: null` existe et attend une valeur."
+  - "Pour patcher une entrée existante : utilise son `id` (UUID listé dans le state). JAMAIS d'index `[N]`."
+  - "Une info hors schéma → `custom_fields` (snake_case)."
+  - "Tu n'inventes JAMAIS un path absent du schéma."
+- Règle anti-hallucination attachments simplifiée :
+  - "Pour chaque attachment cité dans `recent_messages`, vérifie qu'un message assistant `photo_caption` ultérieur fournit une description. Sinon : confirme la réception, n'invente JAMAIS le contenu."
 
-### 5. Tests Vitest
+### 6. Edge function — `supabase/functions/vtu-llm-agent/index.ts`
 
-- Mettre à jour `src/shared/llm/__tests__/context.test.ts` (si assertions sur `slice(-8)`).
-- Ajouter `src/shared/llm/context/__tests__/compress.test.ts` couvrant : (a) bundle léger → 0 passe, (b) bundle moyen → soft trim ocr suffit, (c) bundle long historique → escalade 2a→2b→2c, (d) bundle énorme → finit par 2e ou `failed`.
-- Vérifier que les 265 tests existants restent verts.
+- Mettre à jour la copie inline de `SYSTEM_UNIFIED`.
+- Dans `buildPromptAndHistory` :
+  - Retirer le `guardBlock` calculé sur `pending_attachments` (la règle est dans le système).
+  - Retirer la suppression `delete bundleForPrompt.recent_messages` qui n'a plus de sens si on garde la promotion multi-tour ; **arbitrage** : conserver la promotion en multi-tour (utile pour références pronominales) ET retirer `recent_messages` du JSON dump (déjà le cas).
+- Dans le handler : adapter `coalescePositionalPatches` pour lire `knownCollections` depuis une **liste hardcodée** (10 collections du schéma canonique) au lieu de `bundle.schema_map.collections`.
+- Le `apply layer` côté client reste strict — garde `path_not_in_schema`, `positional_index_forbidden`, `unknown_collection`.
+
+### 7. Server function `extractFromMessage` / `conversationalQuery` — `src/server/llm.functions.ts`
+
+- Retirer les champs supprimés du `ContextBundleSchema` Zod.
+- Ajouter `state: z.unknown()` (validation lâche, le state est déjà validé en amont).
+
+### 8. Helpers prompt — `src/server/llm.prompt-builders.ts`
+
+- Supprimer `buildPendingAttachmentsGuard` et son usage dans `buildUserPromptExtract` / `buildUserPromptConversational`. Les prompts deviennent : header + JSON dump du bundle + message.
+- Adapter `src/server/__tests__/buildUserPrompt.test.ts` en conséquence (supprimer les tests de guard).
+
+### 9. Inspecteur Dev — `src/routes/_authenticated/settings.dev.tsx`
+
+- Mettre à jour les `JsonAccordion` du `CallInspector` :
+  - Retirer "Schema map" et "Descriptions photos incluses".
+  - Ajouter "JSON state envoyé" qui lit `bundle.state`.
+- Mettre à jour le bloc "Compression progressive" (passes OCR retirées).
+- Ajouter une note "Payload allégé : 3 blocs seulement (visit, state, recent_messages)."
+
+### 10. Tests Vitest
+
+Fichiers à mettre à jour :
+- `src/shared/llm/__tests__/context.test.ts` — retirer assertion sur `attachments_context`, ajouter assertion sur `bundle.state`.
+- `src/shared/llm/context/__tests__/compress.test.ts` — retirer cas OCR, adapter helper `makeBundle`.
+- `src/server/__tests__/buildUserPrompt.test.ts` — supprimer tests guard, adapter prompts.
+- Vérifier que les ~270 tests existants restent verts.
+
+## Hors-scope (volontaire)
+
+- Branchement nomenclature canonique (PPPT / DTG / 3CL DPE).
+- Création de la collection `attachments_log.items` dans le JSON state.
+- Synthétiseur cross-photos.
+- Filtrage du state par section pertinente (envoi total pour l'instant).
 
 ## Risques assumés
 
-- **Coût tokens** : visites longues = bundles plus gros tant qu'on est sous budget. Acceptable, c'est le but.
-- **Latence LLM** : marginale (+100-300 ms sur visites de 100+ messages).
-- **Qualité IA** : meilleure mémoire conversationnelle. Le LLM voit tout l'historique et peut référencer des échanges anciens.
-- **Sécurité / RLS / JSON state** : aucun impact, on ne touche que la lecture et la sérialisation.
+- **Taille du state** : un state V2 entièrement rempli reste plus petit qu'un schema_map complet + attachments_context. Net positif.
+- **Photos sans caption assistant** : déjà gardé par le check `ai_description_pending` côté engine.
+- **Régression `path_not_in_schema`** : le LLM dispose maintenant du schéma en clair (prompt système) ET de la structure du state — meilleure orientation qu'avec `schema_map` séparé.
 
-## Hors scope
+## Validation finale (manuelle)
 
-- Pas d'override Dev manuel des passes (reporté Lot 2).
-- Pas de toggle "tout / 50 / 20 / 8" dans l'UI utilisateur.
-- Pas de modif edge function `vtu-llm-agent` (accepte déjà un tableau de longueur arbitraire).
+1. Message texte simple → Inspecteur IA montre `state` dans le bundle, plus aucun `schema_map / attachments_context / pending_attachments`.
+2. Photo + texte → l'extraction propose un `insert_entry` correctement formé (description disponible via le message assistant `photo_caption`).
+3. "ajoute une PAC air-eau Daikin 8 kW" → un `insert_entry` complet sur `heating.installations` (pas de `fields: {}`).
