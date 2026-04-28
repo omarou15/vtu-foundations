@@ -523,7 +523,7 @@ Deno.serve(async (req) => {
     const usage = json?.usage ?? {};
     const meta = {
       provider: "lovable_gemini",
-      model_version: json?.model ?? MODEL,
+      model_version: json?.model ?? input.model,
       input_tokens: usage.prompt_tokens ?? null,
       output_tokens: usage.completion_tokens ?? null,
       cached_input_tokens: usage.prompt_cache_hit_tokens ?? null,
