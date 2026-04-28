@@ -34,4 +34,7 @@ export const SyncStateKey = {
   visits: () => "visits:last_pulled_at",
   visitJsonState: () => "visit_json_state:last_pulled_at",
   messages: (visitId: string) => `messages:last_pulled_at:${visitId}`,
+  attachments: (visitId: string) => `attachments:last_pulled_at:${visitId}`,
+  attachmentAiDescriptions: (visitId: string) =>
+    `attachment_ai_descriptions:last_pulled_at:${visitId}`,
 } as const;

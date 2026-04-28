@@ -1,8 +1,8 @@
 /**
  * Hook : vérifie si l'utilisateur courant a le rôle admin.
  *
- * Utilise la fonction RPC `has_role(_user_id, _role)` (SECURITY DEFINER)
- * pour bypass la RLS sur user_roles.
+ * Lit `user_roles` pour l'utilisateur courant. La RLS limite cette lecture
+ * aux rôles du user connecté, sans RPC SECURITY DEFINER exposée au client.
  *
  * Implé en useState/useEffect (pas TanStack Query) pour éviter de devoir
  * monter un QueryClientProvider global juste pour ce hook.
@@ -33,16 +33,18 @@ export function useIsAdmin(): {
     setIsLoading(true);
     setError(null);
     void (async () => {
-      const { data, error: rpcErr } = await supabase.rpc("has_role", {
-        _user_id: userId,
-        _role: "admin",
-      });
+      const { data, error: roleErr } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .eq("role", "admin")
+        .maybeSingle();
       if (cancelled) return;
-      if (rpcErr) {
-        setError(new Error(rpcErr.message));
+      if (roleErr) {
+        setError(new Error(roleErr.message));
         setIsAdmin(false);
       } else {
-        setIsAdmin(Boolean(data));
+        setIsAdmin(data?.role === "admin");
       }
       setIsLoading(false);
     })();
