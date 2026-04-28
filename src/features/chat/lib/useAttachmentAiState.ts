@@ -102,9 +102,8 @@ export function useAttachmentAiState(attachment: LocalAttachment): AttachmentAiS
         return { state: "queued" };
       },
       [attachment.id, attachment.sync_status, attachment.message_id],
-      { state: "queued" } as AttachmentAiState,
-    ) ?? ({ state: "queued" } as AttachmentAiState)
-  );
+    );
+  return value ?? { state: "queued" };
 }
 
 /**
