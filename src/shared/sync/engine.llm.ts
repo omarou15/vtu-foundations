@@ -9,7 +9,6 @@
 
 import { getDb } from "@/shared/db/schema";
 import type {
-  AttachmentAiDescriptionPayload,
   SyncQueueEntry,
   MessageRow,
   VisitRow,
@@ -264,20 +263,7 @@ export async function processDescribeMedia(
     warnings: result.warnings,
   });
 
-  await appendPhotoDescriptionToJsonState({
-    userId: attachment.user_id,
-    visitId: attachment.visit_id,
-    attachmentId: attachment.id,
-    messageId: attachment.message_id,
-    extractionId: extraction.id,
-    confidence: confidenceFromOverall(result.confidence_overall),
-    description: {
-      short_caption: result.short_caption,
-      detailed_description: result.detailed_description,
-      structured_observations: result.structured_observations,
-      ocr_text: result.ocr_text,
-    },
-  });
+
 
   // It. 14 — Streaming photo-par-photo : si la photo appartient à un batch
   // (≥ 2 attachments sur le même message), on émet immédiatement une bulle
@@ -325,7 +311,7 @@ export async function processLlmRouteAndDispatch(
     return "ok";
   }
 
-  let latestState = await getLatestLocalJsonState(visit.id);
+  const latestState = await getLatestLocalJsonState(visit.id);
   if (!latestState) {
     return await helpers.scheduleDependencyWait(entry, "json_state_missing");
   }
@@ -343,14 +329,6 @@ export async function processLlmRouteAndDispatch(
     if (!desc) {
       return await helpers.scheduleDependencyWait(entry, "ai_description_pending");
     }
-  }
-
-  latestState = await ensureVisitPhotoDescriptionsInJsonState({
-    userId: message.user_id,
-    visitId: visit.id,
-  });
-  if (!latestState) {
-    return await helpers.scheduleDependencyWait(entry, "json_state_missing");
   }
 
   // Historique complet de la visite (cap dur retiré).
@@ -889,182 +867,6 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onload = () => resolve(String(reader.result));
     reader.readAsDataURL(blob);
   });
-}
-
-async function appendPhotoDescriptionToJsonState(args: {
-  userId: string;
-  visitId: string;
-  attachmentId: string;
-  messageId: string | null;
-  extractionId: string;
-  confidence: "low" | "medium" | "high";
-  description: AttachmentAiDescriptionPayload;
-}): Promise<void> {
-  const latest = await getLatestLocalJsonState(args.visitId);
-  if (!latest) return;
-
-  const state = JSON.parse(JSON.stringify(latest.state)) as Record<string, unknown>;
-  const observations = ensureCustomObservationItems(state);
-  if (observations.some((item) => photoObservationAttachmentId(item) === args.attachmentId)) {
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const structured = args.description.structured_observations
-    .map((o) => `${o.section_hint}: ${o.observation}`)
-    .join("\n");
-  const content = [
-    args.description.short_caption,
-    args.description.detailed_description,
-    structured,
-    args.description.ocr_text ? `OCR: ${args.description.ocr_text}` : "",
-  ]
-    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-    .join("\n\n");
-
-  observations.push({
-    id: crypto.randomUUID(),
-    topic: aiPhotoField(`Photo ${args.attachmentId}`, args),
-    content: aiPhotoField(content || "Photo analysée.", args),
-    created_at: now,
-    related_message_id: args.messageId,
-    custom_fields: [],
-  });
-
-  await appendJsonStateVersion({
-    userId: args.userId,
-    visitId: args.visitId,
-    state: state as unknown as import("@/shared/types").VisitJsonState,
-    createdByMessageId: args.messageId,
-    sourceExtractionId: args.extractionId,
-  });
-}
-
-async function ensureVisitPhotoDescriptionsInJsonState(args: {
-  userId: string;
-  visitId: string;
-}): Promise<Awaited<ReturnType<typeof getLatestLocalJsonState>>> {
-  const db = getDb();
-  const latest = await getLatestLocalJsonState(args.visitId);
-  if (!latest) return latest;
-
-  const descriptions = await db.attachment_ai_descriptions
-    .where("visit_id")
-    .equals(args.visitId)
-    .toArray();
-  if (descriptions.length === 0) return latest;
-
-  const attachments = await db.attachments
-    .where("visit_id")
-    .equals(args.visitId)
-    .toArray();
-  const messageByAttachmentId = new Map(
-    attachments.map((attachment) => [attachment.id, attachment.message_id] as const),
-  );
-
-  const state = JSON.parse(JSON.stringify(latest.state)) as Record<string, unknown>;
-  const observations = ensureCustomObservationItems(state);
-  let changed = false;
-
-  for (const desc of descriptions.sort((a, b) => a.created_at.localeCompare(b.created_at))) {
-    if (observations.some((item) => photoObservationAttachmentId(item) === desc.attachment_id)) {
-      continue;
-    }
-    const confidence = confidenceFromOverall(desc.confidence_overall);
-    const structured = desc.description.structured_observations
-      .map((o) => `${o.section_hint}: ${o.observation}`)
-      .join("\n");
-    const content = [
-      desc.description.short_caption,
-      desc.description.detailed_description,
-      structured,
-      desc.description.ocr_text ? `OCR: ${desc.description.ocr_text}` : "",
-    ]
-      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-      .join("\n\n");
-    const messageId = messageByAttachmentId.get(desc.attachment_id) ?? null;
-    observations.push({
-      id: crypto.randomUUID(),
-      topic: aiPhotoField(`Photo ${desc.attachment_id}`, {
-        attachmentId: desc.attachment_id,
-        messageId,
-        extractionId: desc.id,
-        confidence,
-      }),
-      content: aiPhotoField(content || "Photo analysée.", {
-        attachmentId: desc.attachment_id,
-        messageId,
-        extractionId: desc.id,
-        confidence,
-      }),
-      created_at: new Date().toISOString(),
-      related_message_id: messageId,
-      custom_fields: [],
-    });
-    changed = true;
-  }
-
-  if (!changed) return latest;
-  return appendJsonStateVersion({
-    userId: args.userId,
-    visitId: args.visitId,
-    state: state as unknown as import("@/shared/types").VisitJsonState,
-    createdByMessageId: null,
-    sourceExtractionId: null,
-  });
-}
-
-function confidenceFromOverall(value: number | null | undefined): "low" | "medium" | "high" {
-  if (typeof value !== "number") return "medium";
-  if (value >= 0.75) return "high";
-  if (value >= 0.45) return "medium";
-  return "low";
-}
-
-function ensureCustomObservationItems(state: Record<string, unknown>): Record<string, unknown>[] {
-  const existingSection = state.custom_observations;
-  const section =
-    existingSection && typeof existingSection === "object" && !Array.isArray(existingSection)
-      ? (existingSection as Record<string, unknown>)
-      : { custom_fields: [] };
-  state.custom_observations = section;
-
-  if (!Array.isArray(section.items)) {
-    section.items = [];
-  }
-  return section.items as Record<string, unknown>[];
-}
-
-function photoObservationAttachmentId(item: Record<string, unknown>): string | null {
-  const topic = item.topic;
-  if (!topic || typeof topic !== "object" || Array.isArray(topic)) return null;
-  const value = (topic as Record<string, unknown>).value;
-  if (typeof value !== "string") return null;
-  const prefix = "Photo ";
-  return value.startsWith(prefix) ? value.slice(prefix.length) : null;
-}
-
-function aiPhotoField(
-  value: string,
-  args: {
-    attachmentId: string;
-    messageId: string | null;
-    extractionId: string;
-    confidence: "low" | "medium" | "high";
-  },
-): import("@/shared/types").Field<string> {
-  return {
-    value,
-    source: "ai_infer",
-    confidence: args.confidence,
-    updated_at: new Date().toISOString(),
-    source_message_id: args.messageId,
-    validation_status: "unvalidated",
-    validated_at: null,
-    validated_by: null,
-    source_extraction_id: args.extractionId,
-    evidence_refs: [args.attachmentId],
-  };
 }
 
 function buildExtractSummary(
