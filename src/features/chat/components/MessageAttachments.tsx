@@ -81,7 +81,15 @@ function AttachmentThumb({
   single: boolean;
 }) {
   const isPdf = attachment.media_profile === "pdf";
-  const { localUrl, remoteUrl, failed } = useAttachmentThumb(attachment);
+  const {
+    localUrl,
+    remoteUrl,
+    failed,
+    status,
+    errorCode,
+    errorMessage,
+    markDecodeError,
+  } = useAttachmentThumb(attachment);
   const url = localUrl ?? remoteUrl;
 
   // Badge ✨ si description IA dispo
@@ -97,6 +105,20 @@ function AttachmentThumb({
     false,
   );
 
+  const failureLabel = failed
+    ? errorCode === "no_path"
+      ? "Pas d'image"
+      : errorCode === "404"
+        ? "Introuvable"
+        : errorCode === "403"
+          ? "Accès refusé"
+          : errorCode === "decode_failed"
+            ? "Lecture impossible"
+            : "Indispo."
+    : "Indispo.";
+
+  const tooltip = errorMessage ?? undefined;
+
   return (
     <button
       type="button"
@@ -106,6 +128,8 @@ function AttachmentThumb({
       }`}
       aria-label="Voir le média en plein écran"
       data-testid={`msg-attachment-${attachment.id}`}
+      data-thumb-status={status}
+      title={tooltip}
     >
       {isPdf ? (
         <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-primary/5 text-primary">
@@ -118,11 +142,12 @@ function AttachmentThumb({
           alt=""
           className="h-full w-full object-cover"
           loading="lazy"
+          onError={markDecodeError}
         />
       ) : failed ? (
         <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
           <ImageOff className="h-5 w-5" aria-hidden="true" />
-          <span className="font-ui text-[10px]">Indispo.</span>
+          <span className="font-ui text-[10px]">{failureLabel}</span>
         </div>
       ) : (
         <div className="h-full w-full animate-pulse bg-muted" />
