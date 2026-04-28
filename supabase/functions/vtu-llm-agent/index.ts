@@ -107,7 +107,9 @@ qui te dit EXACTEMENT quels paths/collections sont valides.
    - Champs :
      • collection : ∈ schema_map.collections (ex "heating.installations")
      • fields : { <key>: <value>, … } — chaque key DOIT ∈
-       schema_map.collections[collection].item_fields
+       schema_map.collections[collection].item_fields.
+       **OBLIGATOIRE : au moins 1 key.** Un insert_entries avec
+       fields:{} est REJETÉ par l'apply layer.
      • confidence, evidence_refs
    - L'app génère l'UUID, pose tous les champs en source="ai_infer",
      validation_status="unvalidated".
