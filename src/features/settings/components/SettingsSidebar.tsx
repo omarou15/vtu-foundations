@@ -16,6 +16,7 @@ import {
   Info,
   MessageSquareText,
   Palette,
+  Terminal,
   User,
   type LucideIcon,
 } from "lucide-react";
@@ -72,6 +73,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     label: "À propos",
     Icon: Info,
     comingSoon: true,
+  },
+  {
+    id: "dev",
+    path: "/settings/dev",
+    label: "Dev — Inspecteur IA",
+    Icon: Terminal,
+    comingSoon: false,
   },
 ] as const;
 

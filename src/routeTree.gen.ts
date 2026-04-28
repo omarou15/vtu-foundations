@@ -17,6 +17,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings.index'
 import { Route as AuthenticatedVisitsVisitIdRouteImport } from './routes/_authenticated/visits.$visitId'
 import { Route as AuthenticatedSettingsPromptsRouteImport } from './routes/_authenticated/settings.prompts'
+import { Route as AuthenticatedSettingsDevRouteImport } from './routes/_authenticated/settings.dev'
 import { Route as AuthenticatedSettingsDataRouteImport } from './routes/_authenticated/settings.data'
 import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_authenticated/settings.appearance'
 import { Route as AuthenticatedSettingsAiRouteImport } from './routes/_authenticated/settings.ai'
@@ -66,6 +67,12 @@ const AuthenticatedSettingsPromptsRoute =
     path: '/prompts',
     getParentRoute: () => AuthenticatedSettingsRoute,
   } as any)
+const AuthenticatedSettingsDevRoute =
+  AuthenticatedSettingsDevRouteImport.update({
+    id: '/dev',
+    path: '/dev',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
 const AuthenticatedSettingsDataRoute =
   AuthenticatedSettingsDataRouteImport.update({
     id: '/data',
@@ -113,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/settings/ai': typeof AuthenticatedSettingsAiRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/data': typeof AuthenticatedSettingsDataRoute
+  '/settings/dev': typeof AuthenticatedSettingsDevRoute
   '/settings/prompts': typeof AuthenticatedSettingsPromptsRoute
   '/visits/$visitId': typeof AuthenticatedVisitsVisitIdRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
@@ -127,6 +135,7 @@ export interface FileRoutesByTo {
   '/settings/ai': typeof AuthenticatedSettingsAiRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/data': typeof AuthenticatedSettingsDataRoute
+  '/settings/dev': typeof AuthenticatedSettingsDevRoute
   '/settings/prompts': typeof AuthenticatedSettingsPromptsRoute
   '/visits/$visitId': typeof AuthenticatedVisitsVisitIdRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
@@ -144,6 +153,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/ai': typeof AuthenticatedSettingsAiRoute
   '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/_authenticated/settings/data': typeof AuthenticatedSettingsDataRoute
+  '/_authenticated/settings/dev': typeof AuthenticatedSettingsDevRoute
   '/_authenticated/settings/prompts': typeof AuthenticatedSettingsPromptsRoute
   '/_authenticated/visits/$visitId': typeof AuthenticatedVisitsVisitIdRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/settings/ai'
     | '/settings/appearance'
     | '/settings/data'
+    | '/settings/dev'
     | '/settings/prompts'
     | '/visits/$visitId'
     | '/settings/'
@@ -175,6 +186,7 @@ export interface FileRouteTypes {
     | '/settings/ai'
     | '/settings/appearance'
     | '/settings/data'
+    | '/settings/dev'
     | '/settings/prompts'
     | '/visits/$visitId'
     | '/settings'
@@ -191,6 +203,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/ai'
     | '/_authenticated/settings/appearance'
     | '/_authenticated/settings/data'
+    | '/_authenticated/settings/dev'
     | '/_authenticated/settings/prompts'
     | '/_authenticated/visits/$visitId'
     | '/_authenticated/settings/'
@@ -260,6 +273,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsPromptsRouteImport
       parentRoute: typeof AuthenticatedSettingsRoute
     }
+    '/_authenticated/settings/dev': {
+      id: '/_authenticated/settings/dev'
+      path: '/dev'
+      fullPath: '/settings/dev'
+      preLoaderRoute: typeof AuthenticatedSettingsDevRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
     '/_authenticated/settings/data': {
       id: '/_authenticated/settings/data'
       path: '/data'
@@ -311,6 +331,7 @@ interface AuthenticatedSettingsRouteChildren {
   AuthenticatedSettingsAiRoute: typeof AuthenticatedSettingsAiRoute
   AuthenticatedSettingsAppearanceRoute: typeof AuthenticatedSettingsAppearanceRoute
   AuthenticatedSettingsDataRoute: typeof AuthenticatedSettingsDataRoute
+  AuthenticatedSettingsDevRoute: typeof AuthenticatedSettingsDevRoute
   AuthenticatedSettingsPromptsRoute: typeof AuthenticatedSettingsPromptsRoute
   AuthenticatedSettingsIndexRoute: typeof AuthenticatedSettingsIndexRoute
 }
@@ -321,6 +342,7 @@ const AuthenticatedSettingsRouteChildren: AuthenticatedSettingsRouteChildren = {
   AuthenticatedSettingsAiRoute: AuthenticatedSettingsAiRoute,
   AuthenticatedSettingsAppearanceRoute: AuthenticatedSettingsAppearanceRoute,
   AuthenticatedSettingsDataRoute: AuthenticatedSettingsDataRoute,
+  AuthenticatedSettingsDevRoute: AuthenticatedSettingsDevRoute,
   AuthenticatedSettingsPromptsRoute: AuthenticatedSettingsPromptsRoute,
   AuthenticatedSettingsIndexRoute: AuthenticatedSettingsIndexRoute,
 }
