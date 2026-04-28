@@ -22,7 +22,7 @@ import {
   validateFieldPatch,
   readFieldAtPath,
 } from "@/shared/db/json-state.validate.repo";
-import { aiInferField } from "@/shared/types/json-state.field";
+import { aiInferField, emptyField } from "@/shared/types/json-state.field";
 import type { Field } from "@/shared/types/json-state.field";
 
 const USER = "00000000-0000-0000-0000-00000000aaaa";
@@ -115,6 +115,48 @@ describe("validateFieldPatch", () => {
       path: "heating.does_not_exist",
     });
     expect(r.status).toBe("noop");
+  });
+
+  it("valide un Field IA dans une collection via path positionnel", async () => {
+    const { visit, initialState } = await createLocalVisit({
+      userId: USER,
+      title: "VT collection",
+      thermicienName: "Test",
+    });
+    const next = JSON.parse(JSON.stringify(initialState));
+    const heating = next.heating as { installations: Array<Record<string, unknown>> };
+    heating.installations.push({
+      id: "11111111-1111-1111-1111-111111111111",
+      type_value: emptyField<string>(),
+      type_other: emptyField<string>(),
+      fuel_value: emptyField<string>(),
+      fuel_other: emptyField<string>(),
+      brand: aiInferField({
+        value: "Hitachi",
+        confidence: "high",
+        sourceMessageId: null,
+        sourceExtractionId: "ext-2",
+        evidenceRefs: ["msg-2"],
+      }),
+      power_kw: emptyField<number>(),
+      installation_year: emptyField<number>(),
+      efficiency_pct: emptyField<number>(),
+      custom_fields: [],
+    });
+    await appendJsonStateVersion({ userId: USER, visitId: visit.id, state: next });
+
+    const r = await validateFieldPatch({
+      userId: USER,
+      visitId: visit.id,
+      path: "heating.installations[0].brand",
+    });
+
+    expect(r.status).toBe("ok");
+    const after = await getLatestLocalJsonState(visit.id);
+    const f = readFieldAtPath(after!.state, "heating.installations[0].brand")!;
+    expect(f.value).toBe("Hitachi");
+    expect(f.validation_status).toBe("validated");
+    expect(f.validated_by).toBe(USER);
   });
 });
 
