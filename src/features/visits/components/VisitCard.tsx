@@ -11,6 +11,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
@@ -190,16 +191,11 @@ export function VisitCard({ visit, active, onDelete }: VisitCardProps) {
 
 function AlertDialogTriggerItem() {
   return (
-    <DropdownMenuItem
-      className="text-destructive focus:text-destructive"
-      onSelect={(event) => {
-        event.preventDefault();
-        const target = event.currentTarget;
-        window.setTimeout(() => target.click(), 0);
-      }}
-    >
-      <Trash2 className="h-4 w-4" aria-hidden="true" />
-      Supprimer
-    </DropdownMenuItem>
+    <AlertDialogTrigger asChild>
+      <DropdownMenuItem className="text-destructive focus:text-destructive">
+        <Trash2 className="h-4 w-4" aria-hidden="true" />
+        Supprimer
+      </DropdownMenuItem>
+    </AlertDialogTrigger>
   );
 }
