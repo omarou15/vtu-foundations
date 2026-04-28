@@ -558,6 +558,49 @@ async function handleExtract(
     sourceExtractionId: extraction.id,
   });
 
+  // ---- DIAG TEMP — diagnostic JSON vide (à retirer après investigation) ----
+  try {
+    const stateAny = applyOut.state as unknown as Record<string, unknown>;
+    const heating = (stateAny.heating ?? {}) as Record<string, unknown>;
+    const ecs = (stateAny.ecs ?? {}) as Record<string, unknown>;
+    const ventilation = (stateAny.ventilation ?? {}) as Record<string, unknown>;
+    // eslint-disable-next-line no-console
+    console.info("[VTU-DIAG] apply-extract result", {
+      llm_proposed: {
+        patches: result.patches?.length ?? 0,
+        inserts: result.insert_entries?.length ?? 0,
+        custom_fields: result.custom_fields?.length ?? 0,
+      },
+      llm_proposed_paths: (result.patches ?? []).map((p) => p.path),
+      llm_proposed_collections: (result.insert_entries ?? []).map((i) => i.collection),
+      applied: {
+        patches: applyOut.patches.applied.length,
+        inserts: applyOut.insertEntries.applied.length,
+        custom_fields: applyOut.customFields.applied.length,
+      },
+      applied_patch_paths: applyOut.patches.applied.map((a) => a.path),
+      applied_insert_collections: applyOut.insertEntries.applied.map((a) => a.collection),
+      total_applied: applyOut.totalApplied,
+      state_keys_top: Object.keys(stateAny),
+      heating_keys: Object.keys(heating),
+      ecs_keys: Object.keys(ecs),
+      ventilation_keys: Object.keys(ventilation),
+      heating_installations_count: Array.isArray((heating as { installations?: unknown }).installations)
+        ? ((heating as { installations: unknown[] }).installations).length
+        : "not-array",
+      ecs_installations_count: Array.isArray((ecs as { installations?: unknown }).installations)
+        ? ((ecs as { installations: unknown[] }).installations).length
+        : "not-array",
+      ventilation_installations_count: Array.isArray((ventilation as { installations?: unknown }).installations)
+        ? ((ventilation as { installations: unknown[] }).installations).length
+        : "not-array",
+    });
+  } catch (diagErr) {
+    // eslint-disable-next-line no-console
+    console.warn("[VTU-DIAG] log failed", diagErr);
+  }
+  // ---- FIN DIAG TEMP ----
+
   if (applyOut.totalApplied > 0) {
     await appendJsonStateVersion({
       userId: message.user_id,
