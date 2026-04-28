@@ -245,7 +245,7 @@ function CallInspector({ call }: { call: LocalLlmExtraction }) {
       <div className="mt-3 flex flex-col gap-2">
         <JsonAccordion label="Context bundle complet" data={bundle} defaultOpen />
         <JsonAccordion
-          label={`Historique réellement envoyé (${recent?.length ?? 0} messages — limite actuelle : 8)`}
+          label={`Historique réellement envoyé (${recent?.length ?? 0} messages — illimité par défaut, compression progressive si dépassement budget)`}
           data={recent ?? "Non disponible dans ce dump"}
         />
         <JsonAccordion
