@@ -525,8 +525,8 @@ Deno.serve(async (req) => {
     const latencyMs = Date.now() - t0;
     const usage = json?.usage ?? {};
     const meta = {
-      provider: "lovable_gemini",
-      model_version: json?.model ?? input.model,
+      provider: providerLabel,
+      model_version: json?.model ?? resolvedModel,
       input_tokens: usage.prompt_tokens ?? null,
       output_tokens: usage.completion_tokens ?? null,
       cached_input_tokens: usage.prompt_cache_hit_tokens ?? null,
@@ -543,7 +543,8 @@ Deno.serve(async (req) => {
       system_prompt_source: systemPromptSource,
       history_messages: historyMessages,
       user_prompt: userPrompt,
-      model: input.model,
+      model: resolvedModel,
+      provider: providerLabel,
       mode: input.mode,
     };
 
