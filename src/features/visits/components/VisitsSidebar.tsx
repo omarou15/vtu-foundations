@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, Search, Settings, X, AlertCircle } from "lucide-react";
+import { Plus, Search, Settings, X, AlertCircle, Bug, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/features/auth";
 import { useDebouncedValue } from "@/shared/hooks";
 import { createLocalVisit, deleteLocalVisitProject, listLocalVisitsByUser, type LocalVisit } from "@/shared/db";
@@ -122,23 +129,37 @@ export function VisitsSidebar({ onClose, activeVisitId }: VisitsSidebarProps) {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setDebugOpen(true)}
-            className="touch-target relative inline-flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-accent"
-            aria-label="Paramètres — debug"
-            data-testid="open-debug-panel"
-          >
-            <Settings className="h-5 w-5" />
-            {debugBadge ? (
-              <span
-                className={`absolute -right-0.5 -top-0.5 inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-sidebar ${
-                  debugBadge === "offline" ? "bg-destructive" : "bg-warning"
-                }`}
-                aria-hidden="true"
-              />
-            ) : null}
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="touch-target relative inline-flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-accent"
+                aria-label="Paramètres"
+                data-testid="open-settings-menu"
+              >
+                <Settings className="h-5 w-5" />
+                {debugBadge ? (
+                  <span
+                    className={`absolute -right-0.5 -top-0.5 inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-sidebar ${
+                      debugBadge === "offline" ? "bg-destructive" : "bg-warning"
+                    }`}
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onSelect={() => navigate({ to: "/settings/ai" })}>
+                <SlidersHorizontal className="mr-2 h-4 w-4" />
+                Paramètres
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setDebugOpen(true)} data-testid="open-debug-panel">
+                <Bug className="mr-2 h-4 w-4" />
+                Debug
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Recherche */}

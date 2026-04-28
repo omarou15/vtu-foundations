@@ -49,6 +49,12 @@ export interface CallVtuLlmAgentInput {
   mode: "extract" | "conversational";
   messageText: string;
   contextBundle: ContextBundle;
+  /**
+   * Identifiant Lovable AI Gateway du modèle à utiliser. Si absent ou non
+   * autorisé côté Edge, l'Edge Function retombe sur le modèle par défaut.
+   * Renseigné par `engine.llm.ts` à partir de `useChatStore.selectedModel`.
+   */
+  model?: string;
 }
 
 function getEdgeUrl(): string {

@@ -34,6 +34,8 @@ import {
   callVtuLlmAgent,
   type CallVtuLlmAgentResponse,
 } from "@/shared/llm/providers/edge-function-client";
+import { useChatStore } from "@/features/chat";
+import { getModelIdByTier } from "@/features/settings/models-catalog";
 
 // ---------------------------------------------------------------------------
 // Types contract avec engine.ts core
@@ -471,6 +473,7 @@ async function handleExtract(
       mode: "extract",
       messageText: messageTextForLlm(message),
       contextBundle: bundle,
+      model: getModelIdByTier(useChatStore.getState().selectedModel),
     });
   } catch (err) {
     return await helpers.scheduleRetryOrFail(entry, err);
@@ -632,6 +635,7 @@ async function handleConversational(
       mode: "conversational",
       messageText: messageTextForLlm(message),
       contextBundle: bundle,
+      model: getModelIdByTier(useChatStore.getState().selectedModel),
     });
   } catch (err) {
     return await helpers.scheduleRetryOrFail(entry, err);
