@@ -14,7 +14,7 @@ import { PhotoPreviewPanel } from "./PhotoPreviewPanel";
 import { listDraftMedia, attachPendingMediaToMessage } from "@/shared/photo";
 import type { LocalAttachment } from "@/shared/db/schema";
 import type { MessageKind } from "@/shared/types";
-import { useChatStore } from "../store";
+import { useChatStore, type AiRouteMode } from "../store";
 import { useLlmPending, cancelLlmForMessage } from "../lib/useLlmPending";
 
 interface ChatInputBarProps {
@@ -29,6 +29,7 @@ interface ChatInputBarProps {
     kind: MessageKind;
     attachmentCount: number;
     aiEnabled: boolean;
+    aiRouteMode: AiRouteMode;
   }) => Promise<{ id: string } | void> | { id: string } | void;
 }
 
@@ -51,6 +52,8 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
+  const aiRouteMode = useChatStore((s) => s.getRouteMode(visitId));
+  const setRouteMode = useChatStore((s) => s.setRouteMode);
   const { pending: llmPending, lastUserMessageId } = useLlmPending(visitId);
 
   // Auto-resize : on ajuste la hauteur en fonction du scrollHeight, plafonné.
@@ -105,6 +108,7 @@ export function ChatInputBar({ visitId, onSubmit }: ChatInputBarProps) {
         kind,
         attachmentCount: currentDrafts.length,
         aiEnabled,
+        aiRouteMode,
       });
       // Si onSubmit a renvoyé { id }, on rattache les drafts.
       if (
