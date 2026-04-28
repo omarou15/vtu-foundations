@@ -1,160 +1,59 @@
-## Objectif
+# Fix géolocalisation : timeout, reverse geocoding, et ordre des champs
 
-Enrichir le formulaire "Nouvelle visite technique" pour capturer plus de métadonnées dès la création :
-- date + heure automatiques (timestamp local)
-- géolocalisation automatique (lat/lng navigateur)
-- nouvelles options de `mission_type` et `building_type`
-- champ texte libre quand "Autre" est choisi
-- sous-secteur quand "Tertiaire" est choisi (+ champ libre si "Autres secteurs")
+## Problèmes identifiés
 
-## Changements de modèle
+1. **Géoloc charge à l'infini** : `getCurrentPosition` est appelé automatiquement à l'ouverture du dialog (sans geste utilisateur). Dans l'iframe Lovable preview, le navigateur ignore silencieusement la requête → ni `success` ni `error` → état "loading" éternel. Le timeout de 10s ne se déclenche que si le navigateur traite la requête — pas s'il la bloque en amont.
+2. **Adresse non remplie** : aucune logique de reverse geocoding n'est branchée derrière les coordonnées GPS.
+3. **Ordre des champs** : la position GPS est actuellement après l'adresse alors qu'elle doit être avant (puisqu'elle l'alimente).
 
-### Types — `src/shared/types/db.ts`
+## Changements (un seul fichier : `NewVisitDialog.tsx`)
 
-Étendre les unions et `VisitRow` :
+### 1. Géolocalisation déclenchée par geste utilisateur + watchdog
 
-```ts
-export type MissionType =
-  | "audit_energetique"
-  | "dpe"
-  | "ppt"
-  | "dtg"
-  | "note_dimensionnement"
-  | "autre";
+- **Supprimer** l'appel automatique de `requestGeolocation` dans le `useEffect([open])`. État initial : `{ status: "idle" }` avec un message "Appuyez sur Localiser".
+- **Ajouter un bouton « Localiser »** dans le bloc GPS. Le clic sur ce bouton (= geste utilisateur synchrone) appelle `navigator.geolocation.getCurrentPosition` directement, sans `await` préalable. C'est la condition pour que l'API fonctionne dans l'iframe preview (cf. note browser security).
+- **Ajouter un watchdog `setTimeout(15000)`** côté JS : si aucun callback (success/error) n'est reçu sous 15s, on bascule en `{ status: "unavailable", reason: "délai dépassé" }`. Cela résout le cas où l'iframe avale la requête sans rien renvoyer.
+- **Stocker le timer dans une `ref`** pour pouvoir l'annuler à la résolution ou au démontage (évite les fuites + double set d'état).
 
-export type BuildingType =
-  | "maison_individuelle"
-  | "appartement"
-  | "copropriete"
-  | "monopropriete"
-  | "industrie"
-  | "tertiaire"
-  | "autre";
+### 2. Reverse geocoding automatique → remplit l'adresse
 
-export type TertiaireSubtype =
-  | "bureau"
-  | "hotellerie"
-  | "sante"
-  | "enseignement"
-  | "commerce"
-  | "restauration"
-  | "autre";
+- Au succès de la géoloc, lancer un `fetch` vers Nominatim OpenStreetMap (gratuit, sans clé API, pas de connecteur à ajouter) :
+  ```
+  https://nominatim.openstreetmap.org/reverse?lat=...&lon=...&format=json&accept-language=fr
+  ```
+- **Headers** : `Accept: application/json` (Nominatim demande un User-Agent mais les navigateurs en imposent un par défaut, OK depuis le client).
+- **Comportement** :
+  - Pendant l'appel : badge "Recherche de l'adresse…" sous le champ adresse.
+  - Si succès et `address` actuellement vide : auto-remplir avec `data.display_name`.
+  - Si l'utilisateur a déjà tapé une adresse : NE PAS écraser, mais afficher un petit lien "Utiliser l'adresse GPS" sous le champ.
+  - Si échec/timeout : silencieux, on garde le champ vide (l'utilisateur saisit manuellement).
+- Wrap le tout dans try/catch pour ne jamais bloquer le formulaire.
 
-export interface VisitRow {
-  // ... existing
-  mission_type: MissionType | null;
-  mission_type_other: string | null;        // libre si mission_type === "autre"
-  building_type: BuildingType | null;
-  building_type_other: string | null;       // libre si building_type === "autre"
-  tertiaire_subtype: TertiaireSubtype | null;        // si building_type === "tertiaire"
-  tertiaire_subtype_other: string | null;            // libre si tertiaire_subtype === "autre"
-  visit_started_at: string;                 // ISO timestamp création (date+heure)
-  gps_lat: number | null;
-  gps_lng: number | null;
-  gps_accuracy_m: number | null;
-}
-```
+### 3. Réorganisation visuelle (ordre des champs dans le `<form>`)
 
-### Migration SQL (nouvelle)
+Nouvel ordre :
+1. Titre
+2. Date & heure (auto, lecture seule)
+3. **Position GPS** ← remontée ici
+4. **Adresse** ← descendue, alimentée par le GPS
+5. Type de mission (+ champ "Précisez" conditionnel)
+6. Typologie de bâtiment (+ champs conditionnels)
 
-`supabase/migrations/<timestamp>_visit-extended-metadata.sql` :
-- `ALTER TABLE public.visits ADD COLUMN IF NOT EXISTS` pour les 7 nouvelles colonnes
-- DROP puis recreate des CHECK constraints `visits_mission_type_check` et `visits_building_type_check` avec les nouveaux sets d'enum
-- Ajout `visits_tertiaire_subtype_check` (NULL ou ∈ liste)
-- Idempotent (DO $$ ... EXISTS guards)
+### 4. Petits raffinements UX
 
-### Dexie — `src/shared/db/schema.ts`
+- Le bouton "Réessayer" devient "Localiser" tant qu'on n'a jamais réussi, puis "Réessayer" après un échec.
+- En statut `success`, afficher discrètement un bouton "Actualiser" (icône `RefreshCw`) pour relancer.
+- Annulation propre du watchdog au démontage du composant et à la fermeture du dialog.
 
-Pas de changement de schéma d'index (on stocke les nouveaux champs dans la row, pas indexés). Aucune nouvelle version Dexie nécessaire — `LocalVisit = VisitRow & SyncFields` suit automatiquement.
+## Hors scope
 
-### `src/shared/db/visits.repo.ts`
+- Pas de changement de DB ni de schéma : les colonnes `gps_lat/lng/accuracy_m` et `address` existent déjà.
+- Pas de changement de `visits.repo.ts` : il consomme déjà `gps` et `address` depuis le formulaire.
+- Pas d'ajout de dépendance npm (Nominatim = `fetch` natif).
+- Pas de Mapbox / clé API : on garde l'approche zéro-config.
 
-`createLocalVisit` :
-- accepter les nouveaux paramètres optionnels (`missionTypeOther`, `buildingTypeOther`, `tertiaireSubtype`, `tertiaireSubtypeOther`, `gps`)
-- `visit_started_at = now`
-- les inclure dans `serializeVisitForSync`
+## Détails techniques
 
-### Meta JSON state
-
-`createInitialVisitJsonState` (déjà appelée) reçoit `address` + `buildingType`. On ajoute :
-- `missionType` → utilisé pour pré-remplir `meta.calculation_method` quand mappable (audit_energetique → audit, dpe → dpe, sinon laisser vide)
-- `gps` (optionnel) → `meta` n'a pas de champ GPS aujourd'hui ; on stocke uniquement dans `visits` pour l'instant (pas de modif `MetaSchemaV2` pour ne pas casser la migration v2). Si demandé plus tard, ajout d'un champ `meta.gps` derrière `.default()`.
-
-## Changements UI
-
-### `src/features/visits/components/NewVisitDialog.tsx`
-
-Nouveau layout du formulaire :
-
-```text
-[Titre]
-[Adresse]
-[Date & heure]      ← auto, affiché en lecture seule (Input disabled, format fr-FR)
-[Position GPS]      ← auto, affichage "Lat, Lng (±Xm)" + bouton "Réessayer"
-                      états : "Localisation en cours…", "Refusée", "Indisponible"
-[Type de mission ▾]
-  - Audit énergétique
-  - DPE
-  - PPT
-  - DTG
-  - Note de dimensionnement
-  - Autre
-[Précisez la mission]   ← visible UNIQUEMENT si mission_type === "autre"
-
-[Typologie de bâtiment ▾]
-  - Maison individuelle
-  - Appartement
-  - Copropriété
-  - Monopropriété
-  - Industrie
-  - Tertiaire
-  - Autre
-[Précisez le bâtiment]  ← visible si building_type === "autre"
-
-[Sous-secteur tertiaire ▾]   ← visible si building_type === "tertiaire"
-  - Bureau
-  - Hôtellerie
-  - Santé
-  - Enseignement
-  - Commerce
-  - Restauration
-  - Autres secteurs
-[Précisez le secteur]   ← visible si tertiaire_subtype === "autre"
-```
-
-Comportements clés :
-- **Timestamp auto** : `useState(() => new Date())` au mount, refresh à chaque ouverture du dialog (déjà géré via `useEffect([open])`). Stocké en ISO, affiché formaté.
-- **Géoloc auto** : au mount du dialog, `navigator.geolocation.getCurrentPosition(...)` avec `enableHighAccuracy: true, timeout: 10000`. Trois états : `idle | loading | success | denied | error`. Bouton "Réessayer" si pas success. Le formulaire reste submittable même sans GPS (champ optionnel).
-- **Champs conditionnels** : un changement de `mission_type` qui n'est plus "autre" reset `mission_type_other`. Idem `building_type` reset `tertiaire_subtype` + les `_other`. Idem `tertiaire_subtype`.
-- **Validation Zod étendue** : superRefine —
-  - si `mission_type === "autre"` → `mission_type_other` requis non vide
-  - si `building_type === "autre"` → `building_type_other` requis non vide
-  - si `building_type === "tertiaire"` → `tertiaire_subtype` requis
-  - si `tertiaire_subtype === "autre"` → `tertiaire_subtype_other` requis non vide
-- Le bouton "Créer la visite" reste disabled tant que la validation échoue.
-
-### Liste des labels FR
-
-Constantes `MISSION_OPTIONS` et `BUILDING_OPTIONS` mises à jour. Nouvelle constante `TERTIAIRE_SUBTYPE_OPTIONS`.
-
-## Points d'intégration aval (vérifier la non-régression)
-
-- `src/features/visits/lib/icons.ts` : ajouter une icône pour les 4 nouvelles missions (`ppt`, `dtg`, `note_dimensionnement`) et 2 nouveaux building (`copropriete`, `monopropriete`, `industrie`). Fallback générique si non trouvé.
-- `src/features/visits/components/VisitCard.tsx` + `VisitsSidebar.tsx` : afficher le label du nouveau set. Si on stocke un `mission_type_other`, l'utiliser en priorité dans l'affichage du sous-titre.
-- `src/server/llm.functions.ts` + `src/shared/llm/context/builder.ts` : injection de mission/building dans le prompt LLM — étendre la liste autorisée mentionnée dans le contexte.
-- Tests existants à mettre à jour :
-  - `NewVisitDialog.test.tsx` : nouveaux options (audit énergétique, dpe restent OK), ajout d'un test "Autre → champ libre requis" et "Tertiaire → sous-secteur requis"
-  - `createLocalVisit.test.ts` : passer les nouveaux champs et vérifier la sérialisation
-  - `dexie-v1.test.ts`, `pull.test.ts`, `json-state-migrate.test.ts` : ajuster les fixtures qui contiennent `mission_type` pour rester valides
-  - mock `navigator.geolocation` dans le setup test (`src/test/setup.ts`)
-
-## Permissions navigateur (PWA)
-
-La géolocalisation déclenche un prompt natif au premier appel. Pas de config supplémentaire nécessaire (HTTPS requis, déjà le cas en prod et preview Lovable). Sur refus, on continue sans bloquer.
-
-## Hors-scope
-
-- Pas de re-conception de la sidebar visites
-- Pas de modification de `MetaSchemaV2` (gardé stable pour ne pas re-trigger une migration v2→v3 du JSON state)
-- Pas de mise à jour des nomenclatures LLM (Lot B distinct)
-- Pas d'édition post-création de ces métadonnées dans cette itération (on les ajoutera plus tard dans `UnifiedVisitDrawer` si besoin)
+- **Pourquoi Nominatim et pas Mapbox** : pas de secret à demander à l'utilisateur, usage policy OK pour un cas ponctuel (1 req par création de visite). Si abus futur → on basculera sur Mapbox via une edge function.
+- **Pourquoi le geste utilisateur est nécessaire** : Chrome/Safari/Firefox dans une iframe cross-origin (cas de la preview Lovable) ignorent les appels Permissions/Geolocation issus de code asynchrone non lié à un input handler. Le clic explicite sur "Localiser" rétablit le contexte de gesture.
+- **Tests** : mettre à jour `NewVisitDialog.test.tsx` pour refléter le nouvel ordre DOM et le bouton "Localiser" (mock de `navigator.geolocation` déjà en place).
