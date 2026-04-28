@@ -16,7 +16,6 @@ import {
   Info,
   MessageSquareText,
   Palette,
-  Terminal,
   User,
   type LucideIcon,
 } from "lucide-react";
