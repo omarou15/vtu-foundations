@@ -457,14 +457,17 @@ Deno.serve(async (req) => {
     clearTimeout(timer);
 
     if (gw.status === 429) {
-      return errorResp(429, "rate_limited", "AI gateway rate limit");
+      return errorResp(429, "rate_limited", `${providerLabel} rate limit`);
     }
     if (gw.status === 402) {
-      return errorResp(402, "payment_required", "AI gateway credits exhausted");
+      return errorResp(402, "payment_required", `${providerLabel} credits exhausted`);
+    }
+    if (gw.status === 401 && useByok) {
+      return errorResp(401, "byok_invalid", "Clé OpenRouter invalide ou expirée. Vérifie-la dans Paramètres › IA.");
     }
     if (!gw.ok) {
       const txt = await gw.text().catch(() => "");
-      return errorResp(502, "provider_error", `AI gateway ${gw.status}: ${txt.slice(0, 200)}`);
+      return errorResp(502, "provider_error", `${providerLabel} ${gw.status}: ${txt.slice(0, 200)}`);
     }
 
     const json = await gw.json();
