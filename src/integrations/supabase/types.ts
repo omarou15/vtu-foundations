@@ -160,6 +160,7 @@ export type Database = {
           error_message: string | null
           id: string
           input_tokens: number | null
+          insert_entries_count: number
           latency_ms: number | null
           message_id: string | null
           mode: string
@@ -188,6 +189,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           input_tokens?: number | null
+          insert_entries_count?: number
           latency_ms?: number | null
           message_id?: string | null
           mode: string
@@ -216,6 +218,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           input_tokens?: number | null
+          insert_entries_count?: number
           latency_ms?: number | null
           message_id?: string | null
           mode?: string
