@@ -139,6 +139,7 @@ function VisitChatPage() {
     kind: import("@/shared/types").MessageKind;
     attachmentCount?: number;
     aiEnabled?: boolean;
+    aiRouteMode?: import("@/features/chat").AiRouteMode;
   }): Promise<{ id: string } | void> {
     if (!userId) {
       toast.error("Session expirée — veuillez vous reconnecter.");
@@ -156,6 +157,9 @@ function VisitChatPage() {
         metadata: {
           attachment_count: input.attachmentCount ?? 0,
           ai_enabled: input.aiEnabled ?? aiEnabled,
+          // Mode de routage IA manuel (remplace le router automatique).
+          // Ignoré côté engine pour les médias (kind ∈ photo/audio/document).
+          ai_route_mode: input.aiRouteMode ?? "json",
         },
       });
       return { id: message.id };
