@@ -439,12 +439,24 @@ Deno.serve(async (req) => {
       provider_request_id: json?.id ?? null,
     };
 
+    // request_summary : EXACTEMENT ce qui est parti sur le wire vers le LLM.
+    // Persisté dans `raw_request_summary` côté engine pour que l'inspecteur IA
+    // affiche fidèlement le contenu envoyé (system + history + user prompt).
+    const requestSummary = {
+      system_prompt: SYSTEM_UNIFIED,
+      history_messages: historyMessages,
+      user_prompt: userPrompt,
+      model: input.model,
+      mode: input.mode,
+    };
+
     return new Response(
       JSON.stringify({
         ok: true,
         result,
         meta,
         raw_response: json,
+        request_summary: requestSummary,
       }),
       {
         status: 200,
