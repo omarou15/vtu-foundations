@@ -1,212 +1,92 @@
-Je comprends le blocage : le toast affiché vient du fait que la proposition reste adressée en path positionnel (`heating.installations[0].type_value`). Même si l’apply a commencé à créer l’entrée, il reste encore des chemins de rejet et surtout la lecture/validation UI (`walkJsonPath`) ne sait pas relire ce format positionnel, donc la card classe le champ en `missing` et affiche “champ absent du JSON state”.
 
-Plan d’implémentation ciblé :
+## Réponse directe à ta question : pourquoi le JSON reste vide ?
 
-## 1. Durcir `apply-patches.ts` en “zéro rejet”
-
-Fichier :
-```text
-src/shared/llm/apply/apply-patches.ts
+D'après les logs Edge Function que je vois :
+```
+llm_raw_output {"patches_count":5,"insert_entries_count":1, ...}
 ```
 
-Changements :
-- Supprimer le type `ApplyPatchIgnoreReason`.
-- Garder la propriété `ignored` dans le résultat uniquement pour compatibilité, mais elle sera toujours `[]`.
-- Supprimer tous les retours fonctionnels de rejet :
-  - `path_not_found`
-  - `not_a_field`
-- Modifier la résolution de cible pour qu’elle retourne toujours un parent + key :
-  - Path UUID : `collection[id=...].field`
-    - crée/écrase les conteneurs intermédiaires si nécessaire,
-    - force la collection en array,
-    - crée l’entrée si l’id n’existe pas,
-    - pose le field.
-  - Path positionnel : `heating.installations[0].type_value`
-    - force `heating.installations` en array,
-    - si l’entrée indexée n’existe pas : crée un skeleton et l’ajoute,
-    - si l’entrée existe mais n’est pas un objet : la remplace par un skeleton,
-    - pose le field.
-  - Path objet simple : `building.wall_material_value` ou path inventé
-    - traverse les segments,
-    - si un conteneur manque ou est primitif/array : l’écrase par `{}`,
-    - pose un `Field<T>` neuf au leaf.
-- Si la cible existe mais n’est pas un `Field<T>`, l’écraser avec `aiInferField(...)` au lieu de rejeter.
+**Le LLM (Claude Sonnet 4.5 via OpenRouter) retourne bien des patches et 1 insert.** Il propose les bonnes choses (ECS ballon_electrique 150L, chauffage radiateur, VMC simple flux). Donc le bug n'est PAS côté LLM.
 
-Contrat final :
-```text
-patch reçu -> chemin créé/écrasé -> Field ai_infer/unvalidated posé -> ignored=[]
+Le bug est côté **apply layer** (couche `applyExtractResult` côté client). Et c'est exactement ce que l'autre app décrit dans sa réponse, mais inversé :
+
+### Diagnose précise (vs réponse de l'autre app)
+
+L'autre app dit "VTU n'a pas ce problème car markdown + sections fermées". **C'est faux pour la version actuelle de VTU**. VTU a depuis migré vers un modèle "champs structurés" (`heating.installations[]` avec `type_value`, `fuel_value`, `capacity_l`...) — exactement le modèle vulnérable décrit. Et les 3 garde-fous mentionnés ne sont pas tous en place :
+- ✅ Prompt directif (présent dans `system-unified.ts`)
+- ✅ `minProperties: 1` (présent dans `PROPOSE_VISIT_PATCHES_TOOL`)
+- ✅ Skip silencieux des inserts vides (`hasUsefulField` dans `applyInsertEntries`)
+
+Donc le bug n'est pas un insert vide. Il est ailleurs. Voici les 3 hypothèses précises basées sur le code :
+
+### Hypothèse #1 — État UI vs état persisté désynchronisés
+L'image montre "5 champs validés" + "1 entrée en attente" → donc `applyExtractResult` a bien tourné. La carte d'actions affiche le résultat. Mais le **viewer JSON brut** (image 16 = autre app, montrant un JSON rempli) compare un format d'**export** (`informations_techniques.enveloppe.groups.Mur[]`) à l'état interne VTU (`heating.installations[]`). Ce n'est pas le même schéma. Si tu regardes le panel JSON dans VTU lui-même (drawer JSON), il devrait être rempli. **À vérifier en premier.**
+
+### Hypothèse #2 — `appendJsonStateVersion` échoue silencieusement
+Dans `engine.llm.ts:561`, on appelle `appendJsonStateVersion` seulement si `applyOut.totalApplied > 0`. Si `applyOut.applied.length === 0` partout (collections inconnues du schemaMap, paths invalides...), aucune version n'est écrite. La carte d'actions affiche les `proposed_*` depuis le `metadata` du message, MAIS le state ne change pas → les patches montrent `status: "missing"` côté UI. La validation par bouton ✓ retourne alors "champ absent du JSON state".
+
+### Hypothèse #3 — Path mismatch entre LLM et schemaMap
+Le LLM émet `collection: "ecs.installations"` (vu dans le system prompt). Mais si le schemaMap dérive depuis le state initial qui n'a pas ces collections au top-level (peut-être nichées sous `informations_techniques.equipements_techniques.ecs.installations`), `applyInsertEntries` crée bien l'array (force-array), mais à un mauvais endroit, et la carte d'actions ne le retrouve plus pour le rendu.
+
+---
+
+## Plan correctif (3 étapes ordonnées, aucune refonte risquée tant qu'on n'a pas confirmé l'hypothèse)
+
+### Étape 1 — Instrumentation diagnostique (5 min, ZÉRO risque)
+
+Ajouter un `console.info` après `applyExtractResult` dans `engine.llm.ts:559` :
+
+```ts
+console.info("[apply-extract] result", {
+  llm_proposed: { patches: result.patches?.length, inserts: result.insert_entries?.length },
+  applied: { patches: applyOut.patches.applied.length, inserts: applyOut.insertEntries.applied.length },
+  total: applyOut.totalApplied,
+  state_keys_top: Object.keys(applyOut.state),
+  state_keys_heating: Object.keys((applyOut.state as any).heating ?? {}),
+  state_keys_ecs: Object.keys((applyOut.state as any).ecs ?? {}),
+  state_keys_ventilation: Object.keys((applyOut.state as any).ventilation ?? {}),
+  ecs_installations_count: ((applyOut.state as any).ecs?.installations ?? []).length,
+  heating_installations_count: ((applyOut.state as any).heating?.installations ?? []).length,
+  ventilation_installations_count: ((applyOut.state as any).ventilation?.installations ?? []).length,
+});
 ```
 
-## 2. Durcir `apply-insert-entries.ts` en “zéro rejet”
+Tu fais 1 essai, tu m'envoies la sortie console, et on sait exactement laquelle des 3 hypothèses est la bonne.
 
-Fichier :
-```text
-src/shared/llm/apply/apply-insert-entries.ts
-```
+### Étape 2 — Fix ciblé selon l'hypothèse confirmée
 
-Changements :
-- Supprimer le type `ApplyInsertIgnoreReason`.
-- Garder `ignored` dans le résultat pour compatibilité, mais toujours `[]`.
-- Remplacer `ensureArrayAtPath` par une version qui force le chemin :
-  - si un segment intermédiaire est absent, primitif ou array : remplacé par `{}`,
-  - si le dernier segment est absent, primitif ou objet : remplacé par `[]`,
-  - puis l’entrée est ajoutée.
-- Conserver les deux fixes déjà faits :
-  - dedup intra-call,
-  - `is_empty` quand aucune key non réservée n’est posée.
+**Si hyp. #1** (juste un malentendu UI) : pas de fix code, je t'explique où voir le JSON brut dans VTU (drawer JSON via le bouton "JSON" en haut).
 
-Contrat final :
-```text
-insert_entry reçu -> collection forcée en array -> entrée créée/mergée -> ignored=[]
-```
+**Si hyp. #2** (totalApplied = 0) : on log les `applied` détaillés, et probablement `applyPatches` rejette les paths. Fix dans `apply-patches.ts` (couche permissive comme dans `apply-insert-entries.ts`).
 
-## 3. Corriger la lecture/validation UI des paths positionnels
+**Si hyp. #3** (path mismatch) : on aligne soit le prompt (pour qu'il émette le bon path), soit le schemaMap (pour exposer les collections au bon niveau). Fix le moins invasif : ajouter un mapping de paths legacy dans `apply-insert-entries.ts`.
 
-Fichier :
-```text
-src/shared/llm/apply/path-utils.ts
-```
+### Étape 3 — Question précise à poser à l'autre app (si besoin)
 
-Pourquoi c’est nécessaire : la card lit le JSON courant avec `walkJsonPath`. Aujourd’hui, ce walker ne supporte que :
-- `building.wall_material_value`
-- `collection[id=...].field`
+Si après l'étape 2 on est encore bloqué :
 
-Il ne supporte pas :
-```text
-heating.installations[0].type_value
-```
+> "Vous mentionnez `vtFullV1Schema` validé par `exportVtFull` côté serveur. Pouvez-vous partager :
+> 1. Le shape exact de la collection ECS dans votre vt_schema_v1 (path absolu depuis la racine, type des items)
+> 2. Le code de `buildAgentEntry(content)` qui transforme le markdown en entrée typée — comment vous mappez le markdown libre vers les champs structurés `type_value`, `fuel_value`, etc. ?
+> 3. Comment l'IA différencie un message « ECS électrique 150L » d'un message « ECS thermodynamique 200L » si elle ne propose qu'un bloc markdown libre ? Y a-t-il un parser regex côté serveur, ou le LLM est-il rappelé pour structurer le markdown ?"
 
-Donc même si `apply-patches.ts` a bien écrit dans `heating.installations[0].type_value`, la card peut encore dire “champ absent”.
+Cette question est utile UNIQUEMENT si on confirme que VTU doit migrer vers le modèle "markdown + post-parse serveur" (gros refactor). À ne déclencher qu'après l'étape 1.
 
-Changements :
-- Ajouter un parseur positionnel partagé :
-```text
-collection[N].field
-```
-- `walkJsonPath` résoudra aussi ce format :
-  - trouve la collection,
-  - lit l’entrée à l’index,
-  - retourne `{ parent: entry, key: field }`.
-- `validateFieldPatch` et `rejectFieldPatch` fonctionneront alors sur les patches positionnels déjà écrits.
+---
 
-Contrat final :
-```text
-Card -> readField(positionnel) trouve le Field -> status unvalidated -> clic ✓ valide sans toast
-```
+## Détails techniques (section pour Lovable / dev)
 
-## 4. Éviter les doublons d’entrées dans le scénario PAC Hitachi
+**Fichiers à modifier en étape 1 :**
+- `src/shared/sync/engine.llm.ts` ligne 559 → ajouter le console.info ci-dessus.
 
-Cas concret :
-```text
-patches:
-  heating.installations[0].brand = Hitachi
-  heating.installations[0].type_value = pompe_a_chaleur_air_eau
-```
+**Fichiers à inspecter en étape 2 (selon hypothèse) :**
+- `src/shared/llm/apply/apply-patches.ts` (rejet des paths)
+- `src/shared/types/json-state.schema-map.ts` (déclaration des collections)
+- `src/shared/types/json-state.ts` (shape du state initial — ligne 83-85 : heating/ecs/ventilation au top-level confirmé)
 
-Résultat attendu après apply :
-```text
-heating.installations = [
-  {
-    id: "...",
-    brand: Field(value="Hitachi", source="ai_infer", validation_status="unvalidated"),
-    type_value: Field(value="pompe_a_chaleur_air_eau", source="ai_infer", validation_status="unvalidated"),
-    ...skeleton fields
-  }
-]
-```
+**Pourquoi je ne propose pas de tout réécrire tout de suite :**
+- L'architecture VTU actuelle (champs structurés + 3 verbes + apply permissif) est cohérente et a déjà les 3 garde-fous mentionnés par l'autre app.
+- Migrer vers le modèle "markdown + sections fermées" = 2-3 jours de refactor + perte de la granularité validation par champ (qui est ce que tu vois fonctionner sur l'image avec "Validé" par champ).
+- Le bug est très probablement ponctuel (apply layer ou path), pas architectural.
 
-Le deuxième patch doit utiliser l’entrée créée par le premier patch, pas créer une entrée vide séparée.
-
-## 5. Nettoyer les métadonnées de sortie côté engine
-
-Fichier :
-```text
-src/shared/sync/engine.llm.ts
-```
-
-Changements :
-- Laisser `ignored_paths` et `ignored_inserts` pour compatibilité/debug, mais ils seront toujours vides sur les nouveaux appels.
-- Mettre à jour les commentaires obsolètes qui parlent encore de bugs structurels ignorés.
-
-## 6. Mettre à jour les commentaires/types obsolètes
-
-Fichiers ciblés :
-```text
-src/shared/llm/types.ts
-src/shared/types/json-state.schema-map.ts
-src/shared/llm/apply/apply-extract-result.ts
-src/shared/llm/apply/path-utils.ts
-```
-
-Changements :
-- Retirer les commentaires disant que les paths positionnels sont rejetés.
-- Clarifier que l’apply layer est permissif total : il matérialise, l’utilisateur arbitre ensuite.
-
-## 7. Tests Vitest à réécrire/ajouter
-
-Fichier :
-```text
-src/shared/llm/__tests__/apply-patches.test.ts
-```
-
-Tests :
-- `heating.installations[0].brand` + `heating.installations[0].type_value` sur array vide :
-  - `ignored=[]`,
-  - une seule entrée heating,
-  - les deux fields sont posés.
-- Path objet qui traverse un primitif :
-  - le primitif est écrasé par `{}`,
-  - le field est posé,
-  - `ignored=[]`.
-- Cible existante non-Field :
-  - écrasée par un Field neuf,
-  - `ignored=[]`.
-- Path inconnu profond :
-  - auto-vivify complète,
-  - `ignored=[]`.
-
-Fichier :
-```text
-src/shared/llm/__tests__/apply-insert-entries.test.ts
-```
-
-Tests :
-- Collection path qui traverse un primitif :
-  - écrase le primitif,
-  - crée l’array,
-  - ajoute l’entrée,
-  - `ignored=[]`.
-- Dedup intra-call conservé : 3 variantes PAC -> 1 seule entrée mergée.
-- Entrée vide conservée avec `is_empty: true`.
-
-Fichier :
-```text
-src/shared/llm/__tests__/apply-extract-result.test.ts
-```
-
-Tests :
-- Scénario PAC Hitachi complet via orchestrateur :
-  - deux patches positionnels,
-  - une seule entrée,
-  - `brand` + `type_value`,
-  - `patches.ignored=[]`,
-  - `insertEntries.ignored=[]`.
-
-Fichier possible si déjà cohérent avec les patterns :
-```text
-src/shared/llm/__tests__/path-utils.test.ts
-```
-
-Test :
-- `walkJsonPath(state, "heating.installations[0].type_value")` retrouve bien le field après apply.
-
-## Validation attendue après implémentation
-
-- Scénario PAC Hitachi : la card ne doit plus afficher “champ absent du JSON state”.
-- `heating.installations` doit contenir une seule entrée pleine avec :
-  - `brand=Hitachi`,
-  - `type_value=pompe_a_chaleur_air_eau`.
-- Clic ✓ sur “Chauffage · Type” doit valider sans erreur.
-- Inspecteur IA bloc 1 : `ignored_paths=[]` et `ignored_inserts=[]` pour les nouveaux appels.
-- Le toggle Conv/JSON et `ai_route_mode` ne sont pas touchés.
-- La fonction IA distante n’est pas touchée.
+**Pas de changement Edge Function dans ce plan** — le LLM fait son boulot, les logs le confirment.
