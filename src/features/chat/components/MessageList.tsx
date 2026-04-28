@@ -4,7 +4,6 @@ import { Sparkles } from "lucide-react";
 import { getDb, listLocalMessagesByVisit, type LocalMessage } from "@/shared/db";
 import { formatRelative } from "../lib/relativeTime";
 import { PendingActionsCard } from "./PendingActionsCard";
-import { ConflictCard } from "./ConflictCard";
 import { MessageAttachments } from "./MessageAttachments";
 
 interface MessageListProps {
@@ -81,19 +80,15 @@ export function MessageList({ visitId, userId }: MessageListProps) {
             m.kind === "document",
           )
           .map((m) => {
-            if (m.kind === "actions_card" && m.role === "assistant") {
+            // Refonte avril 2026 — Plus de ConflictCard. Toute proposition
+            // (y compris les anciens "conflict_card" historiques) est rendue
+            // via la PendingActionsCard unifiée. Le user arbitre depuis là.
+            if (
+              (m.kind === "actions_card" || m.kind === "conflict_card") &&
+              m.role === "assistant"
+            ) {
               return (
                 <PendingActionsCard
-                  key={m.id}
-                  message={m}
-                  userId={userId}
-                  visitId={visitId}
-                />
-              );
-            }
-            if (m.kind === "conflict_card" && m.role === "assistant") {
-              return (
-                <ConflictCard
                   key={m.id}
                   message={m}
                   userId={userId}
