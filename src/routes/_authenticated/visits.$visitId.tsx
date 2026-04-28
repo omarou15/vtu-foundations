@@ -24,7 +24,7 @@ import {
   STATUS_BADGE_CLASS,
   STATUS_LABEL,
 } from "@/features/visits/lib/icons";
-import { ChatInputBar, MessageList, VisitAttachmentSyncStatus, useChatStore } from "@/features/chat";
+import { ChatInputBar, MessageList, VisitAttachmentSyncStatus, useChatStore, type AiRouteMode } from "@/features/chat";
 import { countUnvalidatedAiFields } from "@/features/json-state/lib/inspect";
 import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
 import { VisitDebugPanel } from "@/features/debug/VisitDebugPanel";
@@ -52,6 +52,8 @@ function VisitChatPage() {
   const aiEnabled = useChatStore((s) => s.isAiEnabled(visitId));
   const aiGlobalEnabled = useChatStore((s) => s.aiGlobalEnabled);
   const setAiEnabled = useChatStore((s) => s.setAiEnabled);
+  const aiRouteMode = useChatStore((s) => s.getRouteMode(visitId));
+  const setRouteMode = useChatStore((s) => s.setRouteMode);
   const isOnline = useConnectionStore((s) => s.isOnline);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
