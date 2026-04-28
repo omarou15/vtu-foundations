@@ -27,6 +27,7 @@ import {
 import { ChatInputBar, MessageList, VisitAttachmentSyncStatus, useChatStore } from "@/features/chat";
 import { countUnvalidatedAiFields } from "@/features/json-state/lib/inspect";
 import { findActiveConflicts } from "@/features/json-state/lib/conflicts";
+import { VisitDebugPanel } from "@/features/debug/VisitDebugPanel";
 
 /**
  * Itération 5 — écran chat d'une visite (zones 20/60/20).
@@ -332,6 +333,8 @@ function VisitChatPage() {
         initialTab={drawerInitialTab}
         jsonInitialMode={jsonInitialMode}
       />
+
+      <VisitDebugPanel visitId={visit.id} />
     </div>
   );
 }

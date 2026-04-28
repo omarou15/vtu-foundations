@@ -41,6 +41,7 @@ interface Counts {
   inFlight: number;
   failed: number;
   aiDisabled: number;
+  aiFailed: number;
 }
 
 const EMPTY: Counts = {
@@ -51,6 +52,7 @@ const EMPTY: Counts = {
   inFlight: 0,
   failed: 0,
   aiDisabled: 0,
+  aiFailed: 0,
 };
 
 export function VisitAttachmentSyncStatus({
@@ -97,6 +99,30 @@ export function VisitAttachmentSyncStatus({
         .toArray();
       const analyzedIds = new Set(descriptions.map((d) => d.attachment_id));
 
+      // PR4 §5 — IA en échec terminal (rate_limited / payment_required / malformed / failed)
+      const visibleIds = visibleAttachments.map((a) => a.id);
+      const extractions = visibleIds.length
+        ? await db.llm_extractions
+            .where("attachment_id")
+            .anyOf(visibleIds)
+            .toArray()
+        : [];
+      const failedAiIds = new Set<string>();
+      for (const att of visibleAttachments) {
+        if (analyzedIds.has(att.id)) continue;
+        const last = extractions
+          .filter((e) => e.attachment_id === att.id && e.mode === "describe_media")
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+        if (
+          last &&
+          (last.status === "failed" ||
+            last.status === "rate_limited" ||
+            last.status === "malformed")
+        ) {
+          failedAiIds.add(att.id);
+        }
+      }
+
       const aiOffMsgIds = new Set(
         messages
           .filter(
@@ -115,6 +141,8 @@ export function VisitAttachmentSyncStatus({
           let ai: AttachmentBusinessStatus["ai"];
           if (analyzedIds.has(a.id)) {
             ai = "done";
+          } else if (failedAiIds.has(a.id)) {
+            ai = "failed";
           } else if (a.message_id && aiOffMsgIds.has(a.message_id)) {
             ai = "disabled_when_sent";
           } else if (a.sync_status === "synced") {
@@ -133,6 +161,7 @@ export function VisitAttachmentSyncStatus({
       const aiDisabled = businessStatuses.filter(
         (s) => s.ai === "disabled_when_sent",
       ).length;
+      const aiFailed = businessStatuses.filter((s) => s.ai === "failed").length;
       const inFlight = visibleAttachments.filter(
         (a) => a.sync_status === "pending" || a.sync_status === "syncing",
       ).length + submitted.filter(
@@ -150,6 +179,7 @@ export function VisitAttachmentSyncStatus({
         inFlight,
         failed,
         aiDisabled,
+        aiFailed,
       };
     },
     [visitId],
@@ -171,6 +201,7 @@ export function VisitAttachmentSyncStatus({
     counts.uploaded === stableTotal &&
     counts.analyzed === stableTotal &&
     counts.failed === 0 &&
+    counts.aiFailed === 0 &&
     counts.inFlight === 0;
 
   return (
@@ -208,7 +239,14 @@ export function VisitAttachmentSyncStatus({
       {counts.failed > 0 ? (
         <span className="text-destructive inline-flex items-center gap-1">
           <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-          {counts.failed} échec{counts.failed > 1 ? "s" : ""}
+          {counts.failed} upload échoué{counts.failed > 1 ? "s" : ""}
+        </span>
+      ) : null}
+
+      {counts.aiFailed > 0 ? (
+        <span className="text-destructive inline-flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+          {counts.aiFailed} analyse{counts.aiFailed > 1 ? "s" : ""} IA en échec
         </span>
       ) : null}
 
