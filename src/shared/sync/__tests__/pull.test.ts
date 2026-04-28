@@ -255,10 +255,10 @@ describe("pullMessagesForVisit — lazy par VT", () => {
       ],
     });
 
-    const n = await pullMessagesForVisit(supabase as unknown as Parameters<typeof pullMessagesForVisit>[0], VISIT_1, {
+    const r = await pullMessagesForVisit(supabase as unknown as Parameters<typeof pullMessagesForVisit>[0], VISIT_1, {
       sinceIso: null,
     });
-    expect(n).toBe(1);
+    expect(r.count).toBe(1);
 
     const q = queries.find((qq) => qq.table === "messages")!;
     expect(q.filters.find((f) => f.op === "gt")).toBeUndefined();
