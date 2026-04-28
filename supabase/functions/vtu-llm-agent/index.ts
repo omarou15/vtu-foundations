@@ -521,3 +521,113 @@ function errorResp(status: number, code: string, message: string): Response {
     },
   );
 }
+
+// ---------------------------------------------------------------------------
+// It. 11.6 hardening — coalesce des patches positionnels en insert_entries
+// ---------------------------------------------------------------------------
+// Le LLM (Gemini Flash) confond souvent `insert_entry` avec une série de
+// patches `<collection>[N].<field>`. L'apply layer rejette ces patches
+// (`positional_index_forbidden`) avec une UX cassée. On normalise ici :
+// si plusieurs patches ciblent la même `<collection>[N]` ET que `collection`
+// est connue de `schema_map.collections`, on les regroupe en 1 insert_entry.
+// Les patches restants (path positionnel sur collection inconnue, ou patch
+// d'object_field plat) sont conservés tels quels — l'apply layer décidera.
+// ---------------------------------------------------------------------------
+
+interface RawPatch {
+  path?: unknown;
+  value?: unknown;
+  confidence?: unknown;
+  evidence_refs?: unknown;
+}
+
+interface RawInsert {
+  collection?: unknown;
+  fields?: unknown;
+  confidence?: unknown;
+  evidence_refs?: unknown;
+}
+
+const POSITIONAL_RE = /^([a-z0-9_.]+)\[(\d+)\]\.([a-z0-9_]+)$/;
+
+function coalescePositionalPatches(
+  rawPatches: unknown[],
+  rawInserts: unknown[],
+  knownCollections: Set<string>,
+): {
+  patches: RawPatch[];
+  insertEntries: RawInsert[];
+  coalescedWarnings: string[];
+} {
+  const keptPatches: RawPatch[] = [];
+  const insertEntries: RawInsert[] = rawInserts.filter(
+    (e): e is RawInsert => !!e && typeof e === "object",
+  );
+  const coalescedWarnings: string[] = [];
+
+  // Bucket : "<collection>#<index>" → { collection, fields, confidences[], evidence[] }
+  const buckets = new Map<
+    string,
+    {
+      collection: string;
+      fields: Record<string, unknown>;
+      confidences: string[];
+      evidence: string[];
+    }
+  >();
+
+  for (const raw of rawPatches) {
+    if (!raw || typeof raw !== "object") continue;
+    const p = raw as RawPatch;
+    const path = typeof p.path === "string" ? p.path : "";
+    const m = path.match(POSITIONAL_RE);
+
+    if (!m || !knownCollections.has(m[1])) {
+      // Pas une expression positionnelle sur collection connue → on garde
+      // tel quel (l'apply layer décidera).
+      keptPatches.push(p);
+      continue;
+    }
+
+    const [, collection, indexStr, field] = m;
+    const key = `${collection}#${indexStr}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        collection,
+        fields: {},
+        confidences: [],
+        evidence: [],
+      };
+      buckets.set(key, bucket);
+    }
+    bucket.fields[field] = p.value;
+    if (typeof p.confidence === "string") bucket.confidences.push(p.confidence);
+    if (Array.isArray(p.evidence_refs)) {
+      for (const r of p.evidence_refs) {
+        if (typeof r === "string") bucket.evidence.push(r);
+      }
+    }
+  }
+
+  for (const bucket of buckets.values()) {
+    insertEntries.push({
+      collection: bucket.collection,
+      fields: bucket.fields,
+      confidence: pickHighestConfidence(bucket.confidences),
+      evidence_refs: Array.from(new Set(bucket.evidence)),
+    });
+    coalescedWarnings.push(
+      `Patches positionnels regroupés en insert_entry sur "${bucket.collection}" (${Object.keys(bucket.fields).length} champs).`,
+    );
+  }
+
+  return { patches: keptPatches, insertEntries, coalescedWarnings };
+}
+
+function pickHighestConfidence(values: string[]): string {
+  if (values.includes("high")) return "high";
+  if (values.includes("medium")) return "medium";
+  if (values.includes("low")) return "low";
+  return "medium";
+}
