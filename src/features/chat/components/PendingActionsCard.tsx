@@ -177,8 +177,15 @@ function PatchRowItem({
         path: row.path,
         sourceMessageId: messageId,
       });
-      if (r.status === "noop" && r.reason !== "already_validated") {
-        toast.error("Validation impossible", { description: r.reason });
+      if (r.status === "noop") {
+        if (r.reason === "already_validated") return;
+        // Diagnostic visible plutôt que silencieux : path absent du JSON state,
+        // pas un Field<T>, etc. — sans ça le bouton "ne fait rien" pour l'user.
+        // eslint-disable-next-line no-console
+        console.warn("[PendingActionsCard] validate noop", { path: row.path, reason: r.reason });
+        toast.error("Validation impossible", {
+          description: `${labelHint(row.path)} — ${r.reason}`,
+        });
       }
     } catch (err) {
       toast.error("Validation échouée", {
@@ -199,8 +206,13 @@ function PatchRowItem({
         path: row.path,
         sourceMessageId: messageId,
       });
-      if (r.status === "noop" && r.reason !== "already_rejected") {
-        toast.error("Rejet impossible", { description: r.reason });
+      if (r.status === "noop") {
+        if (r.reason === "already_rejected") return;
+        // eslint-disable-next-line no-console
+        console.warn("[PendingActionsCard] reject noop", { path: row.path, reason: r.reason });
+        toast.error("Rejet impossible", {
+          description: `${labelHint(row.path)} — ${r.reason}`,
+        });
       }
     } catch (err) {
       toast.error("Rejet échoué", {
