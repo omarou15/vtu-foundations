@@ -247,7 +247,7 @@ async function processEntry(
     );
     return "ok";
   } catch (err) {
-    return await scheduleRetryOrFail(entry, err);
+    return await (isLlmOp ? scheduleRetryOrFailLlm(entry, err) : scheduleRetryOrFail(entry, err));
   }
 }
 
