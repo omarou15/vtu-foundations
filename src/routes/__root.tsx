@@ -4,6 +4,7 @@ import { Toaster, toast } from "sonner";
 
 import appCss from "../styles.css?url";
 import { useAuth, setOnSessionExpired } from "@/features/auth";
+import { ChunkReloadGuard } from "@/shared/ui/ChunkReloadGuard";
 
 function NotFoundComponent() {
   return (
@@ -102,6 +103,7 @@ function RootComponent() {
 
   return (
     <>
+      <ChunkReloadGuard />
       <Outlet />
       <Toaster position="top-center" richColors closeButton />
     </>
