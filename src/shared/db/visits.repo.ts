@@ -137,11 +137,12 @@ export async function createLocalVisit(
 /** Liste les visites d'un user, plus récentes en premier. */
 export async function listLocalVisitsByUser(userId: string): Promise<LocalVisit[]> {
   const db = getDb();
-  return db.visits
+  const visits = await db.visits
     .where("[user_id+updated_at]")
     .between([userId, ""], [userId, "\uffff"])
     .reverse()
     .toArray();
+  return visits.filter((visit) => visit.status !== "archived");
 }
 
 export async function getLocalVisit(id: string): Promise<LocalVisit | undefined> {
