@@ -165,12 +165,26 @@ function PatchRowItem({
 
   const isValidated = row.status === "validated";
   const isRejected = row.status === "rejected";
+  const isMissing = row.status === "missing";
   const isPending = row.status === "unvalidated";
+  // On laisse cliquer même en "missing" pour surfacer un toast diagnostic
+  // au lieu d'avoir des boutons silencieusement no-op.
+  const isClickable = isPending || isMissing;
 
   const onApply = async () => {
-    if (busy || !isPending) return;
+    if (busy || !isClickable) return;
     setBusy(true);
     try {
+      if (isMissing) {
+        // eslint-disable-next-line no-console
+        console.warn("[PendingActionsCard] validate skipped: path missing in JSON state", {
+          path: row.path,
+        });
+        toast.error("Validation impossible", {
+          description: `${labelHint(row.path)} — champ absent du JSON state (path "${row.path}")`,
+        });
+        return;
+      }
       const r = await validateFieldPatch({
         userId,
         visitId,
@@ -179,8 +193,6 @@ function PatchRowItem({
       });
       if (r.status === "noop") {
         if (r.reason === "already_validated") return;
-        // Diagnostic visible plutôt que silencieux : path absent du JSON state,
-        // pas un Field<T>, etc. — sans ça le bouton "ne fait rien" pour l'user.
         // eslint-disable-next-line no-console
         console.warn("[PendingActionsCard] validate noop", { path: row.path, reason: r.reason });
         toast.error("Validation impossible", {
@@ -197,9 +209,19 @@ function PatchRowItem({
   };
 
   const onIgnore = async () => {
-    if (busy || !isPending) return;
+    if (busy || !isClickable) return;
     setBusy(true);
     try {
+      if (isMissing) {
+        // eslint-disable-next-line no-console
+        console.warn("[PendingActionsCard] reject skipped: path missing in JSON state", {
+          path: row.path,
+        });
+        toast.error("Rejet impossible", {
+          description: `${labelHint(row.path)} — champ absent du JSON state (path "${row.path}")`,
+        });
+        return;
+      }
       const r = await rejectFieldPatch({
         userId,
         visitId,
